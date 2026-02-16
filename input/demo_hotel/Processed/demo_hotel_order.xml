@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Демонстрационный XML-файл для поставщика отелей.
+  Используется для проверки работы DemoHotelParser.
+-->
+<hotel_order>
+    <order id="HTL-20260001" date="2026-02-16 10:00:00" client="CLIENT-001"/>
+    <booking 
+        hotel="Отель Космос"
+        room="DBL"
+        checkin="2026-03-01 14:00:00"
+        checkout="2026-03-05 12:00:00"
+        guests="2"
+        rate="8500"
+        total="34000"
+        currency="RUB"
+        traveller="ИВАНОВ ПЁТР СЕРГЕЕВИЧ"
+        supplier="demo_supplier"
+        status="продажа"
+    />
+</hotel_order>
