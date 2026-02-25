@@ -23,6 +23,7 @@
 // Подключаем все необходимые компоненты системы
 require_once __DIR__ . '/Logger.php';
 require_once __DIR__ . '/ParserManager.php';
+require_once __DIR__ . '/ApiSender.php';
 
 class Processor
 {
@@ -40,6 +41,9 @@ class Processor
 
     /** @var ParserManager Менеджер парсеров */
     private $parserManager;
+
+    /** @var ApiSender Отправщик заказов в API 1С */
+    private $apiSender;
 
     /**
      * Создание обработчика.
@@ -62,6 +66,12 @@ class Processor
         if (!is_dir($this->outputDir)) {
             mkdir($this->outputDir, 0755, true);
         }
+
+        // Инициализируем отправщик в API 1С
+        $settings = $this->loadSettings();
+        $apiConfig = isset($settings['api']) ? $settings['api'] : array();
+        $apiLogFile = dirname($this->configFile) . '/../logs/api_send.log';
+        $this->apiSender = new ApiSender($apiConfig, $apiLogFile);
     }
 
     /**
@@ -162,6 +172,21 @@ class Processor
                         "Файл {$fileName} успешно обработан -> JSON: {$jsonFileName}"
                     );
                     $totalProcessed++;
+
+                    // Отправляем заказ в API 1С (ПОСЛЕ сохранения JSON и перемещения XML)
+                    // Ошибка отправки НЕ влияет на обработку файла
+                    try {
+                        $apiResult = $this->apiSender->send($orderData, $jsonFileName, $fileName);
+                        if ($apiResult['success']) {
+                            $this->logger->info("API 1С: {$apiResult['message']}");
+                        } else {
+                            $this->logger->warning("API 1С: {$apiResult['message']}");
+                        }
+                    } catch (Exception $apiEx) {
+                        $this->logger->warning(
+                            "API 1С: исключение при отправке {$jsonFileName}: " . $apiEx->getMessage()
+                        );
+                    }
 
                 } catch (Exception $e) {
                     // Если произошла ошибка — перемещаем файл в папку Error
