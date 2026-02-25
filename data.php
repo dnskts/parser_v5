@@ -336,13 +336,16 @@ function formatAgent($agent)
     <!-- ============================================ -->
     <main class="main main--wide">
         <section class="panel">
-            <div class="panel__title-row">
+        <div class="panel__title-row">
                 <h2 class="panel__title panel__title--inline">
                     Данные из JSON-файлов
                 </h2>
                 <span class="panel__count">
                     Найдено записей: <?php echo count($rows); ?>
                 </span>
+                <?php if (!empty($rows)): ?>
+                    <button onclick="document.querySelector('.data-table tbody').innerHTML=''; this.style.display='none'" style="margin-left:15px; padding:4px 12px; cursor:pointer">Очистить таблицу</button>
+                <?php endif; ?>
             </div>
 
             <?php if (empty($rows)): ?>
@@ -358,6 +361,7 @@ function formatAgent($agent)
                     <table class="data-table">
                         <thead>
                             <tr>
+                                <th class="data-table__th" style="width:40px"></th>
                                 <th class="data-table__th">#</th>
                                 <th class="data-table__th">Файл</th>
                                 <th class="data-table__th">Номер заказа</th>
@@ -411,7 +415,10 @@ function formatAgent($agent)
                         <tbody>
                             <?php foreach ($rows as $i => $row): ?>
                                 <tr class="data-table__row">
-                                    <td class="data-table__td data-table__td--num"><?php echo $i + 1; ?></td>
+                                <td class="data-table__td" style="text-align:center">
+    <button class="btn-resend" title="Отправить повторно в API 1С" onclick="resendJson('<?php echo htmlspecialchars($row['file'], ENT_QUOTES); ?>', this)">🔄</button>
+</td>
+                                <td class="data-table__td data-table__td--num"><?php echo $i + 1; ?></td>
                                     <td class="data-table__td data-table__td--file" title="<?php echo htmlspecialchars($row['file']); ?>">
                                         <?php echo htmlspecialchars($row['file']); ?>
                                     </td>
@@ -489,5 +496,39 @@ function formatAgent($agent)
     <footer class="footer">
         <p>XML Parser v5 — Система обработки файлов поставщиков</p>
     </footer>
+    <script>
+function resendJson(fileName, btn) {
+    if (!confirm('Отправить ' + fileName + ' повторно в API 1С?')) return;
+
+    btn.disabled = true;
+    btn.textContent = '⏳';
+
+    fetch('api.php?action=resend', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file: fileName})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'ok') {
+            btn.textContent = '✅';
+            btn.title = data.message;
+        } else {
+            btn.textContent = '❌';
+            btn.title = data.message;
+            alert('Ошибка: ' + data.message);
+        }
+    })
+    .catch(function(err) {
+        btn.textContent = '❌';
+        btn.title = 'Ошибка сети';
+        alert('Ошибка сети: ' + err);
+    })
+    .finally(function() {
+        btn.disabled = false;
+        setTimeout(function() { btn.textContent = '🔄'; }, 5000);
+    });
+}
+</script>
 </body>
 </html>

@@ -359,6 +359,14 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSettings();
     loadLogs();
 
-    // Запускаем автоматическое обновление логов каждые 3 секунды
-    logsTimer = setInterval(loadLogs, 3000);
+        // Запускаем автоматическое обновление логов каждые 3 секунды
+        logsTimer = setInterval(loadLogs, 3000);
+
+        // Пауза обновления при наведении мыши (чтобы можно было скопировать текст)
+        logsContainer.addEventListener('mouseenter', function() {
+            clearInterval(logsTimer);
+        });
+        logsContainer.addEventListener('mouseleave', function() {
+            logsTimer = setInterval(loadLogs, 3000);
+        });
 });

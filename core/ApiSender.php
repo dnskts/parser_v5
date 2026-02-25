@@ -19,7 +19,31 @@ class ApiSender
             mkdir($logDir, 0755, true);
         }
     }
-
+    public function isAvailable()
+    {
+        $enabled = isset($this->config['enabled']) ? (bool)$this->config['enabled'] : false;
+        $url = isset($this->config['url']) ? $this->config['url'] : '';
+    
+        if (!$enabled || empty($url)) {
+            return false;
+        }
+    
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL            => rtrim($url, '/'),
+            CURLOPT_NOBODY         => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_TIMEOUT        => 3,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false
+        ));
+        curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    
+        return $httpCode > 0;
+    }
     /**
      * Отправляет JSON заказа в API 1С.
      * Перед отправкой удаляет служебные поля SOURCE_FILE и PARSED_AT.

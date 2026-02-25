@@ -114,6 +114,11 @@ class Processor
                 'total' => 0
             );
         }
+        
+        $apiAvailable = $this->apiSender->isAvailable();
+        if (!$apiAvailable) {
+            $this->logger->info('API 1С недоступен — отправка пропущена');
+        }
 
         // Обходим папку каждого поставщика
         foreach ($folders as $folder) {
@@ -175,6 +180,7 @@ class Processor
 
                     // Отправляем заказ в API 1С (ПОСЛЕ сохранения JSON и перемещения XML)
                     // Ошибка отправки НЕ влияет на обработку файла
+                    if ($apiAvailable) {
                     try {
                         $apiResult = $this->apiSender->send($orderData, $jsonFileName, $fileName);
                         if ($apiResult['success']) {
@@ -187,7 +193,7 @@ class Processor
                             "API 1С: исключение при отправке {$jsonFileName}: " . $apiEx->getMessage()
                         );
                     }
-
+                }
                 } catch (Exception $e) {
                     // Если произошла ошибка — перемещаем файл в папку Error
                     $this->logger->error(

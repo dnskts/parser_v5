@@ -182,7 +182,43 @@ switch ($action) {
             'message' => 'Логи очищены'
         ), JSON_UNESCAPED_UNICODE);
         break;
+// Повторная отправка JSON в API 1С
+if ($action === 'resend') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $jsonFile = isset($input['file']) ? $input['file'] : '';
 
+    if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
+        echo json_encode(array('status' => 'error', 'message' => 'Некорректное имя файла'));
+        exit;
+    }
+
+    $jsonPath = BASE_DIR . '/json/' . $jsonFile;
+    if (!file_exists($jsonPath)) {
+        echo json_encode(array('status' => 'error', 'message' => 'Файл не найден: ' . $jsonFile));
+        exit;
+    }
+
+    $orderData = json_decode(file_get_contents($jsonPath), true);
+    if (!is_array($orderData)) {
+        echo json_encode(array('status' => 'error', 'message' => 'Невалидный JSON'));
+        exit;
+    }
+
+    require_once BASE_DIR . '/core/ApiSender.php';
+    $settings = json_decode(file_get_contents(BASE_DIR . '/config/settings.json'), true);
+    $apiConfig = isset($settings['api']) ? $settings['api'] : array();
+    $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log');
+
+    $sourceXml = isset($orderData['SOURCE_FILE']) ? $orderData['SOURCE_FILE'] : '';
+    $result = $apiSender->send($orderData, $jsonFile, $sourceXml);
+
+    echo json_encode(array(
+        'status' => $result['success'] ? 'ok' : 'error',
+        'message' => $result['message'],
+        'http_code' => $result['http_code']
+    ), JSON_UNESCAPED_UNICODE);
+    exit;
+}
     /**
      * НЕИЗВЕСТНОЕ ДЕЙСТВИЕ
      */

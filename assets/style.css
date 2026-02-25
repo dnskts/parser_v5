@@ -58,6 +58,23 @@ body {
     gap: 24px;
 }
 
+.btn-resend {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    transition: background 0.2s;
+}
+.btn-resend:hover {
+    background: #e8f4fd;
+}
+.btn-resend:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
 .header__title {
     font-size: 28px;
     font-weight: 700;
