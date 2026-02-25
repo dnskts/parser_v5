@@ -251,11 +251,16 @@ class MoyAgentParser implements ParserInterface
                     'COMMISSIONS' => $commissions
                 );
 
-                // Если статус "возврат" — добавляем блок REFUND
+                // Если статус "возврат" — добавляем блок REFUND.
+                // ВАЖНО: XML-формат "Мой агент" не содержит отдельных полей для
+                // суммы возврата, штрафов и сборов за возврат. Поэтому используются
+                // приближённые значения: полная стоимость (fare + taxes) в качестве
+                // суммы возврата, нулевые штрафы и сборы. При необходимости эти данные
+                // могут быть дополнены вручную или из другого источника.
                 if ($status === 'возврат') {
                     $productData['REFUND'] = array(
-                        'DATA' => $issueDate,
-                        'AMOUNT' => $totalAmount,
+                        'DATA' => $issueDate, // Дата операции возврата (из tkt_date документа RFND)
+                        'AMOUNT' => $totalAmount, // Полная стоимость (fare + taxes) — как приближение
                         'EQUIVALENT_AMOUNT' => $totalAmount,
                         'FEE_CLIENT' => 0,
                         'FEE_VENDOR' => 0,
@@ -282,6 +287,8 @@ class MoyAgentParser implements ParserInterface
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA' => $this->formatDateTime($orderTime),
             'CLIENT' => $clientCode,
+            'SOURCE_FILE' => basename($xmlFilePath),
+            'PARSED_AT' => date('Y-m-d H:i:s'),
             'PRODUCTS' => $products
         );
 
@@ -431,7 +438,7 @@ class MoyAgentParser implements ParserInterface
         // Первая такса — это всегда тариф (основная стоимость билета)
         $fare = (float)(string)$airTicket['fare'];
         $taxes[] = array(
-            'CODE'              => 'Тариф',
+            'CODE'              => '',
             'AMOUNT'            => $fare,
             'EQUIVALENT_AMOUNT' => $fare,
             'VAT_RATE'          => 0,
@@ -479,7 +486,7 @@ class MoyAgentParser implements ParserInterface
         if ($serviceFee > 0) {
             $commissions[] = array(
                 'TYPE'              => 'CLIENT',
-                'NAME'              => 'сбор поставщика',
+                'NAME'              => 'Сбор поставщика',
                 'AMOUNT'            => $serviceFee,
                 'EQUIVALENT_AMOUNT' => $serviceFee,
                 'RATE'              => null
