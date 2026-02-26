@@ -326,6 +326,7 @@ function formatAgent($agent)
                     <a href="index.php" class="nav__link">Панель управления</a>
                     <a href="data.php" class="nav__link nav__link--active">Обработанные заказы</a>
                     <a href="api_logs.php" class="nav__link">Логи API</a>
+                    <a href="test.php" class="nav__link">Тесты</a>
                 </nav>
             </div>
         </div>

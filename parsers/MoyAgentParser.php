@@ -26,6 +26,7 @@
 
 // Подключаем интерфейс, который обязывает реализовать нужные методы
 require_once __DIR__ . '/../core/ParserInterface.php';
+require_once __DIR__ . '/../core/Utils.php';
 
 class MoyAgentParser implements ParserInterface
 {
@@ -242,7 +243,7 @@ class MoyAgentParser implements ParserInterface
             $refundAmount = $refFare + $refTaxes - $penalty;
 
             $productData = array(
-                'UID' => $this->generateUUID(),
+                'UID' => Utils::generateUUID(),
                 'PRODUCT_TYPE' => array(
                     'NAME' => 'Авиабилет',
                     'CODE' => '000000001'
@@ -341,7 +342,7 @@ class MoyAgentParser implements ParserInterface
                     $commissions = $this->buildCommissions($airTicket);
 
                     $productData = array(
-                        'UID' => $this->generateUUID(),
+                        'UID' => Utils::generateUUID(),
                         'PRODUCT_TYPE' => array(
                             'NAME' => 'Авиабилет',
                             'CODE' => '000000001'
@@ -387,7 +388,7 @@ class MoyAgentParser implements ParserInterface
         // -------------------------------------------------------
 
         $order = array(
-            'UID' => $this->generateUUID(),
+            'UID' => Utils::generateUUID(),
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA' => $this->formatDateTime($orderTime),
             'CLIENT' => $clientCode,
@@ -797,31 +798,4 @@ class MoyAgentParser implements ParserInterface
         return isset($ageMap[$psgType]) ? $ageMap[$psgType] : 'ADULT';
     }
 
-    /**
-     * Генерирует уникальный идентификатор UUID версии 4.
-     * 
-     * UUID выглядит как: 8fd8578c-c002-4e73-891d-278373b59ef4
-     * Каждый вызов генерирует новый уникальный идентификатор.
-     * 
-     * Работает как на PHP 7, так и на PHP 8.
-     * 
-     * @return string — UUID в формате xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-     */
-    private function generateUUID()
-    {
-        // Генерируем 16 случайных байт
-        if (function_exists('random_bytes')) {
-            $data = random_bytes(16);
-        } else {
-            // Запасной вариант для старых версий PHP
-            $data = openssl_random_pseudo_bytes(16);
-        }
-
-        // Устанавливаем версию UUID (4) и вариант (RFC 4122)
-        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);  // Версия 4
-        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);  // Вариант RFC 4122
-
-        // Форматируем в стандартный вид UUID
-        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
-    }
 }
