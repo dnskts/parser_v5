@@ -14,8 +14,10 @@
  * - action=run          — запустить обработку файлов вручную (POST)
  * - action=settings     — получить настройки (GET) или сохранить (POST)
  * - action=clear_logs   — очистить файл логов (POST)
+ * - action=resend      — повторная отправка JSON в API 1С (POST)
  * 
  * Все ответы возвращаются в формате JSON.
+ * 
  * ============================================================
  */
 
@@ -182,43 +184,70 @@ switch ($action) {
             'message' => 'Логи очищены'
         ), JSON_UNESCAPED_UNICODE);
         break;
-// Повторная отправка JSON в API 1С
-if ($action === 'resend') {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $jsonFile = isset($input['file']) ? $input['file'] : '';
 
-    if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
-        echo json_encode(array('status' => 'error', 'message' => 'Некорректное имя файла'));
-        exit;
-    }
+    /**
+     * ПОВТОРНАЯ ОТПРАВКА JSON В API 1С
+     * 
+     * Читает ранее сохранённый JSON-файл из json/ и отправляет
+     * его повторно в API 1С. Используется кнопкой 🔄 на странице data.php.
+     */
+    case 'resend':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Требуется POST-запрос'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
-    $jsonPath = BASE_DIR . '/json/' . $jsonFile;
-    if (!file_exists($jsonPath)) {
-        echo json_encode(array('status' => 'error', 'message' => 'Файл не найден: ' . $jsonFile));
-        exit;
-    }
+        $input = json_decode(file_get_contents('php://input'), true);
+        $jsonFile = isset($input['file']) ? $input['file'] : '';
 
-    $orderData = json_decode(file_get_contents($jsonPath), true);
-    if (!is_array($orderData)) {
-        echo json_encode(array('status' => 'error', 'message' => 'Невалидный JSON'));
-        exit;
-    }
+        if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Некорректное имя файла'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
-    require_once BASE_DIR . '/core/ApiSender.php';
-    $settings = json_decode(file_get_contents(BASE_DIR . '/config/settings.json'), true);
-    $apiConfig = isset($settings['api']) ? $settings['api'] : array();
-    $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log');
+        $jsonPath = BASE_DIR . '/json/' . $jsonFile;
+        if (!file_exists($jsonPath)) {
+            http_response_code(404);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Файл не найден: ' . $jsonFile
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
-    $sourceXml = isset($orderData['SOURCE_FILE']) ? $orderData['SOURCE_FILE'] : '';
-    $result = $apiSender->send($orderData, $jsonFile, $sourceXml);
+        $orderData = json_decode(file_get_contents($jsonPath), true);
+        if (!is_array($orderData)) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Невалидный JSON'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
-    echo json_encode(array(
-        'status' => $result['success'] ? 'ok' : 'error',
-        'message' => $result['message'],
-        'http_code' => $result['http_code']
-    ), JSON_UNESCAPED_UNICODE);
-    exit;
-}
+        require_once BASE_DIR . '/core/ApiSender.php';
+        $resendSettings = json_decode(file_get_contents($configFile), true);
+        $apiConfig = isset($resendSettings['api']) ? $resendSettings['api'] : array();
+        $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log');
+
+        $sourceXml = isset($orderData['SOURCE_FILE']) ? $orderData['SOURCE_FILE'] : '';
+        $sendResult = $apiSender->send($orderData, $jsonFile, $sourceXml);
+
+        echo json_encode(array(
+            'status' => $sendResult['success'] ? 'ok' : 'error',
+            'message' => $sendResult['message'],
+            'http_code' => $sendResult['http_code']
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
     /**
      * НЕИЗВЕСТНОЕ ДЕЙСТВИЕ
      */
