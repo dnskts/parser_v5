@@ -1,0 +1,9 @@
+At the start of every new conversation:
+1. Read CURRENT_STAGE.md and structure.md before doing anything
+2. Confirm context is loaded
+3. Do not hallucinate about project structure or code
+
+After every change:
+1. Update CURRENT_STAGE.md per the context-keeper skill
+2. Update CHANGELOG_AI.md with details
+3. Update structure.md if files were created/deleted

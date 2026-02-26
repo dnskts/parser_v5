@@ -474,11 +474,12 @@ body {
 .data-table-wrapper {
     overflow-x: auto;
     border-radius: 8px;
+    width: 100%;
     border: 1px solid #e2e8f0;
 }
 
 .data-table {
-    width: 100%;
+    width: max-content;
     border-collapse: collapse;
     font-size: 13px;
     white-space: nowrap;
@@ -686,4 +687,21 @@ body {
     .data-table__td {
         padding: 6px 8px;
     }
+}
+
+table {
+    table-layout: auto;
+    width: max-content;
+}
+
+.table-container {
+    overflow-x: auto;
+    width: 100%;
+}
+
+table th {
+    position: relative;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

@@ -530,5 +530,64 @@ function resendJson(fileName, btn) {
     });
 }
 </script>
+
+<script>
+// Изменение ширины колонок перетаскиванием
+document.addEventListener('DOMContentLoaded', function() {
+    var table = document.querySelector('.data-table');
+    if (!table) return;
+
+    var headers = table.querySelectorAll('th');
+
+    // 1. Зафиксировать ЕСТЕСТВЕННЫЕ ширины (до table-layout:fixed)
+    var widths = [];
+    headers.forEach(function(th, i) {
+        widths[i] = th.offsetWidth;
+    });
+
+    // 2. Применить ширины и включить fixed layout
+    headers.forEach(function(th, i) {
+        th.style.width = widths[i] + 'px';
+    });
+    table.style.tableLayout = 'fixed';
+
+    // 3. Добавить ресайзеры
+    headers.forEach(function(th) {
+        var resizer = document.createElement('div');
+        resizer.style.cssText = 'position:absolute; right:0; top:0; width:5px; height:100%; cursor:col-resize; user-select:none; z-index:1;';
+
+        th.style.position = 'relative';
+        th.style.overflow = 'hidden';
+        th.style.textOverflow = 'ellipsis';
+        th.style.whiteSpace = 'nowrap';
+        th.appendChild(resizer);
+
+        resizer.addEventListener('mousedown', function(e) {
+            var startX = e.pageX;
+            var startWidth = th.offsetWidth;
+
+            // Подсветка при перетаскивании
+            resizer.style.borderRight = '2px solid #4a90d9';
+
+            function onMouseMove(e) {
+                var newWidth = startWidth + (e.pageX - startX);
+                if (newWidth >= 50) {
+                    th.style.width = newWidth + 'px';
+                }
+            }
+
+            function onMouseUp() {
+                resizer.style.borderRight = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+        });
+    });
+});
+</script>
 </body>
 </html>
