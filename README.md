@@ -28,3 +28,4 @@ php process.php              # обработка из CLI
 
 ## Документация
 - Подробная документация: [CURRENT_STAGE.md](CURRENT_STAGE.md)
+- Структура проекта: [structure.md](structure.md)

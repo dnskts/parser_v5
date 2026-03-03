@@ -1,60 +1,79 @@
-# Project Structure
-<!-- AI-context: PHP-приложение для парсинга XML-файлов от поставщиков туристических услуг,
-     преобразования в единый JSON-формат (ORDER/RSTLS) и отправки во внешнюю API (1С).
-     Автообнаружение парсеров, веб-интерфейс для мониторинга, cron-совместимость. -->
+# Структура проекта XML Parser v5
 
-## Config
-<!-- Purpose: настройки приложения и параметры подключения -->
+## Директории
+parser_v5/
+├── config/          — конфигурация приложения
+├── core/            — ядро системы (6 файлов)
+├── parsers/         — реализации парсеров (plug-and-play)
+├── input/           — входные XML-файлы
+│   ├── moyagent/    — файлы «Мой агент»
+│   │   ├── Processed/   — обработанные
+│   │   └── Error/       — с ошибками
+│   └── demo_hotel/  — демо-файлы отелей
+│       ├── Processed/
+│       └── Error/
+├── json/            — выходные JSON-файлы
+├── logs/            — логи
+├── tests/           — тестовые данные
+│   └── fixtures/    — XML-фикстуры
+├── assets/          — фронтенд
+└── .cursor/skills/  — скиллы AI-ассистента
 
-- `config/settings.json` — runtime-настройки: интервал обработки, параметры API (url, логин, таймаут)
 
-## Core
-<!-- Purpose: базовые классы фреймворка, общие для всех парсеров -->
 
-- `core/ApiSender.php` — отправка подготовленных JSON-пакетов во внешний API (1С)
-- `core/Logger.php` — логирование событий, запись в logs/app.log
-- `core/ParserInterface.php` — интерфейс-контракт, который должен реализовать каждый парсер
-- `core/ParserManager.php` — автообнаружение и загрузка парсеров из папки parsers/
-- `core/Processor.php` — оркестратор полного пайплайна: чтение XML → парсинг → отправка
-- `core/Utils.php` — общие утилиты (Utils::generateUUID())
+## Файлы
 
-## Parsers
-<!-- Purpose: конкретные реализации парсеров, по одному на каждого поставщика -->
-<!-- AI-context: для добавления нового поставщика достаточно создать файл в этой папке,
-     реализующий ParserInterface. ParserManager обнаружит его автоматически. -->
+### Config
+| Файл | Описание |
+|------|----------|
+| `config/settings.json` | Настройки: interval, last_run, api.{enabled, url, login, password, timeout} |
 
-- `parsers/DemoHotelParser.php` — парсер демо-данных отелей (пример/шаблон)
-- `parsers/MoyAgentParser.php` — парсер XML от поставщика «Мой Агент» (авиабилеты)
+### Core
+| Файл | Описание |
+|------|----------|
+| `core/ParserInterface.php` | Контракт парсера: getSupplierFolder(), getSupplierName(), parse() |
+| `core/ParserManager.php` | Auto-discovery парсеров через рефлексию |
+| `core/Processor.php` | Оркестратор: glob→parse→saveJson→send→move |
+| `core/Logger.php` | Логирование: INFO/WARNING/ERROR/SUCCESS, ротация 5МБ |
+| `core/ApiSender.php` | HTTP POST в 1С, Basic Auth, JSON Lines лог |
+| `core/Utils.php` | Утилиты: generateUUID() (v4) |
 
-## Web UI
-<!-- Purpose: веб-интерфейс для загрузки файлов, запуска обработки и просмотра результатов -->
+### Parsers
+| Файл | Описание |
+|------|----------|
+| `parsers/MoyAgentParser.php` | «Мой агент» авиа V5: TKT/REF/RFND/CANX, конъюнкции |
+| `parsers/DemoHotelParser.php` | Демо-парсер отелей (шаблон) |
 
-- `api.php` — AJAX API для веб-интерфейса (logs, run, settings, clear_logs, resend)
-- `api_logs.php` — страница истории API-вызовов (двухрежимная: HTML + AJAX)
-- `assets/app.js` — клиентская логика (AJAX-запросы, обновление UI, обслуживает index.php)
-- `assets/style.css` — стили интерфейса (BEM)
-- `data.php` — отображение результатов парсинга (серверный рендеринг, 49 колонок)
-- `index.php` — главная страница (панель управления + запуск обработки)
-- `process.php` — обработчик формы, запуск пайплайна (также используется cron)
-- `test.php` — автотесты парсеров (Web + CLI, фикстуры из tests/fixtures/)
+### Web UI
+| Файл | Описание |
+|------|----------|
+| `index.php` | Панель управления (логи, обработка, настройки) |
+| `data.php` | Таблица заказов (49 колонок, серверный рендеринг) |
+| `api_logs.php` | Логи API (HTML + AJAX к себе) |
+| `api.php` | AJAX API (logs/run/settings/clear_logs/resend) |
+| `process.php` | Точка входа pipeline (CLI + модуль) |
+| `test.php` | Автотесты парсеров (Web + CLI) |
 
-## Tests
-<!-- Purpose: тестовые данные для автоматического тестирования парсеров -->
-<!-- AI-context: фикстуры — реальные XML-файлы от «Мой агент» для проверки MoyAgentParser.
-     Не отправляются в API, не перемещают файлы. Только парсинг и проверка структуры. -->
+### Frontend
+| Файл | Описание |
+|------|----------|
+| `assets/app.js` | JS для index.php (372 строки) |
+| `assets/style.css` | Общие стили (BEM) |
 
-- `tests/fixtures/125358843227.xml` — продажа, 1 билет, 2 сегмента (SVO→KZN→SVO)
-- `tests/fixtures/125358829987.xml` — продажа, 3 билета, 3 пассажира (SVO→DXB→SVO)
-- `tests/fixtures/125358832021.xml` — продажа, 1 билет + EMD, валюта EUR→RUB (MXP→CDG)
-- `tests/fixtures/125358832769.xml` — возврат REF, penalty 3500 (SVO→OVB→SVO)
+### Tests
+| Файл | Описание |
+|------|----------|
+| `tests/fixtures/125358843227.xml` | Продажа, 1 билет, SVO→KZN→SVO (22 assertions) |
+| `tests/fixtures/125358829987.xml` | Продажа, 3 билета, 3 пассажира (20 assertions) |
+| `tests/fixtures/125358832021.xml` | Продажа + EMD конъюнкция, EUR→RUB (20 assertions) |
+| `tests/fixtures/125358832769.xml` | Возврат REF, penalty 3500 (21 assertions) |
+| `tests/fixtures/125359005865.xml` | 5 билетов + конъюнкции, SVO→AUH→SVO (26 assertions) |
 
-## Dependencies
-<!-- External libraries and services the project relies on -->
-<!-- AI-context: проект использует только встроенные расширения PHP, внешних пакетов нет -->
+## Зависимости
 
-- `PHP 7.0+` (совместим с 8.x) — язык исполнения
-- `ext-simplexml` (встроенное расширение) — парсинг XML-файлов
-- `ext-curl` (встроенное расширение) — HTTP-запросы к API 1С (ApiSender)
-- `ext-json` (встроенное расширение) — кодирование/декодирование JSON
-- `ext-mbstring` (рекомендуется) — корректная работа с кириллицей
-- Внешний API: `http://10.30.88.24/TRADE/hs/CRM_Exchange/Order` — приёмник JSON-заказов (1С)
+- PHP 7.0+ (совместим с 8.x)
+- `ext-simplexml` (встроенное)
+- `ext-curl` (**обязательно** — Fatal Error без него)
+- `ext-json` (встроенное)
+- `ext-mbstring` (рекомендуется)
+- Без composer, без фреймворков, без БД

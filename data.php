@@ -102,6 +102,7 @@ if (is_dir($jsonDir)) {
             $penalty = isset($product['PENALTY']) ? (float)$product['PENALTY'] : 0;
 
             // --- Из купонов COUPONS[] ---
+            // Все значения через запятую (для всех сегментов)
             $flightNumbers = '';
             $fareBasis = '';
             $classes = '';
@@ -111,18 +112,24 @@ if (is_dir($jsonDir)) {
                 $fn = array();
                 $fb = array();
                 $cl = array();
+                $depDates = array();
+                $arrDates = array();
                 foreach ($product['COUPONS'] as $coupon) {
                     if (isset($coupon['FLIGHT_NUMBER'])) $fn[] = $coupon['FLIGHT_NUMBER'];
                     if (isset($coupon['FARE_BASIS'])) $fb[] = $coupon['FARE_BASIS'];
                     if (isset($coupon['CLASS'])) $cl[] = $coupon['CLASS'];
+                    if (isset($coupon['DEPARTURE_DATETIME']) && $coupon['DEPARTURE_DATETIME'] !== '') {
+                        $depDates[] = formatRstlsDate($coupon['DEPARTURE_DATETIME']);
+                    }
+                    if (isset($coupon['ARRIVAL_DATETIME']) && $coupon['ARRIVAL_DATETIME'] !== '') {
+                        $arrDates[] = formatRstlsDate($coupon['ARRIVAL_DATETIME']);
+                    }
                 }
                 $flightNumbers = implode(', ', $fn);
                 $fareBasis = implode(', ', $fb);
                 $classes = implode(', ', $cl);
-                $firstCoupon = $product['COUPONS'][0];
-                $departureDate = isset($firstCoupon['DEPARTURE_DATETIME']) ? formatRstlsDate($firstCoupon['DEPARTURE_DATETIME']) : '';
-                $lastCoupon = end($product['COUPONS']);
-                $arrivalDate = isset($lastCoupon['ARRIVAL_DATETIME']) ? formatRstlsDate($lastCoupon['ARRIVAL_DATETIME']) : '';
+                $departureDate = implode(', ', $depDates);
+                $arrivalDate = implode(', ', $arrDates);
             }
 
             // --- Финансовые: из TAXES[] ---
@@ -292,16 +299,37 @@ function formatRstlsDate($date)
  * - объектом {"CODE": "020", "NAME": "Elena Vetvitskaya"}
  * - строкой UUID "c8a153d3-0175-11eb-9f32-0050569c2148"
  */
+/**
+ * Извлекает читаемое значение агента.
+ * 
+ * BOOKING_AGENT и AGENT — объект {"CODE": "...", "NAME": "..."}.
+ * Если CODE и NAME совпадают — возвращаем одно значение (без дублирования).
+ * Если разные — "CODE NAME".
+ * Если строка — возвращаем как есть.
+ */
 function formatAgent($agent)
 {
     if (is_array($agent) && isset($agent['CODE'])) {
-        return trim($agent['CODE'] . ' ' . (isset($agent['NAME']) ? $agent['NAME'] : ''));
+        $code = trim(isset($agent['CODE']) ? $agent['CODE'] : '');
+        $name = trim(isset($agent['NAME']) ? $agent['NAME'] : '');
+
+        // Если CODE и NAME одинаковые — не дублируем
+        if ($code !== '' && $code === $name) {
+            return $code;
+        }
+        // Если есть оба и разные
+        if ($code !== '' && $name !== '') {
+            return $code . ' ' . $name;
+        }
+        // Если только одно из двух
+        return ($code !== '') ? $code : $name;
     }
     if (is_string($agent)) {
         return $agent;
     }
     return '';
 }
+
 ?>
 <!DOCTYPE html>
 <html lang="ru">

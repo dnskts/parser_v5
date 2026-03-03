@@ -19,12 +19,19 @@
  * Парсер преобразует эти данные в единый JSON-формат ORDER
  * по спецификации RSTLS (см. документацию).
  * 
+ * Обработка конъюнкций (CONJ):
+ * Один билет может быть разбит на несколько air_ticket_prod с разными
+ * prod_id. Связь определяется через:
+ * 1. Одинаковый tkt_number в air_ticket_doc (travel_docs)
+ * 2. Атрибут main_prod_id в emd_ticket_doc (travel_docs)
+ * Парсер группирует такие продукты, собирает купоны и таксы
+ * с дедупликацией, финансы берёт из главного продукта (с максимальным fare).
+ * 
  * Для добавления нового поставщика создайте аналогичный файл
  * в папке parsers/ — он будет подхвачен автоматически.
  * ============================================================
  */
 
-// Подключаем интерфейс, который обязывает реализовать нужные методы
 require_once __DIR__ . '/../core/ParserInterface.php';
 require_once __DIR__ . '/../core/Utils.php';
 
@@ -32,7 +39,6 @@ class MoyAgentParser implements ParserInterface
 {
     /**
      * Возвращает имя папки, где лежат XML-файлы этого поставщика.
-     * Система будет искать файлы в input/moyagent/
      */
     public function getSupplierFolder()
     {
@@ -41,7 +47,6 @@ class MoyAgentParser implements ParserInterface
 
     /**
      * Возвращает человекочитаемое название поставщика.
-     * Отображается в логах и на веб-странице.
      */
     public function getSupplierName()
     {
@@ -50,9 +55,6 @@ class MoyAgentParser implements ParserInterface
 
     /**
      * Главный метод — парсинг XML-файла "Мой агент".
-     * 
-     * Читает XML, извлекает данные о заказе, билетах, пассажирах,
-     * и возвращает массив в формате ORDER для сохранения в JSON.
      * 
      * @param string $xmlFilePath — полный путь к XML-файлу
      * @return array — данные заказа в формате ORDER (RSTLS)
@@ -64,25 +66,19 @@ class MoyAgentParser implements ParserInterface
         // ШАГ 1: Загрузка и проверка XML-файла
         // -------------------------------------------------------
         
-        // Проверяем, что файл существует и доступен для чтения
         if (!file_exists($xmlFilePath) || !is_readable($xmlFilePath)) {
             throw new Exception("Файл не найден или недоступен: {$xmlFilePath}");
         }
 
-        // Читаем содержимое XML-файла
         $xmlContent = file_get_contents($xmlFilePath);
         if ($xmlContent === false) {
             throw new Exception("Не удалось прочитать файл: {$xmlFilePath}");
         }
 
-        // Отключаем вывод стандартных ошибок XML — будем обрабатывать их сами
         $previousErrors = libxml_use_internal_errors(true);
-
-        // Пытаемся разобрать XML
         $xml = simplexml_load_string($xmlContent);
 
         if ($xml === false) {
-            // Собираем описания ошибок XML для понятного сообщения
             $errors = array();
             foreach (libxml_get_errors() as $error) {
                 $errors[] = trim($error->message);
@@ -94,7 +90,6 @@ class MoyAgentParser implements ParserInterface
 
         libxml_use_internal_errors($previousErrors);
 
-        // Проверяем, что корневой тег — order_snapshot
         if ($xml->getName() !== 'order_snapshot') {
             throw new Exception(
                 "Неверный формат файла: ожидается корневой тег <order_snapshot>, "
@@ -106,17 +101,15 @@ class MoyAgentParser implements ParserInterface
         // ШАГ 2: Извлечение основных данных заказа
         // -------------------------------------------------------
 
-        // Читаем атрибуты заголовка заказа
         $header = $xml->header;
         if (!$header) {
             throw new Exception("В файле отсутствует секция <header>");
         }
 
-        $orderId = (string)$header['ord_id'];       // Номер заказа
-        $currency = (string)$header['currency'];     // Валюта (например, "RUB")
-        $orderTime = (string)$header['time'];        // Дата заказа ("2025-10-13 12:16:00")
+        $orderId = (string)$header['ord_id'];
+        $currency = (string)$header['currency'];
+        $orderTime = (string)$header['time'];
 
-        // Читаем данные клиента
         $customer = $xml->customer;
         $clientCode = $customer ? (string)$customer['client_code'] : '';
 
@@ -124,27 +117,23 @@ class MoyAgentParser implements ParserInterface
         // ШАГ 3: Подготовка вспомогательных данных
         // -------------------------------------------------------
 
-        // Собираем карту пассажиров: psgr_id => данные пассажира
-        // Это нужно, чтобы потом по ID пассажира получить его ФИО
         $passengersMap = $this->buildPassengersMap($xml);
-
-        // Собираем карту документов (билетов): prod_id => данные билета
-        // Это нужно, чтобы по ID продукта получить номер билета и дату выписки
         $travelDocsMap = $this->buildTravelDocsMap($xml);
-
-        // Собираем карту бронирований: supplier => данные бронирования
-        // Это нужно, чтобы по коду поставщика получить номер бронирования (PNR)
         $reservationsMap = $this->buildReservationsMap($xml);
+        $conjLinksMap = $this->buildConjLinksMap($xml);
+
+        // Получаем данные первой (основной) reservation для SUPPLIER и PNR
+        // В XML "Мой агент" обычно одна reservation на весь заказ
+        $mainReservation = $this->getMainReservation($xml);
 
         // -------------------------------------------------------
         // ШАГ 4: Анализ типа операции и обработка продуктов
         // -------------------------------------------------------
 
-        // Определяем тип операции всего заказа (продажа / возврат / аннуляция)
         $orderAnalysis = $this->analyzeOrderType($xml);
         $isRefund = in_array($orderAnalysis['operation'], array('REF', 'RFND', 'CANX'));
 
-        // Индексируем все air_ticket_prod по prod_id для быстрого доступа
+        // Индексируем все air_ticket_prod по prod_id
         $airTicketsByProdId = array();
         if (isset($xml->products->product)) {
             foreach ($xml->products->product as $product) {
@@ -160,26 +149,21 @@ class MoyAgentParser implements ParserInterface
 
         if ($isRefund) {
             // =============================================================
-            // ВОЗВРАТ или АННУЛЯЦИЯ — формируем ОДИН продукт
+            // ВОЗВРАТ или АННУЛЯЦИЯ
             // =============================================================
 
-            // Определяем оригинальный и возвратный product
             $origProdId = $orderAnalysis['original_prod_id'];
             $refProdId  = $orderAnalysis['refund_prod_id'];
             $refundDoc  = $orderAnalysis['refund_doc'];
 
-            // Оригинальный product (для купонов, такс, комиссий)
             $origAirTicket = isset($airTicketsByProdId[$origProdId]) 
                 ? $airTicketsByProdId[$origProdId] 
                 : null;
 
-            // Возвратный product (для penalty и сумм возврата)
-            // При CANX — возвратный и оригинальный совпадают
             $refAirTicket = isset($airTicketsByProdId[$refProdId]) 
                 ? $airTicketsByProdId[$refProdId] 
                 : $origAirTicket;
 
-            // Если нет оригинального — используем возвратный
             if ($origAirTicket === null) {
                 $origAirTicket = $refAirTicket;
             }
@@ -188,12 +172,10 @@ class MoyAgentParser implements ParserInterface
                 throw new Exception("Не найден air_ticket_prod для возврата");
             }
 
-            // Данные из оригинального product
-            $supplier = (string)$origAirTicket['supplier'];
-            $reservation = isset($reservationsMap[$supplier]) ? $reservationsMap[$supplier] : null;
-            $reservationNumber = $reservation ? $reservation['rloc'] : '';
+            // Номер бронирования — из reservation
+            $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
 
-            // Пассажир — через документ возврата
+            // Пассажир
             $psgId = $refundDoc ? $refundDoc['psgr_id'] : '';
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = '';
@@ -201,25 +183,27 @@ class MoyAgentParser implements ParserInterface
                 $traveller = $passenger['name'] . ' ' . $passenger['first_name'];
             }
 
-            // Номер билета и дата выписки — из документа возврата
+            // Номер билета и даты
             $ticketNumber = $refundDoc ? $refundDoc['tkt_number'] : '';
             $refundDate = $refundDoc ? $this->formatDateTime($refundDoc['tkt_date']) : '';
 
-            // Дата выписки оригинального билета (из TKT doc, если есть)
             $origDoc = isset($travelDocsMap[$origProdId]) ? $travelDocsMap[$origProdId] : null;
             $issueDate = $origDoc ? $this->formatDateTime($origDoc['tkt_date']) : $refundDate;
 
-            // Возрастная категория
+            // Агент — из air_ticket_doc (имя, не числовой ID)
+            $issuingAgentName = $origDoc ? $origDoc['issuingAgent'] : '';
+            // Бронирующий агент — из reservation
+            $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
+
             $psgType = (string)$origAirTicket['psg_type'];
             $passengerAge = $this->mapPassengerAge($psgType);
 
-            // Купоны — из ОРИГИНАЛЬНОГО product
-            $coupons = $this->buildCoupons($origAirTicket);
+            // Связанные prod_id для купонов и такс
+            $relatedProdIds = $this->findRelatedProdIds($origProdId, $travelDocsMap, $conjLinksMap, $airTicketsByProdId);
 
-            // Таксы — из ОРИГИНАЛЬНОГО product
-            $taxes = $this->buildTaxes($origAirTicket);
+            $coupons = $this->buildCouponsFromGroup($relatedProdIds, $airTicketsByProdId);
+            $taxes = $this->buildTaxesFromGroup($relatedProdIds, $airTicketsByProdId);
 
-            // Платежи — из ОРИГИНАЛЬНОГО product (полная стоимость)
             $origFare = (float)(string)$origAirTicket['fare'];
             $origTaxes = (float)(string)$origAirTicket['taxes'];
             $origTotal = $origFare + $origTaxes;
@@ -233,10 +217,8 @@ class MoyAgentParser implements ParserInterface
                 )
             );
 
-            // Комиссии — из ОРИГИНАЛЬНОГО product
             $commissions = $this->buildCommissions($origAirTicket);
 
-            // Penalty и сумма возврата — из ВОЗВРАТНОГО product
             $penalty = $this->extractPenalty($refAirTicket);
             $refFare = (float)(string)$refAirTicket['fare'];
             $refTaxes = (float)(string)$refAirTicket['taxes'];
@@ -252,12 +234,12 @@ class MoyAgentParser implements ParserInterface
                 'ISSUE_DATE' => $issueDate,
                 'RESERVATION_NUMBER' => $reservationNumber,
                 'BOOKING_AGENT' => array(
-                    'CODE' => (string)$origAirTicket['issuingAgent'],
-                    'NAME' => ''
+                    'CODE' => $bookingAgentName,
+                    'NAME' => $bookingAgentName
                 ),
                 'AGENT' => array(
-                    'CODE' => (string)$origAirTicket['issuingAgent'],
-                    'NAME' => ''
+                    'CODE' => $issuingAgentName,
+                    'NAME' => $issuingAgentName
                 ),
                 'STATUS' => 'возврат',
                 'TICKET_TYPE' => 'OWN',
@@ -265,7 +247,7 @@ class MoyAgentParser implements ParserInterface
                 'CONJ_COUNT' => 0,
                 'PENALTY' => $penalty,
                 'CARRIER' => (string)$origAirTicket['validating_carrier'],
-                'SUPPLIER' => $supplier,
+                'SUPPLIER' => $this->getSupplierName(),
                 'COUPONS' => $coupons,
                 'TRAVELLER' => $traveller,
                 'TAXES' => $taxes,
@@ -287,12 +269,23 @@ class MoyAgentParser implements ParserInterface
 
         } else {
             // =============================================================
-            // ПРОДАЖА — обычная обработка каждого product
+            // ПРОДАЖА — группируем продукты по билету
             // =============================================================
+
+            // Шаг 1: Группировка (conj + tkt_number)
+            $childProdIds = array();
+            foreach ($conjLinksMap as $childId => $mainId) {
+                if (isset($airTicketsByProdId[$childId])) {
+                    $childProdIds[$childId] = $mainId;
+                }
+            }
+
+            $ticketGroups = array();
+            $assignedProdIds = array();
+            $orphanIndex = 0;
 
             if (isset($xml->products->product)) {
                 foreach ($xml->products->product as $product) {
-                    // Пропускаем сервисные продукты (service_prod)
                     if (!isset($product->air_ticket_prod)) {
                         continue;
                     }
@@ -300,85 +293,152 @@ class MoyAgentParser implements ParserInterface
                     $airTicket = $product->air_ticket_prod;
                     $prodId = (string)$airTicket['prod_id'];
 
-                    // Получаем документ (билет) для этого продукта
-                    $travelDoc = isset($travelDocsMap[$prodId]) ? $travelDocsMap[$prodId] : null;
-
-                    // Получаем бронирование по коду поставщика
-                    $supplier = (string)$airTicket['supplier'];
-                    $reservation = isset($reservationsMap[$supplier]) ? $reservationsMap[$supplier] : null;
-
-                    // Определяем пассажира
-                    $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
-                    $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
-
-                    $traveller = '';
-                    if ($passenger) {
-                        $traveller = $passenger['name'] . ' ' . $passenger['first_name'];
+                    if (isset($assignedProdIds[$prodId])) {
+                        continue;
                     }
 
-                    $psgType = (string)$airTicket['psg_type'];
-                    $passengerAge = $this->mapPassengerAge($psgType);
+                    if (isset($childProdIds[$prodId])) {
+                        continue;
+                    }
 
-                    $ticketNumber = $travelDoc ? $travelDoc['tkt_number'] : '';
-                    $issueDate = $travelDoc ? $this->formatDateTime($travelDoc['tkt_date']) : '';
-                    $reservationNumber = $reservation ? $reservation['rloc'] : '';
+                    $travelDoc = isset($travelDocsMap[$prodId]) ? $travelDocsMap[$prodId] : null;
+                    $tktNumber = $travelDoc ? $travelDoc['tkt_number'] : null;
 
-                    $coupons = $this->buildCoupons($airTicket);
-                    $taxes = $this->buildTaxes($airTicket);
+                    if ($tktNumber !== null && $tktNumber !== '') {
+                        $groupKey = $tktNumber;
+                    } else {
+                        $groupKey = '__orphan_' . $orphanIndex;
+                        $orphanIndex++;
+                    }
 
-                    $fare = (float)(string)$airTicket['fare'];
-                    $taxesAmount = (float)(string)$airTicket['taxes'];
-                    $totalAmount = $fare + $taxesAmount;
+                    if (!isset($ticketGroups[$groupKey])) {
+                        $ticketGroups[$groupKey] = array();
+                    }
+                    $ticketGroups[$groupKey][] = $prodId;
+                    $assignedProdIds[$prodId] = true;
 
-                    $payments = array(
-                        array(
-                            'TYPE' => 'INVOICE',
-                            'AMOUNT' => $totalAmount,
-                            'EQUIVALENT_AMOUNT' => $totalAmount,
-                            'RELATED_TICKET_NUMBER' => null
-                        )
-                    );
+                    // Добавляем child-продукты
+                    foreach ($childProdIds as $childId => $mainId) {
+                        if ($mainId === $prodId && !isset($assignedProdIds[$childId])) {
+                            $ticketGroups[$groupKey][] = $childId;
+                            $assignedProdIds[$childId] = true;
+                        }
+                    }
 
-                    $commissions = $this->buildCommissions($airTicket);
-
-                    $productData = array(
-                        'UID' => Utils::generateUUID(),
-                        'PRODUCT_TYPE' => array(
-                            'NAME' => 'Авиабилет',
-                            'CODE' => '000000001'
-                        ),
-                        'NUMBER' => $ticketNumber,
-                        'ISSUE_DATE' => $issueDate,
-                        'RESERVATION_NUMBER' => $reservationNumber,
-                        'BOOKING_AGENT' => array(
-                            'CODE' => (string)$airTicket['issuingAgent'],
-                            'NAME' => ''
-                        ),
-                        'AGENT' => array(
-                            'CODE' => (string)$airTicket['issuingAgent'],
-                            'NAME' => ''
-                        ),
-                        'STATUS' => 'продажа',
-                        'TICKET_TYPE' => 'OWN',
-                        'PASSENGER_AGE' => $passengerAge,
-                        'CONJ_COUNT' => 0,
-                        'PENALTY' => 0,
-                        'CARRIER' => (string)$airTicket['validating_carrier'],
-                        'SUPPLIER' => $supplier,
-                        'COUPONS' => $coupons,
-                        'TRAVELLER' => $traveller,
-                        'TAXES' => $taxes,
-                        'CURRENCY' => $currency,
-                        'PAYMENTS' => $payments,
-                        'COMMISSIONS' => $commissions
-                    );
-
-                    $products[] = $productData;
+                    // Другие prod_id с тем же tkt_number
+                    if ($tktNumber !== null && $tktNumber !== '') {
+                        foreach ($travelDocsMap as $otherProdId => $otherDoc) {
+                            if ($otherProdId !== $prodId 
+                                && $otherDoc['tkt_number'] === $tktNumber
+                                && !isset($assignedProdIds[$otherProdId])
+                                && isset($airTicketsByProdId[$otherProdId])) {
+                                $ticketGroups[$groupKey][] = $otherProdId;
+                                $assignedProdIds[$otherProdId] = true;
+                            }
+                        }
+                    }
                 }
+            }
+
+            // Шаг 2: Обработка каждой группы
+            foreach ($ticketGroups as $groupKey => $prodIds) {
+
+                $mainProdId = $prodIds[0];
+                $maxFare = -1;
+                foreach ($prodIds as $pid) {
+                    if (isset($airTicketsByProdId[$pid])) {
+                        $f = (float)(string)$airTicketsByProdId[$pid]['fare'];
+                        if ($f > $maxFare) {
+                            $maxFare = $f;
+                            $mainProdId = $pid;
+                        }
+                    }
+                }
+
+                $airTicket = isset($airTicketsByProdId[$mainProdId]) ? $airTicketsByProdId[$mainProdId] : null;
+                if ($airTicket === null) {
+                    continue;
+                }
+
+                $travelDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
+
+                // Номер бронирования — из reservation (единый для заказа)
+                $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+
+                // Агент выписки — из air_ticket_doc (ФИО, не числовой ID)
+                $issuingAgentName = $travelDoc ? $travelDoc['issuingAgent'] : '';
+                // Бронирующий агент — из reservation
+                $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
+
+                $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
+                $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
+
+                $traveller = '';
+                if ($passenger) {
+                    $traveller = $passenger['name'] . ' ' . $passenger['first_name'];
+                }
+
+                $psgType = (string)$airTicket['psg_type'];
+                $passengerAge = $this->mapPassengerAge($psgType);
+
+                $ticketNumber = $travelDoc ? $travelDoc['tkt_number'] : '';
+                $issueDate = $travelDoc ? $this->formatDateTime($travelDoc['tkt_date']) : '';
+
+                $coupons = $this->buildCouponsFromGroup($prodIds, $airTicketsByProdId);
+                $conjCount = count($prodIds);
+                $taxes = $this->buildTaxesFromGroup($prodIds, $airTicketsByProdId);
+
+                $fare = (float)(string)$airTicket['fare'];
+                $taxesAmount = (float)(string)$airTicket['taxes'];
+                $totalAmount = $fare + $taxesAmount;
+
+                $payments = array(
+                    array(
+                        'TYPE' => 'INVOICE',
+                        'AMOUNT' => $totalAmount,
+                        'EQUIVALENT_AMOUNT' => $totalAmount,
+                        'RELATED_TICKET_NUMBER' => null
+                    )
+                );
+
+                $commissions = $this->buildCommissions($airTicket);
+
+                $productData = array(
+                    'UID' => Utils::generateUUID(),
+                    'PRODUCT_TYPE' => array(
+                        'NAME' => 'Авиабилет',
+                        'CODE' => '000000001'
+                    ),
+                    'NUMBER' => $ticketNumber,
+                    'ISSUE_DATE' => $issueDate,
+                    'RESERVATION_NUMBER' => $reservationNumber,
+                    'BOOKING_AGENT' => array(
+                        'CODE' => $bookingAgentName,
+                        'NAME' => $bookingAgentName
+                    ),
+                    'AGENT' => array(
+                        'CODE' => $issuingAgentName,
+                        'NAME' => $issuingAgentName
+                    ),
+                    'STATUS' => 'продажа',
+                    'TICKET_TYPE' => 'OWN',
+                    'PASSENGER_AGE' => $passengerAge,
+                    'CONJ_COUNT' => $conjCount,
+                    'PENALTY' => 0,
+                    'CARRIER' => (string)$airTicket['validating_carrier'],
+                    'SUPPLIER' => $this->getSupplierName(),
+                    'COUPONS' => $coupons,
+                    'TRAVELLER' => $traveller,
+                    'TAXES' => $taxes,
+                    'CURRENCY' => $currency,
+                    'PAYMENTS' => $payments,
+                    'COMMISSIONS' => $commissions
+                );
+
+                $products[] = $productData;
             }
         }
 
-        // Если не нашли ни одного авиабилета
         if (empty($products)) {
             throw new Exception("В файле не найдено ни одного авиабилета (air_ticket_prod)");
         }
@@ -406,12 +466,6 @@ class MoyAgentParser implements ParserInterface
 
     /**
      * Собирает карту пассажиров из XML.
-     * 
-     * Возвращает массив, где ключ — ID пассажира (psgr_id),
-     * а значение — массив с его данными (имя, фамилия и т.д.)
-     * 
-     * @param SimpleXMLElement $xml — корневой элемент XML
-     * @return array — карта пассажиров
      */
     private function buildPassengersMap($xml)
     {
@@ -435,17 +489,8 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Собирает карту документов (билетов) из XML.
-     * 
-     * Возвращает массив, где ключ — ID продукта (prod_id),
-     * а значение — данные билета (номер, дата выписки, операция).
-     * 
-     * Если на один prod_id несколько документов — хранится последний.
-     * Дополнительно строится список ВСЕХ документов для определения
-     * типа операции всего заказа (REF/CANX имеют приоритет над TKT).
-     * 
-     * @param SimpleXMLElement $xml — корневой элемент XML
-     * @return array — карта документов
+     * Собирает карту документов из XML (только air_ticket_doc).
+     * Теперь включает issuingAgent (ФИО агента выписки).
      */
     private function buildTravelDocsMap($xml)
     {
@@ -453,17 +498,17 @@ class MoyAgentParser implements ParserInterface
 
         if (isset($xml->travel_docs->travel_doc)) {
             foreach ($xml->travel_docs->travel_doc as $travelDoc) {
-                // Внутри travel_doc может быть air_ticket_doc
                 if (isset($travelDoc->air_ticket_doc)) {
                     $doc = $travelDoc->air_ticket_doc;
                     $prodId = (string)$doc['prod_id'];
                     $map[$prodId] = array(
-                        'prod_id'    => $prodId,
-                        'psgr_id'    => (string)$doc['psgr_id'],
-                        'tkt_oper'   => (string)$doc['tkt_oper'],
-                        'tkt_number' => (string)$doc['tkt_number'],
-                        'tkt_date'   => (string)$doc['tkt_date'],
-                        'rsrv_id'    => (string)$doc['rsrv_id']
+                        'prod_id'      => $prodId,
+                        'psgr_id'      => (string)$doc['psgr_id'],
+                        'tkt_oper'     => (string)$doc['tkt_oper'],
+                        'tkt_number'   => (string)$doc['tkt_number'],
+                        'tkt_date'     => (string)$doc['tkt_date'],
+                        'rsrv_id'      => (string)$doc['rsrv_id'],
+                        'issuingAgent' => (string)$doc['issuingAgent']
                     );
                 }
             }
@@ -473,20 +518,132 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Анализирует все travel_doc в файле и определяет тип операции заказа.
+     * Строит карту связей конъюнкций из emd_ticket_doc.
      * 
-     * Логика приоритетов:
-     * - Если есть хотя бы один REF или CANX → заказ является возвратом
-     * - Иначе → продажа
+     * В XML "Мой агент" конъюнкционные бланки оформлены как
+     * emd_ticket_doc с атрибутом main_prod_id.
      * 
-     * Возвращает массив:
-     * - 'operation'     => 'REF', 'CANX' или 'TKT'
-     * - 'refund_doc'    => данные travel_doc с REF/CANX (или null)
-     * - 'refund_prod_id'=> prod_id возвратного продукта (или null)
-     * - 'original_prod_id' => prod_id оригинального продукта TKT (или null)
+     * @return array — карта [child_prod_id => main_prod_id]
+     */
+    private function buildConjLinksMap($xml)
+    {
+        $map = array();
+
+        if (isset($xml->travel_docs->travel_doc)) {
+            foreach ($xml->travel_docs->travel_doc as $travelDoc) {
+                if (isset($travelDoc->emd_ticket_doc)) {
+                    $doc = $travelDoc->emd_ticket_doc;
+                    $childProdId = (string)$doc['prod_id'];
+                    $mainProdId  = (string)$doc['main_prod_id'];
+
+                    if ($mainProdId !== '') {
+                        $map[$childProdId] = $mainProdId;
+                    }
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Собирает карту бронирований из XML.
+     * Теперь включает bookingAgent (ФИО бронирующего агента).
+     */
+    private function buildReservationsMap($xml)
+    {
+        $map = array();
+
+        if (isset($xml->reservations->reservation)) {
+            foreach ($xml->reservations->reservation as $reservation) {
+                $supplier = (string)$reservation['supplier'];
+                $map[$supplier] = array(
+                    'rloc'         => (string)$reservation['rloc'],
+                    'rsrv_id'      => (string)$reservation['rsrv_id'],
+                    'crs'          => (string)$reservation['crs'],
+                    'crs_currency' => (string)$reservation['crs_currency'],
+                    'supplier'     => $supplier,
+                    'bookingAgent' => (string)$reservation['bookingAgent']
+                );
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Получает основную reservation из XML.
      * 
-     * @param SimpleXMLElement $xml — корневой элемент XML
-     * @return array — результат анализа
+     * В XML "Мой агент" обычно одна reservation на весь заказ.
+     * Возвращает первую найденную.
+     * 
+     * @param SimpleXMLElement $xml
+     * @return array|null — данные reservation или null
+     */
+    private function getMainReservation($xml)
+    {
+        if (isset($xml->reservations->reservation)) {
+            foreach ($xml->reservations->reservation as $reservation) {
+                return array(
+                    'rloc'         => (string)$reservation['rloc'],
+                    'rsrv_id'      => (string)$reservation['rsrv_id'],
+                    'crs'          => (string)$reservation['crs'],
+                    'crs_currency' => (string)$reservation['crs_currency'],
+                    'supplier'     => (string)$reservation['supplier'],
+                    'bookingAgent' => (string)$reservation['bookingAgent']
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Находит все связанные prod_id для одного билета (для возвратов).
+     */
+    private function findRelatedProdIds($mainProdId, $travelDocsMap, $conjLinksMap, $airTicketsByProdId)
+    {
+        $prodIds = array($mainProdId);
+        $seen = array($mainProdId => true);
+
+        // По tkt_number (только TKT)
+        $mainDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
+        $tktNumber = $mainDoc ? $mainDoc['tkt_number'] : null;
+
+        if ($tktNumber !== null && $tktNumber !== '') {
+            foreach ($travelDocsMap as $prodId => $doc) {
+                if (isset($seen[$prodId])) {
+                    continue;
+                }
+                if ($doc['tkt_number'] !== $tktNumber) {
+                    continue;
+                }
+                $oper = strtoupper(trim($doc['tkt_oper']));
+                if ($oper !== 'TKT') {
+                    continue;
+                }
+                if (isset($airTicketsByProdId[$prodId])) {
+                    $prodIds[] = $prodId;
+                    $seen[$prodId] = true;
+                }
+            }
+        }
+
+        // По conjLinksMap
+        foreach ($conjLinksMap as $childId => $linkedMainId) {
+            if ($linkedMainId === $mainProdId && !isset($seen[$childId])) {
+                if (isset($airTicketsByProdId[$childId])) {
+                    $prodIds[] = $childId;
+                    $seen[$childId] = true;
+                }
+            }
+        }
+
+        return $prodIds;
+    }
+
+    /**
+     * Анализирует все travel_doc и определяет тип операции заказа.
      */
     private function analyzeOrderType($xml)
     {
@@ -516,7 +673,6 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
-        // Ищем REF или CANX среди всех документов (приоритет над TKT)
         foreach ($allDocs as $doc) {
             if ($doc['tkt_oper'] === 'REF' || $doc['tkt_oper'] === 'CANX' || $doc['tkt_oper'] === 'RFND') {
                 $result['operation'] = $doc['tkt_oper'];
@@ -526,7 +682,6 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
-        // Ищем оригинальный TKT
         foreach ($allDocs as $doc) {
             if ($doc['tkt_oper'] === 'TKT') {
                 $result['original_prod_id'] = $doc['prod_id'];
@@ -534,8 +689,6 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
-        // Если есть возврат, но нет отдельного оригинала — оригинал = возврат
-        // (сценарий CANX: один product, один doc с CANX)
         if ($result['refund_prod_id'] !== null && $result['original_prod_id'] === null) {
             $result['original_prod_id'] = $result['refund_prod_id'];
         }
@@ -544,12 +697,7 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Извлекает сумму штрафа (PENALTY) из возвратного product.
-     * 
-     * Штраф хранится как такса с code="PEN" внутри air_seg.
-     * 
-     * @param SimpleXMLElement $airTicket — элемент <air_ticket_prod> возвратного продукта
-     * @return float — сумма штрафа (0 если штрафа нет)
+     * Извлекает сумму штрафа (PENALTY) из air_ticket_prod.
      */
     private function extractPenalty($airTicket)
     {
@@ -571,58 +719,42 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Собирает карту бронирований из XML.
-     * 
-     * Возвращает массив, где ключ — код поставщика (supplier),
-     * а значение — данные бронирования (номер PNR, валюта CRS и т.д.)
-     * 
-     * @param SimpleXMLElement $xml — корневой элемент XML
-     * @return array — карта бронирований
+     * Собирает УНИКАЛЬНЫЕ купоны из группы продуктов.
      */
-    private function buildReservationsMap($xml)
-    {
-        $map = array();
-
-        if (isset($xml->reservations->reservation)) {
-            foreach ($xml->reservations->reservation as $reservation) {
-                $supplier = (string)$reservation['supplier'];
-                $map[$supplier] = array(
-                    'rloc'         => (string)$reservation['rloc'],
-                    'rsrv_id'      => (string)$reservation['rsrv_id'],
-                    'crs'          => (string)$reservation['crs'],
-                    'crs_currency' => (string)$reservation['crs_currency'],
-                    'supplier'     => $supplier
-                );
-            }
-        }
-
-        return $map;
-    }
-
-    /**
-     * Формирует массив купонов (COUPONS) из сегментов перелёта.
-     * 
-     * Каждый сегмент перелёта (air_seg) превращается в один купон,
-     * содержащий номер рейса, аэропорты, даты и класс.
-     * 
-     * @param SimpleXMLElement $airTicket — элемент <air_ticket_prod>
-     * @return array — массив купонов
-     */
-    private function buildCoupons($airTicket)
+    private function buildCouponsFromGroup($prodIds, $airTicketsByProdId)
     {
         $coupons = array();
+        $seen = array();
 
-        if (isset($airTicket->air_seg)) {
-            foreach ($airTicket->air_seg as $seg) {
-                $coupons[] = array(
-                    'FLIGHT_NUMBER'      => (string)$seg['flight_number'],
-                    'FARE_BASIS'         => (string)$seg['fare_basis'],
-                    'DEPARTURE_AIRPORT'  => (string)$seg['departure_airport'],
-                    'DEPARTURE_DATETIME' => $this->formatDateTime((string)$seg['departure_datetime']),
-                    'ARRIVAL_AIRPORT'    => (string)$seg['arrival_airport'],
-                    'ARRIVAL_DATETIME'   => $this->formatDateTime((string)$seg['arrival_datetime']),
-                    'CLASS'              => (string)$seg['class']
-                );
+        foreach ($prodIds as $prodId) {
+            if (!isset($airTicketsByProdId[$prodId])) {
+                continue;
+            }
+            $airTicket = $airTicketsByProdId[$prodId];
+            if (isset($airTicket->air_seg)) {
+                foreach ($airTicket->air_seg as $seg) {
+                    $flightNumber = (string)$seg['flight_number'];
+                    $depDatetime  = (string)$seg['departure_datetime'];
+                    $depAirport   = (string)$seg['departure_airport'];
+                    $arrAirport   = (string)$seg['arrival_airport'];
+
+                    $dedupeKey = $flightNumber . '|' . $depAirport . '|' . $arrAirport . '|' . $depDatetime;
+
+                    if (isset($seen[$dedupeKey])) {
+                        continue;
+                    }
+                    $seen[$dedupeKey] = true;
+
+                    $coupons[] = array(
+                        'FLIGHT_NUMBER'      => $flightNumber,
+                        'FARE_BASIS'         => (string)$seg['fare_basis'],
+                        'DEPARTURE_AIRPORT'  => $depAirport,
+                        'DEPARTURE_DATETIME' => $this->formatDateTime($depDatetime),
+                        'ARRIVAL_AIRPORT'    => $arrAirport,
+                        'ARRIVAL_DATETIME'   => $this->formatDateTime((string)$seg['arrival_datetime']),
+                        'CLASS'              => (string)$seg['class']
+                    );
+                }
             }
         }
 
@@ -630,20 +762,27 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Формирует массив такс (TAXES) из данных билета.
-     * 
-     * Первым элементом всегда идёт тариф (fare) — это основная стоимость билета.
-     * Затем добавляются отдельные таксы из элементов <air_tax>.
-     * 
-     * @param SimpleXMLElement $airTicket — элемент <air_ticket_prod>
-     * @return array — массив такс
+     * Собирает таксы из группы продуктов с дедупликацией.
      */
-    private function buildTaxes($airTicket)
+    private function buildTaxesFromGroup($prodIds, $airTicketsByProdId)
     {
         $taxes = array();
 
-        // Первая такса — это всегда тариф (основная стоимость билета)
-        $fare = (float)(string)$airTicket['fare'];
+        $mainProdId = $prodIds[0];
+        $maxFare = -1;
+        foreach ($prodIds as $pid) {
+            if (isset($airTicketsByProdId[$pid])) {
+                $f = (float)(string)$airTicketsByProdId[$pid]['fare'];
+                if ($f > $maxFare) {
+                    $maxFare = $f;
+                    $mainProdId = $pid;
+                }
+            }
+        }
+
+        $mainAirTicket = isset($airTicketsByProdId[$mainProdId]) ? $airTicketsByProdId[$mainProdId] : null;
+        $fare = $mainAirTicket ? (float)(string)$mainAirTicket['fare'] : 0;
+
         $taxes[] = array(
             'CODE'              => '',
             'AMOUNT'            => $fare,
@@ -652,20 +791,47 @@ class MoyAgentParser implements ParserInterface
             'VAT_AMOUNT'        => 0
         );
 
-        // Добавляем отдельные таксы из каждого сегмента перелёта
-        if (isset($airTicket->air_seg)) {
+        $seen = array();
+
+        foreach ($prodIds as $prodId) {
+            if (!isset($airTicketsByProdId[$prodId])) {
+                continue;
+            }
+            $airTicket = $airTicketsByProdId[$prodId];
+
+            if (!isset($airTicket->air_seg)) {
+                continue;
+            }
+
             foreach ($airTicket->air_seg as $seg) {
-                if (isset($seg->air_tax)) {
-                    foreach ($seg->air_tax as $tax) {
-                        $amount = (float)(string)$tax['amount'];
-                        $taxes[] = array(
-                            'CODE'              => (string)$tax['code'],
-                            'AMOUNT'            => $amount,
-                            'EQUIVALENT_AMOUNT' => $amount,
-                            'VAT_RATE'          => 0,
-                            'VAT_AMOUNT'        => 0
-                        );
+                $flightNumber = (string)$seg['flight_number'];
+                $depDatetime  = (string)$seg['departure_datetime'];
+                $depAirport   = (string)$seg['departure_airport'];
+                $arrAirport   = (string)$seg['arrival_airport'];
+
+                if (!isset($seg->air_tax)) {
+                    continue;
+                }
+
+                foreach ($seg->air_tax as $tax) {
+                    $code   = (string)$tax['code'];
+                    $amount = (float)(string)$tax['amount'];
+
+                    $dedupeKey = $code . '|' . $amount . '|' . $flightNumber 
+                               . '|' . $depAirport . '|' . $arrAirport . '|' . $depDatetime;
+
+                    if (isset($seen[$dedupeKey])) {
+                        continue;
                     }
+                    $seen[$dedupeKey] = true;
+
+                    $taxes[] = array(
+                        'CODE'              => $code,
+                        'AMOUNT'            => $amount,
+                        'EQUIVALENT_AMOUNT' => $amount,
+                        'VAT_RATE'          => 0,
+                        'VAT_AMOUNT'        => 0
+                    );
                 }
             }
         }
@@ -674,21 +840,12 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Формирует массив комиссий (COMMISSIONS) из данных билета.
-     * 
-     * Из XML берутся два типа комиссий:
-     * 1. Сбор поставщика (service_fee) — записывается как комиссия типа "CLIENT"
-     * 2. Комиссия от поставщика — сумма всех fee с type="commission",
-     *    записывается как комиссия типа "VENDOR"
-     * 
-     * @param SimpleXMLElement $airTicket — элемент <air_ticket_prod>
-     * @return array — массив комиссий
+     * Формирует массив комиссий из данных билета.
      */
     private function buildCommissions($airTicket)
     {
         $commissions = array();
 
-        // Комиссия типа "CLIENT" — сбор поставщика (service_fee)
         $serviceFee = (float)(string)$airTicket['service_fee'];
         if ($serviceFee > 0) {
             $commissions[] = array(
@@ -700,7 +857,6 @@ class MoyAgentParser implements ParserInterface
             );
         }
 
-        // Комиссия типа "VENDOR" — сумма всех fee с type="commission"
         $vendorTotal = 0;
         if (isset($airTicket->fees->fee)) {
             foreach ($airTicket->fees->fee as $fee) {
@@ -725,13 +881,7 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Преобразует дату из формата "Мой агент" в формат RSTLS.
-     * 
-     * Входной формат:  "2025-10-13 12:16:00"
-     * Выходной формат: "20251013121600" (ГГГГММДДччммсс)
-     * 
-     * @param string $dateTime — дата и время в формате поставщика
-     * @return string — дата и время в формате ГГГГММДДччммсс
+     * Преобразует дату: "2025-10-13 12:16:00" → "20251013121600"
      */
     private function formatDateTime($dateTime)
     {
@@ -739,28 +889,17 @@ class MoyAgentParser implements ParserInterface
             return '';
         }
 
-        // Пытаемся разобрать дату с помощью PHP
         $timestamp = strtotime($dateTime);
 
         if ($timestamp === false) {
-            // Если не удалось разобрать — просто убираем все нечисловые символы
             return preg_replace('/[^0-9]/', '', $dateTime);
         }
 
-        // Форматируем в нужный формат: ГГГГММДДччммсс
         return date('YmdHis', $timestamp);
     }
 
     /**
-     * Преобразует тип операции с билетом в статус для ORDER.
-     * 
-     * В XML "Мой агент" тип операции указан в поле tkt_oper:
-     * - TKT  — выписка билета (продажа)
-     * - RFND — возврат билета
-     * - EXCH — обмен билета
-     * 
-     * @param string $tktOper — тип операции из XML
-     * @return string — статус для JSON ("продажа", "возврат", "обмен")
+     * Преобразует тип операции в статус ORDER.
      */
     private function mapTicketStatus($tktOper)
     {
@@ -777,13 +916,7 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Преобразует тип пассажира из формата поставщика в формат ORDER.
-     * 
-     * В XML "Мой агент" тип указан кратко: adt, chd, inf
-     * В ORDER нужен полный вариант: ADULT, CHILD, INFANT
-     * 
-     * @param string $psgType — тип пассажира из XML (adt, chd, inf)
-     * @return string — тип для JSON (ADULT, CHILD, INFANT)
+     * Преобразует тип пассажира: adt→ADULT, chd→CHILD, inf→INFANT
      */
     private function mapPassengerAge($psgType)
     {
@@ -797,5 +930,4 @@ class MoyAgentParser implements ParserInterface
         $psgType = strtolower(trim($psgType));
         return isset($ageMap[$psgType]) ? $ageMap[$psgType] : 'ADULT';
     }
-
 }

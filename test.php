@@ -11,6 +11,8 @@
  * Не отправляет данные в API, не перемещает файлы.
  * Только парсинг и проверка структуры JSON.
  * 
+ * Версия: V5 (обновлены проверки под MoyAgentParser V5)
+ * 
  * Запуск: открыть в браузере test.php
  *         или из CLI: php test.php
  * ============================================================
@@ -32,65 +34,186 @@ $testDir = __DIR__ . '/tests/fixtures';
 // Ключ — имя файла, значение — что должно быть в результате
 $expectations = array(
 
+    // -------------------------------------------------
+    // Тест 1: Простая продажа, 1 билет, 2 сегмента
+    // Без конъюнкций (только service_prod),
+    // есть комиссии (fees), есть service_fee
+    // reservation без bookingAgent
+    // issuingAgent="1" (числовой, не ФИО)
+    // -------------------------------------------------
     '125358843227.xml' => array(
-        'description'    => 'Продажа, 1 билет, 2 сегмента, SVO→KZN→SVO',
-        'status'         => 'продажа',
-        'products_count' => 1,
-        'invoice_number' => '125358843227',
-        'client'         => 'MA1PA6',
-        'ticket_number'  => '5552379893379',
-        'traveller'      => 'SMIRNOV ALEKSEI',
-        'carrier'        => 'SU',
-        'coupons_count'  => 2,
-        'currency'       => 'RUB',
-        'fare'           => 6650.0,
-        'has_refund'     => false,
+        'description'        => 'Продажа, 1 билет, 2 сегмента, SVO→KZN→SVO',
+        'status'             => 'продажа',
+        'products_count'     => 1,
+        'invoice_number'     => '125358843227',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '5552379893379',
+        'traveller'          => 'SMIRNOV ALEKSEI',
+        'carrier'            => 'SU',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 6650.0,
+        'has_refund'         => false,
+        // V5: новые проверки
+        'supplier'           => 'Мой агент',
+        'reservation_number' => '8C37F9',
+        'conj_count'         => 1,
+        // Даты первого и последнего купона
+        'first_dep_dt'       => '20260210180500',
+        'first_arr_dt'       => '20260210194500',
+        'last_dep_dt'        => '20260211153500',
+        'last_arr_dt'        => '20260211172000',
+        // Комиссии: service_fee=299.18 → CLIENT "Сбор поставщика"
+        'has_client_commission' => true,
+        'client_commission_amount' => 299.18,
+        // VENDOR комиссии из fees (сумма: 1+0+300+0+1 = 302)
+        'has_vendor_commission' => true,
+        'vendor_commission_amount' => 302.0,
     ),
 
+    // -------------------------------------------------
+    // Тест 2: Продажа, 3 билета, 3 пассажира
+    // Без конъюнкций, каждый пассажир — отдельный air_ticket_prod
+    // service_fee=299.73, есть fees (комиссии)
+    // -------------------------------------------------
     '125358829987.xml' => array(
-        'description'    => 'Продажа, 3 билета, 3 пассажира, SVO→DXB→SVO',
-        'status'         => 'продажа',
-        'products_count' => 3,
-        'invoice_number' => '125358829987',
-        'client'         => 'MA1PA6',
-        'ticket_number'  => '5552379660767',
-        'traveller'      => 'MUSTAFINA ULIANA',
-        'carrier'        => 'SU',
-        'coupons_count'  => 2,
-        'currency'       => 'RUB',
-        'fare'           => 70640.0,
-        'has_refund'     => false,
+        'description'        => 'Продажа, 3 билета, 3 пассажира, SVO→DXB→SVO',
+        'status'             => 'продажа',
+        'products_count'     => 3,
+        'invoice_number'     => '125358829987',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '5552379660767',
+        'traveller'          => 'MUSTAFINA ULIANA',
+        'carrier'            => 'SU',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 70640.0,
+        'has_refund'         => false,
+        // V5
+        'supplier'           => 'Мой агент',
+        'reservation_number' => '8XGWB4',
+        'conj_count'         => 1,
+        // Все 3 пассажира и билета
+        'all_travellers'     => array(
+            'MUSTAFINA ULIANA',
+            'PETROV NIKOLAI',
+            'VLASOV OLEG',
+        ),
+        'all_tickets'        => array(
+            '5552379660767',
+            '5552379660766',
+            '5552379660768',
+        ),
     ),
 
+    // -------------------------------------------------
+    // Тест 3: Продажа с конъюнкцией (EMD)
+    // prod_id=0 (основной, fare=28497) + prod_id=1 (emd, fare=2027.63)
+    // emd_ticket_doc prod_id="1" main_prod_id="0"
+    // Группировка: 2 air_ticket_prod → 1 PRODUCT
+    // Валюта: crs_currency=EUR, но fare в RUB
+    // -------------------------------------------------
     '125358832021.xml' => array(
-        'description'    => 'Продажа, 1 билет + EMD, MXP→CDG, валюта EUR→RUB',
-        'status'         => 'продажа',
-        'products_count' => 2,
-        'invoice_number' => '125358832021',
-        'client'         => 'MA1PA6',
-        'ticket_number'  => '0572675175754',
-        'traveller'      => 'PETROVA EVGENIYA',
-        'carrier'        => 'AF',
-        'coupons_count'  => 1,
-        'currency'       => 'RUB',
-        'fare'           => 28497.0,
-        'has_refund'     => false,
+        'description'        => 'Продажа, 1 билет + EMD (конъюнкция), MXP→CDG, EUR→RUB',
+        'status'             => 'продажа',
+        'products_count'     => 1,
+        'invoice_number'     => '125358832021',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '0572675175754',
+        'traveller'          => 'PETROVA EVGENIYA',
+        'carrier'            => 'AF',
+        'coupons_count'      => 1,
+        'currency'           => 'RUB',
+        'fare'               => 28497.0,
+        'has_refund'         => false,
+        // V5: конъюнкция — 2 air_ticket_prod → 1 PRODUCT
+        'supplier'           => 'Мой агент',
+        'reservation_number' => 'FV2R0F',
+        'conj_count'         => 2,
+        // Даты единственного сегмента
+        'first_dep_dt'       => '20260207113500',
+        'first_arr_dt'       => '20260207131000',
     ),
 
+    // -------------------------------------------------
+    // Тест 4: Возврат REF
+    // prod_id=0 (TKT, fare=138300) + prod_id=1 (emd, main_prod_id=0)
+    // prod_id=3 (REF, fare=138300, penalty PEN=3500)
+    // air_ticket_doc prod_id=0 tkt_oper=TKT
+    // air_ticket_doc prod_id=3 tkt_oper=REF
+    // 2 сегмента SVO→OVB→SVO
+    // -------------------------------------------------
     '125358832769.xml' => array(
-        'description'    => 'Возврат REF, penalty 3500, SVO→OVB→SVO',
-        'status'         => 'возврат',
-        'products_count' => 1,
-        'invoice_number' => '125358832769',
-        'client'         => 'MA1PA6',
-        'ticket_number'  => '5552379788609',
-        'traveller'      => 'SHKULEV VIKTOR',
-        'carrier'        => 'SU',
-        'coupons_count'  => 2,
-        'currency'       => 'RUB',
-        'fare'           => 138300.0,
-        'has_refund'     => true,
-        'penalty'        => 3500.0,
+        'description'        => 'Возврат REF, penalty 3500, SVO→OVB→SVO',
+        'status'             => 'возврат',
+        'products_count'     => 1,
+        'invoice_number'     => '125358832769',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '5552379788609',
+        'traveller'          => 'SHKULEV VIKTOR',
+        'carrier'            => 'SU',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 138300.0,
+        'has_refund'         => true,
+        'penalty'            => 3500.0,
+        // V5
+        'supplier'           => 'Мой агент',
+        'reservation_number' => '8XMK4C',
+        // REFUND.AMOUNT = fare + taxes - penalty = 138300 + 1502 - 3500 = 136302
+        'refund_amount'      => 136302.0,
+    ),
+
+    // -------------------------------------------------
+    // Тест 5: Продажа, 5 пассажиров с конъюнкциями
+    // 10 air_ticket_prod → 5 PRODUCTS
+    // Каждый пассажир: основной (supplier=607, fare=787970)
+    //                + конъюнкция (supplier=BSP_RU1, fare=0)
+    // emd_ticket_doc main_prod_id связывает попарно
+    // reservation bookingAgent="Валерия Подунай"
+    // air_ticket_doc issuingAgent="Валерия Подунай"
+    // КЛЮЧЕВОЙ ТЕСТ НА КОНЪЮНКЦИИ + МАППИНГ ПОЛЕЙ V5
+    // -------------------------------------------------
+    '125359005865.xml' => array(
+        'description'        => 'Продажа, 5 билетов + конъюнкции (emd), SVO→AUH→SVO',
+        'status'             => 'продажа',
+        'products_count'     => 5,
+        'invoice_number'     => '125359005865',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '6076506222015',
+        'traveller'          => 'MAKAROV KONSTANTIN',
+        'carrier'            => 'EY',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 787970.0,
+        'has_refund'         => false,
+        // V5: конъюнкции + маппинг полей
+        'supplier'           => 'Мой агент',
+        'reservation_number' => 'G1ZXKP',
+        'booking_agent'      => 'Валерия Подунай',
+        'agent'              => 'Валерия Подунай',
+        'conj_count'         => 2,
+        // Даты: 2 сегмента
+        'first_dep_dt'       => '20260405124000',
+        'first_arr_dt'       => '20260405191000',
+        'last_dep_dt'        => '20260411141500',
+        'last_arr_dt'        => '20260411190500',
+        // Все 5 пассажиров
+        'all_travellers'     => array(
+            'MAKAROV KONSTANTIN',
+            'BAIBOLOVA DINA',
+            'MAKAROVA TATIANA',
+            'MAKAROVA EKATERINA',
+            'MAKAROVA EKATERINA',
+        ),
+        // Все 5 номеров билетов
+        'all_tickets'        => array(
+            '6076506222015',
+            '6076506222017',
+            '6076506222018',
+            '6076506222014',
+            '6076506222016',
+        ),
     ),
 );
 
@@ -99,10 +222,29 @@ $expectations = array(
 // =====================================================
 
 $parser = new MoyAgentParser();
-$results = array();     // Результаты всех файлов
+$results = array();
 $totalTests = 0;
 $passedTests = 0;
 $failedTests = 0;
+
+/**
+ * Вспомогательная функция — добавляет проверку.
+ */
+function addCheck(&$fileResult, &$totalTests, &$passedTests, &$failedTests, $name, $ok, $expected, $actual)
+{
+    $totalTests++;
+    if ($ok) {
+        $passedTests++;
+    } else {
+        $failedTests++;
+    }
+    $fileResult['checks'][] = array(
+        'name'     => $name,
+        'ok'       => $ok,
+        'expected' => is_array($expected) ? implode(', ', $expected) : (string)$expected,
+        'actual'   => is_array($actual) ? implode(', ', $actual) : (string)$actual,
+    );
+}
 
 foreach ($expectations as $fileName => $expected) {
     $filePath = $testDir . '/' . $fileName;
@@ -130,121 +272,272 @@ foreach ($expectations as $fileName => $expected) {
         continue;
     }
 
-    // --- Проверки ---
+    // =============================================
+    // БАЗОВЫЕ ПРОВЕРКИ (уровень ORDER)
+    // =============================================
 
-    // Парсинг успешен
-    $totalTests++;
-    $ok = ($data !== null);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Парсинг', 'ok' => $ok, 'expected' => 'без ошибок', 'actual' => $ok ? 'OK' : 'FAIL');
+    // 1. Парсинг успешен
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Парсинг', ($data !== null), 'без ошибок', $data !== null ? 'OK' : 'FAIL');
 
-    // UID заказа
-    $totalTests++;
-    $ok = (!empty($data['UID']) && strlen($data['UID']) === 36);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'UID заказа', 'ok' => $ok, 'expected' => 'UUID (36 символов)', 'actual' => isset($data['UID']) ? $data['UID'] : '—');
+    // 2. UID заказа
+    $uid = isset($data['UID']) ? $data['UID'] : '';
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'UID заказа', (!empty($uid) && strlen($uid) === 36), 'UUID (36 символов)', $uid);
 
-    // INVOICE_NUMBER
-    $totalTests++;
+    // 3. INVOICE_NUMBER
     $actual = isset($data['INVOICE_NUMBER']) ? $data['INVOICE_NUMBER'] : '';
-    $ok = ($actual === $expected['invoice_number']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'INVOICE_NUMBER', 'ok' => $ok, 'expected' => $expected['invoice_number'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'INVOICE_NUMBER', ($actual === $expected['invoice_number']), $expected['invoice_number'], $actual);
 
-    // CLIENT
-    $totalTests++;
+    // 4. CLIENT
     $actual = isset($data['CLIENT']) ? $data['CLIENT'] : '';
-    $ok = ($actual === $expected['client']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'CLIENT', 'ok' => $ok, 'expected' => $expected['client'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'CLIENT', ($actual === $expected['client']), $expected['client'], $actual);
 
-    // Количество продуктов
-    $totalTests++;
+    // 5. Количество продуктов
     $actual = isset($data['PRODUCTS']) ? count($data['PRODUCTS']) : 0;
-    $ok = ($actual === $expected['products_count']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Продуктов', 'ok' => $ok, 'expected' => $expected['products_count'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Продуктов', ($actual === $expected['products_count']), $expected['products_count'], $actual);
 
-    // Берём первый продукт для детальных проверок
+    // =============================================
+    // ПРОВЕРКИ ПЕРВОГО ПРОДУКТА
+    // =============================================
+
     $p = isset($data['PRODUCTS'][0]) ? $data['PRODUCTS'][0] : array();
 
-    // Статус
-    $totalTests++;
+    // 6. Статус
     $actual = isset($p['STATUS']) ? $p['STATUS'] : '';
-    $ok = ($actual === $expected['status']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Статус', 'ok' => $ok, 'expected' => $expected['status'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Статус', ($actual === $expected['status']), $expected['status'], $actual);
 
-    // Номер билета
-    $totalTests++;
+    // 7. Номер билета
     $actual = isset($p['NUMBER']) ? $p['NUMBER'] : '';
-    $ok = ($actual === $expected['ticket_number']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Номер билета', 'ok' => $ok, 'expected' => $expected['ticket_number'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Номер билета', ($actual === $expected['ticket_number']), $expected['ticket_number'], $actual);
 
-    // Пассажир
-    $totalTests++;
+    // 8. Пассажир
     $actual = isset($p['TRAVELLER']) ? $p['TRAVELLER'] : '';
-    $ok = ($actual === $expected['traveller']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Пассажир', 'ok' => $ok, 'expected' => $expected['traveller'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Пассажир', ($actual === $expected['traveller']), $expected['traveller'], $actual);
 
-    // Перевозчик
-    $totalTests++;
+    // 9. Перевозчик
     $actual = isset($p['CARRIER']) ? $p['CARRIER'] : '';
-    $ok = ($actual === $expected['carrier']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Перевозчик', 'ok' => $ok, 'expected' => $expected['carrier'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Перевозчик', ($actual === $expected['carrier']), $expected['carrier'], $actual);
 
-    // Купоны
-    $totalTests++;
+    // 10. Купоны
     $actual = isset($p['COUPONS']) ? count($p['COUPONS']) : 0;
-    $ok = ($actual === $expected['coupons_count']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Купонов', 'ok' => $ok, 'expected' => $expected['coupons_count'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Купонов', ($actual === $expected['coupons_count']), $expected['coupons_count'], $actual);
 
-    // Валюта
-    $totalTests++;
+    // 11. Валюта
     $actual = isset($p['CURRENCY']) ? $p['CURRENCY'] : '';
-    $ok = ($actual === $expected['currency']);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Валюта', 'ok' => $ok, 'expected' => $expected['currency'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Валюта', ($actual === $expected['currency']), $expected['currency'], $actual);
 
-    // Тариф (первая такса = fare)
-    $totalTests++;
+    // 12. Тариф (первая такса = fare, CODE="")
     $actual = (isset($p['TAXES'][0]['AMOUNT'])) ? (float)$p['TAXES'][0]['AMOUNT'] : 0;
-    $ok = (abs($actual - $expected['fare']) < 0.01);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'Тариф (fare)', 'ok' => $ok, 'expected' => $expected['fare'], 'actual' => $actual);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Тариф (fare)', (abs($actual - $expected['fare']) < 0.01), $expected['fare'], $actual);
 
-    // UID продукта
-    $totalTests++;
-    $actual = isset($p['UID']) ? $p['UID'] : '';
-    $ok = (strlen($actual) === 36);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'UID продукта', 'ok' => $ok, 'expected' => 'UUID (36 символов)', 'actual' => $actual);
+    // 13. UID продукта
+    $puid = isset($p['UID']) ? $p['UID'] : '';
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'UID продукта', (strlen($puid) === 36), 'UUID (36 символов)', $puid);
 
-    // JSON сериализация
-    $totalTests++;
+    // 14. JSON сериализация
     $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    $ok = ($json !== false && json_last_error() === JSON_ERROR_NONE);
-    if ($ok) $passedTests++; else $failedTests++;
-    $fileResult['checks'][] = array('name' => 'JSON сериализация', 'ok' => $ok, 'expected' => 'валидный JSON', 'actual' => $ok ? strlen($json) . ' байт' : json_last_error_msg());
+    $jsonOk = ($json !== false && json_last_error() === JSON_ERROR_NONE);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'JSON сериализация', $jsonOk, 'валидный JSON', $jsonOk ? strlen($json) . ' байт' : json_last_error_msg());
 
+    // =============================================
+    // V5: SUPPLIER
+    // =============================================
+
+    if (isset($expected['supplier'])) {
+        $actual = isset($p['SUPPLIER']) ? $p['SUPPLIER'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'SUPPLIER', ($actual === $expected['supplier']), $expected['supplier'], $actual);
+    }
+
+    // =============================================
+    // V5: RESERVATION_NUMBER
+    // =============================================
+
+    if (isset($expected['reservation_number'])) {
+        $actual = isset($p['RESERVATION_NUMBER']) ? $p['RESERVATION_NUMBER'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'RESERVATION_NUMBER', ($actual === $expected['reservation_number']), $expected['reservation_number'], $actual);
+    }
+
+    // =============================================
+    // V5: CONJ_COUNT
+    // =============================================
+
+    if (isset($expected['conj_count'])) {
+        $actual = isset($p['CONJ_COUNT']) ? (int)$p['CONJ_COUNT'] : 0;
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'CONJ_COUNT', ($actual === $expected['conj_count']), $expected['conj_count'], $actual);
+    }
+
+    // =============================================
+    // V5: BOOKING_AGENT
+    // =============================================
+
+    if (isset($expected['booking_agent'])) {
+        $actual = '';
+        if (isset($p['BOOKING_AGENT'])) {
+            $ba = $p['BOOKING_AGENT'];
+            $actual = is_array($ba) ? (isset($ba['NAME']) ? $ba['NAME'] : '') : (string)$ba;
+        }
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'BOOKING_AGENT', ($actual === $expected['booking_agent']), $expected['booking_agent'], $actual);
+    }
+
+    // =============================================
+    // V5: AGENT
+    // =============================================
+
+    if (isset($expected['agent'])) {
+        $actual = '';
+        if (isset($p['AGENT'])) {
+            $ag = $p['AGENT'];
+            $actual = is_array($ag) ? (isset($ag['NAME']) ? $ag['NAME'] : '') : (string)$ag;
+        }
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'AGENT', ($actual === $expected['agent']), $expected['agent'], $actual);
+    }
+
+    // =============================================
+    // V5: ДАТЫ ВЫЛЕТА/ПРИЛЁТА
+    // =============================================
+
+    if (isset($expected['first_dep_dt']) && !empty($p['COUPONS'])) {
+        $firstCoupon = $p['COUPONS'][0];
+        $lastCoupon = end($p['COUPONS']);
+
+        $actual = isset($firstCoupon['DEPARTURE_DATETIME']) ? $firstCoupon['DEPARTURE_DATETIME'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Вылет (1-й сегм.)', ($actual === $expected['first_dep_dt']), $expected['first_dep_dt'], $actual);
+
+        if (isset($expected['first_arr_dt'])) {
+            $actual = isset($firstCoupon['ARRIVAL_DATETIME']) ? $firstCoupon['ARRIVAL_DATETIME'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Прилёт (1-й сегм.)', ($actual === $expected['first_arr_dt']), $expected['first_arr_dt'], $actual);
+        }
+
+        if (isset($expected['last_dep_dt'])) {
+            $actual = isset($lastCoupon['DEPARTURE_DATETIME']) ? $lastCoupon['DEPARTURE_DATETIME'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Вылет (посл. сегм.)', ($actual === $expected['last_dep_dt']), $expected['last_dep_dt'], $actual);
+        }
+
+        if (isset($expected['last_arr_dt'])) {
+            $actual = isset($lastCoupon['ARRIVAL_DATETIME']) ? $lastCoupon['ARRIVAL_DATETIME'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Прилёт (посл. сегм.)', ($actual === $expected['last_arr_dt']), $expected['last_arr_dt'], $actual);
+        }
+    }
+
+    // =============================================
+    // V5: КОМИССИИ — CLIENT (service_fee)
+    // =============================================
+
+    if (isset($expected['has_client_commission']) && $expected['has_client_commission']) {
+        $foundClient = false;
+        $clientAmount = 0;
+        if (!empty($p['COMMISSIONS'])) {
+            foreach ($p['COMMISSIONS'] as $comm) {
+                if (isset($comm['TYPE']) && $comm['TYPE'] === 'CLIENT') {
+                    $foundClient = true;
+                    $clientAmount = isset($comm['EQUIVALENT_AMOUNT']) ? (float)$comm['EQUIVALENT_AMOUNT'] : 0;
+                    break;
+                }
+            }
+        }
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Комиссия CLIENT', $foundClient, 'присутствует', $foundClient ? 'есть' : 'нет');
+
+        if (isset($expected['client_commission_amount'])) {
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'CLIENT сумма', (abs($clientAmount - $expected['client_commission_amount']) < 0.01),
+                $expected['client_commission_amount'], $clientAmount);
+        }
+    }
+
+    // =============================================
+    // V5: КОМИССИИ — VENDOR (fees)
+    // =============================================
+
+    if (isset($expected['has_vendor_commission']) && $expected['has_vendor_commission']) {
+        $foundVendor = false;
+        $vendorAmount = 0;
+        if (!empty($p['COMMISSIONS'])) {
+            foreach ($p['COMMISSIONS'] as $comm) {
+                if (isset($comm['TYPE']) && $comm['TYPE'] === 'VENDOR') {
+                    $foundVendor = true;
+                    $vendorAmount = isset($comm['EQUIVALENT_AMOUNT']) ? (float)$comm['EQUIVALENT_AMOUNT'] : 0;
+                    break;
+                }
+            }
+        }
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Комиссия VENDOR', $foundVendor, 'присутствует', $foundVendor ? 'есть' : 'нет');
+
+        if (isset($expected['vendor_commission_amount'])) {
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'VENDOR сумма', (abs($vendorAmount - $expected['vendor_commission_amount']) < 0.01),
+                $expected['vendor_commission_amount'], $vendorAmount);
+        }
+    }
+
+    // =============================================
     // REFUND (только для возвратов)
+    // =============================================
+
     if ($expected['has_refund']) {
-        $totalTests++;
-        $ok = isset($p['REFUND']);
-        if ($ok) $passedTests++; else $failedTests++;
-        $fileResult['checks'][] = array('name' => 'Блок REFUND', 'ok' => $ok, 'expected' => 'присутствует', 'actual' => $ok ? 'есть' : 'нет');
+        $hasRefund = isset($p['REFUND']);
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Блок REFUND', $hasRefund, 'присутствует', $hasRefund ? 'есть' : 'нет');
 
         if (isset($expected['penalty'])) {
-            $totalTests++;
             $actual = isset($p['PENALTY']) ? (float)$p['PENALTY'] : 0;
-            $ok = (abs($actual - $expected['penalty']) < 0.01);
-            if ($ok) $passedTests++; else $failedTests++;
-            $fileResult['checks'][] = array('name' => 'PENALTY', 'ok' => $ok, 'expected' => $expected['penalty'], 'actual' => $actual);
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'PENALTY', (abs($actual - $expected['penalty']) < 0.01), $expected['penalty'], $actual);
         }
+
+        if (isset($expected['refund_amount']) && $hasRefund) {
+            $actual = isset($p['REFUND']['AMOUNT']) ? (float)$p['REFUND']['AMOUNT'] : 0;
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'REFUND.AMOUNT', (abs($actual - $expected['refund_amount']) < 0.01),
+                $expected['refund_amount'], $actual);
+        }
+    }
+
+    // =============================================
+    // V5: ПРОВЕРКА ВСЕХ ПРОДУКТОВ (multi-passenger)
+    // =============================================
+
+    if (isset($expected['all_travellers'])) {
+        $actualTravellers = array();
+        foreach ($data['PRODUCTS'] as $prod) {
+            $actualTravellers[] = isset($prod['TRAVELLER']) ? $prod['TRAVELLER'] : '';
+        }
+        $ok = ($actualTravellers == $expected['all_travellers']);
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Все пассажиры', $ok, $expected['all_travellers'], $actualTravellers);
+    }
+
+    if (isset($expected['all_tickets'])) {
+        $actualTickets = array();
+        foreach ($data['PRODUCTS'] as $prod) {
+            $actualTickets[] = isset($prod['NUMBER']) ? $prod['NUMBER'] : '';
+        }
+        $ok = ($actualTickets == $expected['all_tickets']);
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Все номера билетов', $ok, $expected['all_tickets'], $actualTickets);
     }
 
     $results[] = $fileResult;
@@ -259,7 +552,7 @@ $isCli = (php_sapi_name() === 'cli');
 if ($isCli) {
     // ----- КОНСОЛЬНЫЙ ВЫВОД -----
     echo "============================================================\n";
-    echo " АВТОТЕСТЫ ПАРСЕРА MoyAgentParser\n";
+    echo " АВТОТЕСТЫ ПАРСЕРА MoyAgentParser V5\n";
     echo " " . date('Y-m-d H:i:s') . "\n";
     echo "============================================================\n\n";
 
@@ -284,7 +577,8 @@ if ($isCli) {
     }
 
     echo "============================================================\n";
-    echo " Тестов: {$totalTests} | Прошло: {$passedTests} | Упало: {$failedTests}\n";
+    echo " Файлов: " . count($results) . " | Тестов: {$totalTests}";
+    echo " | Прошло: {$passedTests} | Упало: {$failedTests}\n";
     echo "============================================================\n";
     exit($failedTests > 0 ? 1 : 0);
 }
@@ -301,10 +595,6 @@ if ($isCli) {
     <title>XML Parser — Автотесты</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
-        /* ========================================== */
-        /* Стили страницы тестов                      */
-        /* ========================================== */
-
         .test-summary {
             display: flex;
             gap: 20px;
@@ -336,16 +626,6 @@ if ($isCli) {
             color: #c62828;
         }
 
-        .test-summary__card--allfailed {
-            background: #ffebee;
-            color: #c62828;
-        }
-
-        .test-summary__card--allpassed {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-
         .test-summary__label {
             font-size: 12px;
             font-weight: 400;
@@ -354,7 +634,6 @@ if ($isCli) {
             opacity: 0.7;
         }
 
-        /* Блок файла */
         .test-file {
             background: #fff;
             border: 1px solid #e0e0e0;
@@ -430,7 +709,6 @@ if ($isCli) {
             color: #e65100;
         }
 
-        /* Таблица проверок */
         .test-file__body {
             padding: 0 20px 16px;
         }
@@ -466,7 +744,7 @@ if ($isCli) {
         }
 
         .test-checks__name {
-            width: 160px;
+            width: 180px;
         }
 
         .test-checks__expected {
@@ -484,12 +762,10 @@ if ($isCli) {
             font-size: 13px;
         }
 
-        /* Кнопка перезапуска */
         .test-actions {
             margin-bottom: 20px;
         }
 
-        /* Время выполнения */
         .test-meta {
             color: #9e9e9e;
             font-size: 12px;
@@ -517,19 +793,18 @@ if ($isCli) {
 
     <main class="main">
         <section class="panel">
-            <h2 class="panel__title">Результаты тестов</h2>
+            <h2 class="panel__title">Результаты тестов — MoyAgentParser V5</h2>
 
-            <!-- Время и кнопка -->
             <div class="test-meta">
                 Запуск: <?php echo date('Y-m-d H:i:s'); ?> &nbsp;|&nbsp;
-                Папка: <code><?php echo htmlspecialchars($testDir); ?></code>
+                Папка: <code><?php echo htmlspecialchars($testDir); ?></code> &nbsp;|&nbsp;
+                Файлов: <?php echo count($results); ?>
             </div>
 
             <div class="test-actions">
                 <a href="test.php" class="btn btn--primary">↻ Перезапустить тесты</a>
             </div>
 
-            <!-- Сводка -->
             <div class="test-summary">
                 <div class="test-summary__card test-summary__card--total">
                     <?php echo $totalTests; ?>
@@ -545,16 +820,15 @@ if ($isCli) {
                 </div>
             </div>
 
-            <!-- Результаты по файлам -->
             <?php foreach ($results as $r): ?>
                 <?php
-                    // Определяем статус файла
                     if ($r['error']) {
                         $fileStatus = 'error';
                         $fileIcon = '⚠️';
                         $badgeText = 'ОШИБКА';
                     } else {
                         $hasFailures = false;
+                        $checkCount = count($r['checks']);
                         foreach ($r['checks'] as $c) {
                             if (!$c['ok']) { $hasFailures = true; break; }
                         }
@@ -565,13 +839,13 @@ if ($isCli) {
                         } else {
                             $fileStatus = 'pass';
                             $fileIcon = '✅';
-                            $badgeText = 'PASS';
+                            $badgeText = "PASS ({$checkCount})";
                         }
                     }
                 ?>
                 <div class="test-file">
                     <div class="test-file__header test-file__header--<?php echo $fileStatus; ?>"
-                         onclick="this.parentElement.querySelector('.test-file__body, .test-file__error').classList.toggle('hidden')">
+                         onclick="toggleBody(this)">
                         <span class="test-file__icon"><?php echo $fileIcon; ?></span>
                         <span class="test-file__name">
                             <?php echo htmlspecialchars($r['file']); ?>
@@ -587,7 +861,7 @@ if ($isCli) {
                             <?php echo htmlspecialchars($r['error']); ?>
                         </div>
                     <?php else: ?>
-                        <div class="test-file__body <?php echo $fileStatus === 'pass' ? 'hidden' : ''; ?>">
+                        <div class="test-file__body" style="<?php echo $fileStatus === 'pass' ? 'display:none' : ''; ?>">
                             <table class="test-checks">
                                 <thead>
                                     <tr>
@@ -629,24 +903,12 @@ if ($isCli) {
     </footer>
 
     <script>
-        // Класс hidden для сворачивания/разворачивания блоков
-        document.querySelectorAll('.hidden').forEach(function(el) {
-            el.style.display = 'none';
-        });
-
-        // Переключение видимости при клике на заголовок
-        document.querySelectorAll('.test-file__header').forEach(function(header) {
-            header.addEventListener('click', function() {
-                var body = this.parentElement.querySelector('.test-file__body, .test-file__error');
-                if (body) {
-                    if (body.style.display === 'none') {
-                        body.style.display = '';
-                    } else {
-                        body.style.display = 'none';
-                    }
-                }
-            });
-        });
+        function toggleBody(header) {
+            var body = header.parentElement.querySelector('.test-file__body, .test-file__error');
+            if (body) {
+                body.style.display = (body.style.display === 'none') ? '' : 'none';
+            }
+        }
     </script>
 </body>
 </html>
