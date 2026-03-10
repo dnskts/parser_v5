@@ -1,11 +1,21 @@
 {
-    "interval": 15,
-    "last_run": 1772544814,
+    "interval": 60,
+    "last_run": 0,
     "api": {
         "enabled": true,
-        "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
+        "url": "http://10.30.88.24/TRADE/hs/CRM_Exchange/Order",
         "login": "api_user",
         "password": "api_password",
         "timeout": 5
+    },
+    "sftp": {
+        "enabled": true,
+        "host": "10.4.175.11",
+        "port": 22,
+        "login": "myagent",
+        "password": "Kur123",
+        "remote_path": "ma-files",
+        "local_path": "input/moyagent",
+        "interval": 60
     }
 }
