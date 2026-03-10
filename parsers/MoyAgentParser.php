@@ -22,8 +22,9 @@
  * Обработка конъюнкций (CONJ):
  * Один билет может быть разбит на несколько air_ticket_prod с разными
  * prod_id. Связь определяется через:
- * 1. Одинаковый tkt_number в air_ticket_doc (travel_docs)
- * 2. Атрибут main_prod_id в emd_ticket_doc (travel_docs)
+ * 1. Атрибут main_prod_id в emd_ticket_doc (travel_docs) — явная связь
+ * 2. Косвенные признаки: fare=0, нет сегментов, последовательный tkt_number,
+ *    тот же пассажир — «скрытая конъюнкция» (V6)
  * Парсер группирует такие продукты, собирает купоны и таксы
  * с дедупликацией, финансы берёт из главного продукта (с максимальным fare).
  * 
@@ -120,10 +121,9 @@ class MoyAgentParser implements ParserInterface
         $passengersMap = $this->buildPassengersMap($xml);
         $travelDocsMap = $this->buildTravelDocsMap($xml);
         $reservationsMap = $this->buildReservationsMap($xml);
-        $conjLinksMap = $this->buildConjLinksMap($xml);
+        $conjLinksMap = $this->buildConjLinksMap($xml, $travelDocsMap);
 
         // Получаем данные первой (основной) reservation для SUPPLIER и PNR
-        // В XML "Мой агент" обычно одна reservation на весь заказ
         $mainReservation = $this->getMainReservation($xml);
 
         // -------------------------------------------------------
@@ -172,10 +172,8 @@ class MoyAgentParser implements ParserInterface
                 throw new Exception("Не найден air_ticket_prod для возврата");
             }
 
-            // Номер бронирования — из reservation
             $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
 
-            // Пассажир
             $psgId = $refundDoc ? $refundDoc['psgr_id'] : '';
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = '';
@@ -183,22 +181,18 @@ class MoyAgentParser implements ParserInterface
                 $traveller = $passenger['name'] . ' ' . $passenger['first_name'];
             }
 
-            // Номер билета и даты
             $ticketNumber = $refundDoc ? $refundDoc['tkt_number'] : '';
             $refundDate = $refundDoc ? $this->formatDateTime($refundDoc['tkt_date']) : '';
 
             $origDoc = isset($travelDocsMap[$origProdId]) ? $travelDocsMap[$origProdId] : null;
             $issueDate = $origDoc ? $this->formatDateTime($origDoc['tkt_date']) : $refundDate;
 
-            // Агент — из air_ticket_doc (имя, не числовой ID)
             $issuingAgentName = $origDoc ? $origDoc['issuingAgent'] : '';
-            // Бронирующий агент — из reservation
             $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
             $psgType = (string)$origAirTicket['psg_type'];
             $passengerAge = $this->mapPassengerAge($psgType);
 
-            // Связанные prod_id для купонов и такс
             $relatedProdIds = $this->findRelatedProdIds($origProdId, $travelDocsMap, $conjLinksMap, $airTicketsByProdId);
 
             $coupons = $this->buildCouponsFromGroup($relatedProdIds, $airTicketsByProdId);
@@ -317,9 +311,9 @@ class MoyAgentParser implements ParserInterface
                     $ticketGroups[$groupKey][] = $prodId;
                     $assignedProdIds[$prodId] = true;
 
-                    // Добавляем child-продукты
+                    // Добавляем child-продукты (ИСПРАВЛЕНО V6: приведение типов)
                     foreach ($childProdIds as $childId => $mainId) {
-                        if ($mainId === $prodId && !isset($assignedProdIds[$childId])) {
+                        if ((string)$mainId === (string)$prodId && !isset($assignedProdIds[$childId])) {
                             $ticketGroups[$groupKey][] = $childId;
                             $assignedProdIds[$childId] = true;
                         }
@@ -362,12 +356,8 @@ class MoyAgentParser implements ParserInterface
 
                 $travelDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
 
-                // Номер бронирования — из reservation (единый для заказа)
                 $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
-
-                // Агент выписки — из air_ticket_doc (ФИО, не числовой ID)
                 $issuingAgentName = $travelDoc ? $travelDoc['issuingAgent'] : '';
-                // Бронирующий агент — из reservation
                 $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
                 $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
@@ -490,7 +480,6 @@ class MoyAgentParser implements ParserInterface
 
     /**
      * Собирает карту документов из XML (только air_ticket_doc).
-     * Теперь включает issuingAgent (ФИО агента выписки).
      */
     private function buildTravelDocsMap($xml)
     {
@@ -518,16 +507,29 @@ class MoyAgentParser implements ParserInterface
     }
 
     /**
-     * Строит карту связей конъюнкций из emd_ticket_doc.
+     * Строит карту связей конъюнкций.
      * 
-     * В XML "Мой агент" конъюнкционные бланки оформлены как
-     * emd_ticket_doc с атрибутом main_prod_id.
+     * Два этапа определения:
      * 
+     * Этап 1 (явный): emd_ticket_doc с атрибутом main_prod_id
+     * Этап 2 (косвенный, V6): air_ticket_prod без сегментов, fare=0,
+     *   тот же пассажир, последовательный номер билета (±1..9)
+     * 
+     * ВАЖНО: PHP автоматически конвертирует числовые строковые ключи
+     * массива в integer ("0" → 0, "2" → 2). Поэтому при записи в $map
+     * и при сравнении используется явное приведение (string).
+     * 
+     * @param SimpleXMLElement $xml
+     * @param array $travelDocsMap — карта документов (нужна для этапа 2)
      * @return array — карта [child_prod_id => main_prod_id]
      */
-    private function buildConjLinksMap($xml)
+    private function buildConjLinksMap($xml, $travelDocsMap)
     {
         $map = array();
+
+        // -------------------------------------------------------
+        // Этап 1: Явные связи через emd_ticket_doc[@main_prod_id]
+        // -------------------------------------------------------
 
         if (isset($xml->travel_docs->travel_doc)) {
             foreach ($xml->travel_docs->travel_doc as $travelDoc) {
@@ -543,12 +545,105 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
+        // -------------------------------------------------------
+        // Этап 2: Скрытые конъюнкции (V6)
+        // air_ticket_prod без сегментов, fare=0, последовательный tkt_number
+        // -------------------------------------------------------
+
+        $airTickets = array();
+        if (isset($xml->products->product)) {
+            foreach ($xml->products->product as $product) {
+                if (isset($product->air_ticket_prod)) {
+                    $at = $product->air_ticket_prod;
+                    $pid = (string)$at['prod_id'];
+
+                    $segCount = 0;
+                    if (isset($at->air_seg)) {
+                        foreach ($at->air_seg as $seg) {
+                            $segCount++;
+                        }
+                    }
+
+                    $airTickets[$pid] = array(
+                        'prod_id'   => $pid,
+                        'fare'      => (float)(string)$at['fare'],
+                        'taxes'     => (float)(string)$at['taxes'],
+                        'psg_type'  => (string)$at['psg_type'],
+                        'seg_count' => $segCount
+                    );
+                }
+            }
+        }
+
+        foreach ($airTickets as $pid => $info) {
+            // Уже привязан через emd_ticket_doc
+            if (isset($map[$pid])) {
+                continue;
+            }
+
+            // Не похож на конъюнкцию — есть сегменты или ненулевой fare
+            if ($info['seg_count'] > 0 || $info['fare'] > 0) {
+                continue;
+            }
+
+            $childDoc = isset($travelDocsMap[(string)$pid]) ? $travelDocsMap[(string)$pid] : null;
+            if ($childDoc === null) {
+                continue;
+            }
+            $childTktNumber = $childDoc['tkt_number'];
+            $childPsgrId = $childDoc['psgr_id'];
+
+            if ($childTktNumber === '' || !is_numeric($childTktNumber)) {
+                continue;
+            }
+
+            $bestMainPid = null;
+            $bestDiff = 999;
+
+            foreach ($airTickets as $candidatePid => $candidateInfo) {
+                if ((string)$candidatePid === (string)$pid) {
+                    continue;
+                }
+
+                if (isset($map[$candidatePid])) {
+                    continue;
+                }
+
+                if ($candidateInfo['seg_count'] === 0 || $candidateInfo['fare'] <= 0) {
+                    continue;
+                }
+
+                $candidateDoc = isset($travelDocsMap[(string)$candidatePid]) ? $travelDocsMap[(string)$candidatePid] : null;
+                if ($candidateDoc === null) {
+                    continue;
+                }
+                if ($candidateDoc['psgr_id'] !== $childPsgrId) {
+                    continue;
+                }
+
+                $candidateTktNumber = $candidateDoc['tkt_number'];
+                if ($candidateTktNumber === '' || !is_numeric($candidateTktNumber)) {
+                    continue;
+                }
+
+                $diff = abs((float)$childTktNumber - (float)$candidateTktNumber);
+                if ($diff >= 1 && $diff <= 9 && $diff < $bestDiff) {
+                    $bestDiff = $diff;
+                    $bestMainPid = $candidatePid;
+                }
+            }
+
+            // ИСПРАВЛЕНО V6: явное приведение к string для ключей массива
+            if ($bestMainPid !== null) {
+                $map[(string)$pid] = (string)$bestMainPid;
+            }
+        }
+
         return $map;
     }
 
     /**
      * Собирает карту бронирований из XML.
-     * Теперь включает bookingAgent (ФИО бронирующего агента).
      */
     private function buildReservationsMap($xml)
     {
@@ -573,12 +668,6 @@ class MoyAgentParser implements ParserInterface
 
     /**
      * Получает основную reservation из XML.
-     * 
-     * В XML "Мой агент" обычно одна reservation на весь заказ.
-     * Возвращает первую найденную.
-     * 
-     * @param SimpleXMLElement $xml
-     * @return array|null — данные reservation или null
      */
     private function getMainReservation($xml)
     {
@@ -606,7 +695,6 @@ class MoyAgentParser implements ParserInterface
         $prodIds = array($mainProdId);
         $seen = array($mainProdId => true);
 
-        // По tkt_number (только TKT)
         $mainDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
         $tktNumber = $mainDoc ? $mainDoc['tkt_number'] : null;
 
@@ -629,9 +717,9 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
-        // По conjLinksMap
+        // По conjLinksMap (ИСПРАВЛЕНО V6: приведение типов)
         foreach ($conjLinksMap as $childId => $linkedMainId) {
-            if ($linkedMainId === $mainProdId && !isset($seen[$childId])) {
+            if ((string)$linkedMainId === (string)$mainProdId && !isset($seen[$childId])) {
                 if (isset($airTicketsByProdId[$childId])) {
                     $prodIds[] = $childId;
                     $seen[$childId] = true;

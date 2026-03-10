@@ -11,7 +11,7 @@
  * Не отправляет данные в API, не перемещает файлы.
  * Только парсинг и проверка структуры JSON.
  * 
- * Версия: V5 (обновлены проверки под MoyAgentParser V5)
+ * Версия: V6 (добавлен тест скрытых конъюнкций)
  * 
  * Запуск: открыть в браузере test.php
  *         или из CLI: php test.php
@@ -214,6 +214,46 @@ $expectations = array(
             '6076506222014',
             '6076506222016',
         ),
+    ),
+        // -------------------------------------------------
+    // Тест 6: Продажа со скрытой конъюнкцией (V6)
+    // prod_id=0 (основной, fare=30125, 4 сегмента, tkt=2352294341454)
+    // prod_id=1 (service_prod СБ_ПК — игнорируется)
+    // prod_id=2 (fare=0, 0 сегментов, tkt=2352294341455)
+    // Нет emd_ticket_doc — конъюнкция определяется по косвенным
+    // признакам: fare=0, нет сегментов, тот же psgr_id,
+    // последовательный tkt_number (разница 1)
+    // Группировка: 2 air_ticket_prod → 1 PRODUCT
+    // КЛЮЧЕВОЙ ТЕСТ НА СКРЫТЫЕ КОНЪЮНКЦИИ V6
+    // -------------------------------------------------
+    '125359052102.xml' => array(
+        'description'        => 'Продажа, 1 билет + скрытая конъюнкция (без emd), VKO→TIV, 4 сегмента',
+        'status'             => 'продажа',
+        'products_count'     => 1,
+        'invoice_number'     => '125359052102',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '2352294341454',
+        'traveller'          => 'ISAIKINA OLGA',
+        'carrier'            => 'TK',
+        'coupons_count'      => 4,
+        'currency'           => 'RUB',
+        'fare'               => 30125.0,
+        'has_refund'         => false,
+        // V6: скрытая конъюнкция — 2 air_ticket_prod → 1 PRODUCT
+        'supplier'           => 'Мой агент',
+        'reservation_number' => 'TMZJ3A',
+        'booking_agent'      => 'Инна Дмитриева',
+        'agent'              => 'Инна Дмитриева',
+        'conj_count'         => 2,
+        // Даты: 4 сегмента VKO→IST→TIV ... SJJ→IST→VKO
+        'first_dep_dt'       => '20260418011500',
+        'first_arr_dt'       => '20260418052500',
+        'last_dep_dt'        => '20260427010500',
+        'last_arr_dt'        => '20260427050000',
+        // Комиссии: service_fee=0, fees КОМСА_САЙТ=1456.08
+        'has_client_commission' => false,
+        'has_vendor_commission' => true,
+        'vendor_commission_amount' => 1456.08,
     ),
 );
 
@@ -552,7 +592,7 @@ $isCli = (php_sapi_name() === 'cli');
 if ($isCli) {
     // ----- КОНСОЛЬНЫЙ ВЫВОД -----
     echo "============================================================\n";
-    echo " АВТОТЕСТЫ ПАРСЕРА MoyAgentParser V5\n";
+    echo " АВТОТЕСТЫ ПАРСЕРА MoyAgentParser V6\n";
     echo " " . date('Y-m-d H:i:s') . "\n";
     echo "============================================================\n\n";
 
@@ -793,7 +833,7 @@ if ($isCli) {
 
     <main class="main">
         <section class="panel">
-            <h2 class="panel__title">Результаты тестов — MoyAgentParser V5</h2>
+            <h2 class="panel__title">Результаты тестов — MoyAgentParser V6</h2>
 
             <div class="test-meta">
                 Запуск: <?php echo date('Y-m-d H:i:s'); ?> &nbsp;|&nbsp;

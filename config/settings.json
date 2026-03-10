@@ -1,9 +1,9 @@
 {
     "interval": 60,
-    "last_run": 0,
+    "last_run": 1773149243,
     "api": {
         "enabled": true,
-        "url": "http://10.30.88.24/TRADE/hs/CRM_Exchange/Order",
+        "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
         "login": "api_user",
         "password": "api_password",
         "timeout": 5
@@ -15,7 +15,7 @@
         "login": "myagent",
         "password": "Kur123",
         "remote_path": "ma-files",
-        "local_path": "input/moyagent",
+        "local_path": "input\/moyagent",
         "interval": 60
     }
 }
