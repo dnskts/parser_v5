@@ -3,27 +3,12 @@
  * ============================================================
  * СТРАНИЦА ПРОСМОТРА ОБРАБОТАННЫХ ЗАКАЗОВ
  * ============================================================
- * 
- * Эта страница читает все JSON-файлы из папки json/,
- * «разворачивает» данные (один продукт = одна строка таблицы)
- * и выводит результат в виде таблицы во всю ширину экрана.
- * 
- * Данные отображаются в формате ORDER (спецификация RSTLS):
- * заказы с продуктами — авиабилеты, ЖД-билеты, отели.
- * ============================================================
  */
 
-// Папка, где хранятся выходные JSON-файлы
 $jsonDir = __DIR__ . '/json';
-
-// -------------------------------------------------------
-// Читаем все JSON-файлы и собираем строки для таблицы
-// -------------------------------------------------------
-
 $rows = array();
 
 if (is_dir($jsonDir)) {
-    // Получаем список всех .json файлов, отсортированных по дате (новые первые)
     $files = glob($jsonDir . '/*.json');
 
     foreach ($files as $file) {
@@ -31,14 +16,11 @@ if (is_dir($jsonDir)) {
         $content = file_get_contents($file);
         $order = json_decode($content, true);
 
-        // Пропускаем файлы, которые не удалось прочитать или невалидные
         if (!is_array($order) || !isset($order['PRODUCTS'])) {
             continue;
         }
 
-        // Каждый продукт внутри заказа — отдельная строка таблицы
         foreach ($order['PRODUCTS'] as $product) {
-            // Формируем маршрут из купонов (авиа) или сегментов (ЖД)
             $route = '';
             if (!empty($product['COUPONS'])) {
                 $points = array();
@@ -62,7 +44,6 @@ if (is_dir($jsonDir)) {
                 $route = $product['HOTEL'];
             }
 
-            // Считаем суммы из платежей: реальная оплата и зачёт старого билета
             $amountInvoice = 0;
             $amountTicket = 0;
             if (!empty($product['PAYMENTS'])) {
@@ -78,42 +59,27 @@ if (is_dir($jsonDir)) {
                 }
             }
 
-            // Форматируем дату из ГГГГММДДччммсс в читаемый вид
             $orderDate = isset($order['INVOICE_DATA']) ? formatRstlsDate($order['INVOICE_DATA']) : '';
             $issueDate = isset($product['ISSUE_DATE']) ? formatRstlsDate($product['ISSUE_DATE']) : '';
-
-            // --- Имя исходного XML-файла и дата парсинга ---
             $sourceXmlFile = isset($order['SOURCE_FILE']) ? $order['SOURCE_FILE'] : '';
             $parsedAt = isset($order['PARSED_AT']) ? $order['PARSED_AT'] : '';
-
-            // --- Идентификация ---
             $orderUid = isset($order['UID']) ? $order['UID'] : '';
             $productUid = isset($product['UID']) ? $product['UID'] : '';
             $reservationNumber = isset($product['RESERVATION_NUMBER']) ? $product['RESERVATION_NUMBER'] : '';
-
-            // --- Агенты (полиморфные) ---
             $bookingAgent = isset($product['BOOKING_AGENT']) ? formatAgent($product['BOOKING_AGENT']) : '';
             $agent = isset($product['AGENT']) ? formatAgent($product['AGENT']) : '';
-
-            // --- Авиа-специфичные ---
             $ticketType = isset($product['TICKET_TYPE']) ? $product['TICKET_TYPE'] : '';
             $passengerAge = isset($product['PASSENGER_AGE']) ? $product['PASSENGER_AGE'] : '';
             $conjCount = isset($product['CONJ_COUNT']) ? $product['CONJ_COUNT'] : '';
             $penalty = isset($product['PENALTY']) ? (float)$product['PENALTY'] : 0;
 
-            // --- Из купонов COUPONS[] ---
-            // Все значения через запятую (для всех сегментов)
             $flightNumbers = '';
             $fareBasis = '';
             $classes = '';
             $departureDate = '';
             $arrivalDate = '';
             if (!empty($product['COUPONS'])) {
-                $fn = array();
-                $fb = array();
-                $cl = array();
-                $depDates = array();
-                $arrDates = array();
+                $fn = array(); $fb = array(); $cl = array(); $depDates = array(); $arrDates = array();
                 foreach ($product['COUPONS'] as $coupon) {
                     if (isset($coupon['FLIGHT_NUMBER'])) $fn[] = $coupon['FLIGHT_NUMBER'];
                     if (isset($coupon['FARE_BASIS'])) $fb[] = $coupon['FARE_BASIS'];
@@ -132,28 +98,19 @@ if (is_dir($jsonDir)) {
                 $arrivalDate = implode(', ', $arrDates);
             }
 
-            // --- Финансовые: из TAXES[] ---
-            $tariffRub = 0;
-            $taxesRub = 0;
-            $vatTotal = 0;
+            $tariffRub = 0; $taxesRub = 0; $vatTotal = 0;
             if (!empty($product['TAXES'])) {
                 foreach ($product['TAXES'] as $tax) {
                     $eqAmt = isset($tax['EQUIVALENT_AMOUNT']) ? (float)$tax['EQUIVALENT_AMOUNT'] : 0;
                     $code = isset($tax['CODE']) ? $tax['CODE'] : '';
-                    if ($code === '') {
-                        $tariffRub += $eqAmt;
-                    } else {
-                        $taxesRub += $eqAmt;
-                    }
+                    if ($code === '') { $tariffRub += $eqAmt; } else { $taxesRub += $eqAmt; }
                     if (isset($tax['VAT_AMOUNT']) && $tax['VAT_AMOUNT'] !== null) {
                         $vatTotal += (float)$tax['VAT_AMOUNT'];
                     }
                 }
             }
 
-            // --- Из PAYMENTS[] ---
-            $paymentTypes = array();
-            $relatedTicket = '';
+            $paymentTypes = array(); $relatedTicket = '';
             if (!empty($product['PAYMENTS'])) {
                 foreach ($product['PAYMENTS'] as $payment) {
                     if (isset($payment['TYPE'])) $paymentTypes[] = $payment['TYPE'];
@@ -165,24 +122,19 @@ if (is_dir($jsonDir)) {
             }
             $paymentTypesStr = implode(', ', $paymentTypes);
 
-            // --- Из COMMISSIONS[] ---
-            $commissionTkp = '';
-            $commissionRate = '';
-            $serviceFee = '';
-            $supplierFee = '';
+            $commissionTkp = ''; $commissionRate = ''; $serviceFee = ''; $supplierFee = '';
             if (!empty($product['COMMISSIONS'])) {
                 foreach ($product['COMMISSIONS'] as $comm) {
                     $type = isset($comm['TYPE']) ? $comm['TYPE'] : '';
                     $name = isset($comm['NAME']) ? $comm['NAME'] : '';
                     $eqAmt = isset($comm['EQUIVALENT_AMOUNT']) ? $comm['EQUIVALENT_AMOUNT'] : '';
                     $rate = isset($comm['RATE']) ? $comm['RATE'] : '';
-
                     if ($type === 'VENDOR') {
                         $commissionTkp = $eqAmt;
                         $commissionRate = ($rate !== null && $rate !== '') ? $rate : '';
                     } elseif ($type === 'CLIENT') {
                         $nameLower = mb_strtolower($name, 'UTF-8');
-                        if (mb_strpos($nameLower, 'ервисный сбор') !== false || mb_strpos($nameLower, 'сервисный сбор') !== false) {
+                        if (mb_strpos($nameLower, 'сервисный сбор') !== false || mb_strpos($nameLower, 'ервисный сбор') !== false) {
                             $serviceFee = $eqAmt;
                         } elseif (mb_strpos($nameLower, 'сбор поставщика') !== false) {
                             $supplierFee = $eqAmt;
@@ -191,13 +143,8 @@ if (is_dir($jsonDir)) {
                 }
             }
 
-            // --- Блок REFUND ---
-            $refundDate = '';
-            $refundAmount = '';
-            $refundFeeClient = '';
-            $refundFeeVendor = '';
-            $refundPenaltyVendor = '';
-            $refundPenaltyClient = '';
+            $refundDate = ''; $refundAmount = ''; $refundFeeClient = '';
+            $refundFeeVendor = ''; $refundPenaltyVendor = ''; $refundPenaltyClient = '';
             if (!empty($product['REFUND'])) {
                 $r = $product['REFUND'];
                 $refundDate = isset($r['DATA']) ? formatRstlsDate($r['DATA']) : '';
@@ -209,54 +156,54 @@ if (is_dir($jsonDir)) {
             }
 
             $rows[] = array(
-                // --- Существующие 14 полей ---
-                'file'             => $fileName,
-                'invoice_num'      => isset($order['INVOICE_NUMBER']) ? $order['INVOICE_NUMBER'] : '',
-                'invoice_date'     => $orderDate,
-                'client'           => isset($order['CLIENT']) ? $order['CLIENT'] : '',
-                'product_type'     => isset($product['PRODUCT_TYPE']['NAME']) ? $product['PRODUCT_TYPE']['NAME'] : '',
-                'number'           => isset($product['NUMBER']) ? $product['NUMBER'] : '',
-                'issue_date'       => $issueDate,
-                'status'           => isset($product['STATUS']) ? $product['STATUS'] : '',
-                'traveller'        => isset($product['TRAVELLER']) ? $product['TRAVELLER'] : '',
-                'supplier'         => isset($product['SUPPLIER']) ? $product['SUPPLIER'] : '',
-                'carrier'          => isset($product['CARRIER']) ? $product['CARRIER'] : '',
-                'route'            => $route,
-                'amount'           => $amountInvoice,
-                'currency'         => isset($product['CURRENCY']) ? $product['CURRENCY'] : '',
-
-                // --- Новые поля ---
-                'source_xml'       => $sourceXmlFile,
-                'parsed_at'        => $parsedAt,
-                'order_uid'        => $orderUid,
-                'product_uid'      => $productUid,
-                'reservation_num'  => $reservationNumber,
-                'booking_agent'    => $bookingAgent,
-                'agent'            => $agent,
-                'ticket_type'      => $ticketType,
-                'passenger_age'    => $passengerAge,
-                'conj_count'       => $conjCount,
-                'penalty'          => $penalty,
-                'flight_numbers'   => $flightNumbers,
-                'fare_basis'       => $fareBasis,
-                'classes'          => $classes,
-                'departure_date'   => $departureDate,
-                'arrival_date'     => $arrivalDate,
-                'tariff_rub'       => $tariffRub,
-                'taxes_rub'        => $taxesRub,
-                'vat_total'        => $vatTotal,
-                'payment_types'    => $paymentTypesStr,
-                'payment_amount'   => $amountInvoice,
-                'ticket_amount'    => $amountTicket,
-                'related_ticket'   => $relatedTicket,
-                'commission_tkp'   => $commissionTkp,
-                'commission_rate'  => $commissionRate,
-                'service_fee'      => $serviceFee,
-                'supplier_fee'     => $supplierFee,
-                'refund_date'      => $refundDate,
-                'refund_amount'    => $refundAmount,
-                'refund_fee_client'     => $refundFeeClient,
-                'refund_fee_vendor'     => $refundFeeVendor,
+                'file' => $fileName,
+                'invoice_num' => isset($order['INVOICE_NUMBER']) ? $order['INVOICE_NUMBER'] : '',
+                'invoice_date' => $orderDate,
+                'client' => isset($order['CLIENT']) ? $order['CLIENT'] : '',
+                'product_type' => isset($product['PRODUCT_TYPE']['NAME']) ? $product['PRODUCT_TYPE']['NAME'] : '',
+                'number' => isset($product['NUMBER']) ? $product['NUMBER'] : '',
+                'issue_date' => $issueDate,
+                'status' => isset($product['STATUS']) ? $product['STATUS'] : '',
+                'traveller' => isset($product['TRAVELLER']) ? $product['TRAVELLER'] : '',
+                'supplier' => isset($product['SUPPLIER']) ? $product['SUPPLIER'] : '',
+                'carrier' => isset($product['CARRIER']) ? $product['CARRIER'] : '',
+                'route' => $route,
+                'amount' => $amountInvoice,
+                'currency' => isset($product['CURRENCY']) ? $product['CURRENCY'] : '',
+                'source_xml' => $sourceXmlFile,
+                'parsed_at' => $parsedAt,
+                'order_uid' => $orderUid,
+                'product_uid' => $productUid,
+                'reservation_num' => $reservationNumber,
+                'booking_agent' => $bookingAgent,
+                'agent' => $agent,
+                'ticket_type' => $ticketType,
+                'passenger_age' => $passengerAge,
+                'conj_count' => $conjCount,
+                'penalty' => $penalty,
+                'flight_numbers' => $flightNumbers,
+                'fare_basis' => $fareBasis,
+                'classes' => $classes,
+                'departure_date' => $departureDate,
+                'arrival_date' => $arrivalDate,
+                'tariff_rub' => $tariffRub,
+                'taxes_rub' => $taxesRub,
+                'vat_total' => $vatTotal,
+                'payment_types' => $paymentTypesStr,
+                'payment_amount' => $amountInvoice,
+                'ticket_amount' => $amountTicket,
+                'related_ticket' => $relatedTicket,
+                'emd_name' => isset($product['EMD_NAME']) ? $product['EMD_NAME'] : '',
+                'emd_value' => isset($product['EMD_VALUE']) ? $product['EMD_VALUE'] : '',
+                'related_ticket_emd' => isset($product['RELATED_TICKET_NUMBER']) ? $product['RELATED_TICKET_NUMBER'] : '',
+                'commission_tkp' => $commissionTkp,
+                'commission_rate' => $commissionRate,
+                'service_fee' => $serviceFee,
+                'supplier_fee' => $supplierFee,
+                'refund_date' => $refundDate,
+                'refund_amount' => $refundAmount,
+                'refund_fee_client' => $refundFeeClient,
+                'refund_fee_vendor' => $refundFeeVendor,
                 'refund_penalty_vendor' => $refundPenaltyVendor,
                 'refund_penalty_client' => $refundPenaltyClient,
             );
@@ -264,72 +211,30 @@ if (is_dir($jsonDir)) {
     }
 }
 
-// Сортировка: самые свежие (по дате парсинга) — сверху
 usort($rows, function ($a, $b) {
     $dateA = $a['parsed_at'] ?: '0000-00-00 00:00:00';
     $dateB = $b['parsed_at'] ?: '0000-00-00 00:00:00';
     return strcmp($dateB, $dateA);
 });
 
-/**
- * Форматирует дату из формата RSTLS (ГГГГММДДччммсс) в читаемый вид.
- * 
- * Вход:  "20251013121600"
- * Выход: "13.10.2025 12:16"
- * 
- * @param string $date — дата в формате ГГГГММДДччммсс
- * @return string — дата в формате ДД.ММ.ГГГГ ЧЧ:ММ
- */
 function formatRstlsDate($date)
 {
-    if (strlen($date) < 12) {
-        return $date;
-    }
-    $year   = substr($date, 0, 4);
-    $month  = substr($date, 4, 2);
-    $day    = substr($date, 6, 2);
-    $hour   = substr($date, 8, 2);
-    $minute = substr($date, 10, 2);
-    return "{$day}.{$month}.{$year} {$hour}:{$minute}";
+    if (strlen($date) < 12) { return $date; }
+    return substr($date,6,2).'.'.substr($date,4,2).'.'.substr($date,0,4).' '.substr($date,8,2).':'.substr($date,10,2);
 }
 
-/**
- * Извлекает читаемое значение агента.
- * Поле BOOKING_AGENT и AGENT могут быть:
- * - объектом {"CODE": "020", "NAME": "Elena Vetvitskaya"}
- * - строкой UUID "c8a153d3-0175-11eb-9f32-0050569c2148"
- */
-/**
- * Извлекает читаемое значение агента.
- * 
- * BOOKING_AGENT и AGENT — объект {"CODE": "...", "NAME": "..."}.
- * Если CODE и NAME совпадают — возвращаем одно значение (без дублирования).
- * Если разные — "CODE NAME".
- * Если строка — возвращаем как есть.
- */
 function formatAgent($agent)
 {
     if (is_array($agent) && isset($agent['CODE'])) {
         $code = trim(isset($agent['CODE']) ? $agent['CODE'] : '');
         $name = trim(isset($agent['NAME']) ? $agent['NAME'] : '');
-
-        // Если CODE и NAME одинаковые — не дублируем
-        if ($code !== '' && $code === $name) {
-            return $code;
-        }
-        // Если есть оба и разные
-        if ($code !== '' && $name !== '') {
-            return $code . ' ' . $name;
-        }
-        // Если только одно из двух
+        if ($code !== '' && $code === $name) { return $code; }
+        if ($code !== '' && $name !== '') { return $code . ' ' . $name; }
         return ($code !== '') ? $code : $name;
     }
-    if (is_string($agent)) {
-        return $agent;
-    }
+    if (is_string($agent)) { return $agent; }
     return '';
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -340,9 +245,6 @@ function formatAgent($agent)
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-    <!-- ============================================ -->
-    <!-- ШАПКА С НАВИГАЦИЕЙ                           -->
-    <!-- ============================================ -->
     <header class="header">
         <div class="header__content header__content--wide">
             <div class="header__top">
@@ -360,32 +262,22 @@ function formatAgent($agent)
         </div>
     </header>
 
-    <!-- ============================================ -->
-    <!-- ОСНОВНОЕ СОДЕРЖИМОЕ — ТАБЛИЦА ЗАКАЗОВ        -->
-    <!-- ============================================ -->
     <main class="main main--wide">
         <section class="panel">
-        <div class="panel__title-row">
-                <h2 class="panel__title panel__title--inline">
-                    Данные из JSON-файлов
-                </h2>
-                <span class="panel__count">
-                    Найдено записей: <?php echo count($rows); ?>
-                </span>
+            <div class="panel__title-row">
+                <h2 class="panel__title panel__title--inline">Данные из JSON-файлов</h2>
+                <span class="panel__count">Найдено записей: <?php echo count($rows); ?></span>
                 <?php if (!empty($rows)): ?>
                     <button onclick="document.querySelector('.data-table tbody').innerHTML=''; this.style.display='none'" style="margin-left:15px; padding:4px 12px; cursor:pointer">Очистить таблицу</button>
                 <?php endif; ?>
             </div>
 
             <?php if (empty($rows)): ?>
-                <!-- Сообщение, если данных нет -->
                 <div class="data-empty">
                     <p>Нет обработанных файлов.</p>
-                    <p>Положите XML-файлы в папку input/ и запустите обработку 
-                       на <a href="index.php">панели управления</a>.</p>
+                    <p>Положите XML-файлы в папку input/ и запустите обработку на <a href="index.php">панели управления</a>.</p>
                 </div>
             <?php else: ?>
-                <!-- Обёртка для горизонтальной прокрутки на узких экранах -->
                 <div class="data-table-wrapper">
                     <table class="data-table">
                         <thead>
@@ -397,6 +289,9 @@ function formatAgent($agent)
                                 <th class="data-table__th">Дата заказа</th>
                                 <th class="data-table__th">Клиент</th>
                                 <th class="data-table__th">Тип продукта</th>
+                                <th class="data-table__th">EMD услуга</th>
+                                <th class="data-table__th">EMD значение</th>
+                                <th class="data-table__th">Осн. билет</th>
                                 <th class="data-table__th">Номер билета</th>
                                 <th class="data-table__th">Дата выписки</th>
                                 <th class="data-table__th">Статус</th>
@@ -442,43 +337,37 @@ function formatAgent($agent)
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($rows as $i => $row): ?>
+
+                        <?php foreach ($rows as $i => $row): ?>
                                 <tr class="data-table__row">
-                                <td class="data-table__td" style="text-align:center">
-    <button class="btn-resend" title="Отправить повторно в API 1С" onclick="resendJson('<?php echo htmlspecialchars($row['file'], ENT_QUOTES); ?>', this)">🔄</button>
-</td>
-                                <td class="data-table__td data-table__td--num"><?php echo $i + 1; ?></td>
-                                    <td class="data-table__td data-table__td--file" title="<?php echo htmlspecialchars($row['file']); ?>">
-                                        <?php echo htmlspecialchars($row['file']); ?>
+                                    <td class="data-table__td" style="text-align:center">
+                                        <button class="btn-resend" title="Отправить повторно в API 1С" onclick="resendJson('<?php echo htmlspecialchars($row['file'], ENT_QUOTES); ?>', this)">🔄</button>
                                     </td>
+                                    <td class="data-table__td data-table__td--num"><?php echo $i + 1; ?></td>
+                                    <td class="data-table__td data-table__td--file" title="<?php echo htmlspecialchars($row['file']); ?>"><?php echo htmlspecialchars($row['file']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['invoice_num']); ?></td>
                                     <td class="data-table__td data-table__td--nowrap"><?php echo htmlspecialchars($row['invoice_date']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['client']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['product_type']); ?></td>
+                                    <td class="data-table__td"><?php echo htmlspecialchars($row['emd_name']); ?></td>
+                                    <td class="data-table__td"><?php echo htmlspecialchars($row['emd_value']); ?></td>
+                                    <td class="data-table__td"><?php echo htmlspecialchars($row['related_ticket_emd']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['number']); ?></td>
                                     <td class="data-table__td data-table__td--nowrap"><?php echo htmlspecialchars($row['issue_date']); ?></td>
                                     <td class="data-table__td">
                                         <?php
-                                            // Определяем CSS-класс для значка статуса
                                             $statusClass = 'data-status--sale';
                                             $statusLower = mb_strtolower($row['status'], 'UTF-8');
-                                            if ($statusLower === 'возврат') {
-                                                $statusClass = 'data-status--refund';
-                                            } elseif ($statusLower === 'обмен') {
-                                                $statusClass = 'data-status--exchange';
-                                            }
+                                            if ($statusLower === 'возврат') { $statusClass = 'data-status--refund'; }
+                                            elseif ($statusLower === 'обмен') { $statusClass = 'data-status--exchange'; }
                                         ?>
-                                        <span class="data-status <?php echo $statusClass; ?>">
-                                            <?php echo htmlspecialchars($row['status']); ?>
-                                        </span>
+                                        <span class="data-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($row['status']); ?></span>
                                     </td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['traveller']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['supplier']); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['carrier']); ?></td>
                                     <td class="data-table__td data-table__td--route"><?php echo htmlspecialchars($row['route']); ?></td>
-                                    <td class="data-table__td data-table__td--right">
-                                        <?php echo number_format($row['amount'], 2, '.', ' '); ?>
-                                    </td>
+                                    <td class="data-table__td data-table__td--right"><?php echo number_format($row['amount'], 2, '.', ' '); ?></td>
                                     <td class="data-table__td"><?php echo htmlspecialchars($row['currency']); ?></td>
                                     <td class="data-table__td data-table__td--file"><?php echo htmlspecialchars($row['source_xml']); ?></td>
                                     <td class="data-table__td data-table__td--nowrap"><?php echo htmlspecialchars($row['parsed_at']); ?></td>
@@ -525,13 +414,12 @@ function formatAgent($agent)
     <footer class="footer">
         <p>XML Parser v5 — Система обработки файлов поставщиков</p>
     </footer>
+
     <script>
 function resendJson(fileName, btn) {
     if (!confirm('Отправить ' + fileName + ' повторно в API 1С?')) return;
-
     btn.disabled = true;
     btn.textContent = '⏳';
-
     fetch('api.php?action=resend', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -558,65 +446,44 @@ function resendJson(fileName, btn) {
         setTimeout(function() { btn.textContent = '🔄'; }, 5000);
     });
 }
-</script>
+    </script>
 
-<script>
-// Изменение ширины колонок перетаскиванием
+    <script>
 document.addEventListener('DOMContentLoaded', function() {
     var table = document.querySelector('.data-table');
     if (!table) return;
-
     var headers = table.querySelectorAll('th');
-
-    // 1. Зафиксировать ЕСТЕСТВЕННЫЕ ширины (до table-layout:fixed)
     var widths = [];
-    headers.forEach(function(th, i) {
-        widths[i] = th.offsetWidth;
-    });
-
-    // 2. Применить ширины и включить fixed layout
-    headers.forEach(function(th, i) {
-        th.style.width = widths[i] + 'px';
-    });
+    headers.forEach(function(th, i) { widths[i] = th.offsetWidth; });
+    headers.forEach(function(th, i) { th.style.width = widths[i] + 'px'; });
     table.style.tableLayout = 'fixed';
-
-    // 3. Добавить ресайзеры
     headers.forEach(function(th) {
         var resizer = document.createElement('div');
-        resizer.style.cssText = 'position:absolute; right:0; top:0; width:5px; height:100%; cursor:col-resize; user-select:none; z-index:1;';
-
+        resizer.style.cssText = 'position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;z-index:1;';
         th.style.position = 'relative';
         th.style.overflow = 'hidden';
         th.style.textOverflow = 'ellipsis';
         th.style.whiteSpace = 'nowrap';
         th.appendChild(resizer);
-
         resizer.addEventListener('mousedown', function(e) {
             var startX = e.pageX;
             var startWidth = th.offsetWidth;
-
-            // Подсветка при перетаскивании
             resizer.style.borderRight = '2px solid #4a90d9';
-
             function onMouseMove(e) {
                 var newWidth = startWidth + (e.pageX - startX);
-                if (newWidth >= 50) {
-                    th.style.width = newWidth + 'px';
-                }
+                if (newWidth >= 50) { th.style.width = newWidth + 'px'; }
             }
-
             function onMouseUp() {
                 resizer.style.borderRight = '';
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
             }
-
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
         });
     });
 });
-</script>
+    </script>
 </body>
 </html>
