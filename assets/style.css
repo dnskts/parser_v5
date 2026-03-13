@@ -698,7 +698,12 @@ body {
 
 /* Подсветка строки при наведении */
 .data-table__row:hover {
-    background-color: #ebf4ff;
+    background-color: #cffce5;
+}
+
+/* Подсветка строки при выделении */
+.data-table__row--selected {
+    background-color: #d0e4f7 !important;
 }
 
 /* Нумерация строк — тонкий серый текст */

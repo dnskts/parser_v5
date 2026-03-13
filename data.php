@@ -508,6 +508,14 @@ document.addEventListener('DOMContentLoaded', function() {
             filterCount.textContent = 'Показано: ' + visible + ' из ' + rows.length;
         });
     }
+// Фиксация выделения строки по клику
+if (tbody) {
+    tbody.addEventListener('click', function(e) {
+        var tr = e.target.closest('tr');
+        if (!tr || e.target.closest('.btn-resend')) return;
+        tr.classList.toggle('data-table__row--selected');
+    });
+}
 
     var btnExport = document.getElementById('btnExportXlsx');
     if (btnExport) {
