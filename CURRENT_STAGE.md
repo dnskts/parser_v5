@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-13
-**Обновлено после:** SFTP timeout 5→2с, автообработка сохраняется при навигации (localStorage)
+**Обновлено после:** Зачёт и Связ.билет из XML payments (tkt_fop ПК/БИЛЕТ), EXCH в analyzeOrderType
 
 ---
 
@@ -624,6 +624,7 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-13	Зачёт и Связ.билет: buildPaymentsFromXml из xml->payments, tkt_fop ПК/БИЛЕТ→TYPE=TICKET, EXCH в analyzeOrderType	parsers/MoyAgentParser.php, MoyAgentConstants.php
 2026-03-13	SFTP timeout 5→2с (CONNECTTIMEOUT=1), автообработка сохраняется при навигации (localStorage), AbortController для fetch	core/SftpSync.php, assets/app.js
 2026-03-13	SFTP встроен в pipeline: runSftpSync в runProcessing, кнопка «Запустить» и автообработка забирают XML с SFTP	process.php, assets/app.js
 2026-03-13	Кнопка «Очистить таблицу» удаляет все JSON из json/ (api.php clear_json, data.php)	api.php, data.php

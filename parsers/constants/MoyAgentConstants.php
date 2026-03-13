@@ -286,4 +286,13 @@ class MoyAgentConstants
             ''                        => ''
         );
     }
+
+    /**
+     * tkt_fop (форма оплаты), означающие зачёт по билету.
+     * При таких значениях платёж идёт в TYPE='TICKET' с RELATED_TICKET_NUMBER.
+     */
+    public static function getTicketCreditFopCodes()
+    {
+        return array('ПК' => true, 'БИЛЕТ' => true, 'ТКЕТ' => true, 'TKT' => true, 'EXCH' => true);
+    }
 }

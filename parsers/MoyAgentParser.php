@@ -90,6 +90,7 @@ class MoyAgentParser implements ParserInterface
         // ШАГ 4: Тип операции
         $orderAnalysis = $this->analyzeOrderType($xml);
         $isRefund = in_array($orderAnalysis['operation'], array('REF', 'RFND', 'CANX'));
+        $isExchange = ($orderAnalysis['operation'] === 'EXCH');
 
         // Индекс air_ticket_prod
         $airTicketsByProdId = array();
@@ -219,8 +220,9 @@ class MoyAgentParser implements ParserInterface
                 $products[] = $ep;
             }
 
-        } else {
-            // === ПРОДАЖА: авиабилеты ===
+        }
+        if (!$isRefund || $isExchange) {
+            // === ПРОДАЖА или ОБМЕН (новый билет): авиабилеты ===
             $childProdIds = array();
             foreach ($conjLinksMap as $childId => $mainId) {
                 if (isset($airTicketsByProdId[$childId]) && !isset($emdProdIds[$childId])) {
@@ -280,6 +282,9 @@ class MoyAgentParser implements ParserInterface
             }
 
             foreach ($ticketGroups as $groupKey => $prodIds) {
+                if ($isExchange && $groupKey === $orderAnalysis['refund_ticket_number']) {
+                    continue;
+                }
                 $mainProdId = $prodIds[0];
                 $maxFare = -1;
                 foreach ($prodIds as $pid) {
@@ -314,12 +319,8 @@ class MoyAgentParser implements ParserInterface
                 $taxesAmount = (float)(string)$airTicket['taxes'];
                 $totalAmount = $fare + $taxesAmount;
 
-                $payments = array(array(
-                    'TYPE' => 'INVOICE',
-                    'AMOUNT' => $totalAmount,
-                    'EQUIVALENT_AMOUNT' => $totalAmount,
-                    'RELATED_TICKET_NUMBER' => null
-                ));
+                $refundTkt = $isExchange ? $orderAnalysis['refund_ticket_number'] : '';
+                $payments = $this->buildPaymentsFromXml($xml, $totalAmount, $refundTkt);
 
                 $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
 
@@ -965,7 +966,7 @@ class MoyAgentParser implements ParserInterface
 
     private function analyzeOrderType($xml)
     {
-        $r = array('operation'=>'TKT','refund_doc'=>null,'refund_prod_id'=>null,'original_prod_id'=>null);
+        $r = array('operation'=>'TKT','refund_doc'=>null,'refund_prod_id'=>null,'original_prod_id'=>null,'refund_ticket_number'=>'');
         if (!isset($xml->travel_docs->travel_doc)) { return $r; }
 
         $docs = array();
@@ -978,10 +979,11 @@ class MoyAgentParser implements ParserInterface
             }
         }
         foreach ($docs as $d) {
-            if (in_array($d['tkt_oper'], array('REF','CANX','RFND'))) {
+            if (in_array($d['tkt_oper'], array('REF','CANX','RFND','EXCH'))) {
                 $r['operation'] = $d['tkt_oper'];
                 $r['refund_doc'] = $d;
                 $r['refund_prod_id'] = $d['prod_id'];
+                $r['refund_ticket_number'] = $d['tkt_number'];
                 $refTktNumber = $d['tkt_number'];
                 foreach ($docs as $d2) {
                     if ($d2['tkt_oper'] === 'TKT' && $d2['tkt_number'] === $refTktNumber) {
@@ -1085,6 +1087,76 @@ class MoyAgentParser implements ParserInterface
         }
         if ($vt > 0) { $c[] = array('TYPE'=>'VENDOR','NAME'=>'Комиссия поставщика','AMOUNT'=>$vt,'EQUIVALENT_AMOUNT'=>$vt,'RATE'=>null); }
         return $c;
+    }
+
+    /**
+     * Строит PAYMENTS из XML payments или fallback на INVOICE.
+     * При tkt_fop = ПК/БИЛЕТ/ТКЕТ/TKT/EXCH — TYPE=TICKET, RELATED_TICKET_NUMBER.
+     *
+     * @param \SimpleXMLElement $xml
+     * @param float $defaultAmount сумма по умолчанию (fare+taxes)
+     * @param string $refundTicketNumber номер возвращённого билета (для обмена)
+     * @return array PAYMENTS
+     */
+    private function buildPaymentsFromXml($xml, $defaultAmount, $refundTicketNumber = '')
+    {
+        $ticketCreditFop = MoyAgentConstants::getTicketCreditFopCodes();
+        $payments = array();
+        $amountInvoice = 0;
+        $amountTicket = 0;
+        $relatedTicket = null;
+
+        if (isset($xml->payments->payment)) {
+            foreach ($xml->payments->payment as $p) {
+                $oper = strtoupper(trim((string)$p['pay_oper']));
+                if ($oper !== 'PAY') {
+                    continue;
+                }
+                $amount = (float)(string)$p['amount'];
+                if ($amount <= 0) {
+                    continue;
+                }
+                $fop = strtoupper(trim((string)$p['tkt_fop']));
+                $tktNum = isset($p['tkt_number']) ? trim((string)$p['tkt_number']) : '';
+
+                if (isset($ticketCreditFop[$fop])) {
+                    $amountTicket += $amount;
+                    if ($tktNum !== '' || $refundTicketNumber !== '') {
+                        $relatedTicket = $tktNum !== '' ? $tktNum : $refundTicketNumber;
+                    }
+                } else {
+                    $amountInvoice += $amount;
+                }
+            }
+        }
+
+        if ($amountInvoice > 0) {
+            $payments[] = array(
+                'TYPE' => 'INVOICE',
+                'AMOUNT' => $amountInvoice,
+                'EQUIVALENT_AMOUNT' => $amountInvoice,
+                'RELATED_TICKET_NUMBER' => null
+            );
+        }
+        if ($amountTicket > 0) {
+            $payments[] = array(
+                'TYPE' => 'TICKET',
+                'AMOUNT' => $amountTicket,
+                'EQUIVALENT_AMOUNT' => $amountTicket,
+                'RELATED_TICKET_NUMBER' => $relatedTicket
+            );
+        }
+
+        if (empty($payments)) {
+            $payments = array(array(
+                'TYPE' => 'INVOICE',
+                'AMOUNT' => $defaultAmount,
+                'EQUIVALENT_AMOUNT' => $defaultAmount,
+                'RELATED_TICKET_NUMBER' => null
+            ));
+        }
+
+        return $payments;
     }
 
     private function formatDateTime($dateTime)

@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-03-13 — Зачёт и Связ.билет при обмене (PAYMENTS из XML)
+
+**Запрос пользователя:** Заполнять колонки «Зачёт» и «Связ. билет» при обмене.
+
+### Что было сделано
+- **MoyAgentConstants** — `getTicketCreditFopCodes()`: ПК, БИЛЕТ, ТКЕТ, TKT, EXCH (tkt_fop = зачёт по билету)
+- **MoyAgentParser** — `buildPaymentsFromXml()`: парсит `xml->payments->payment`, при pay_oper=PAY и tkt_fop в списке зачёта формирует TYPE='TICKET' с RELATED_TICKET_NUMBER
+- **analyzeOrderType** — добавлены EXCH и refund_ticket_number; при обмене возвращается номер возвращённого билета
+- **Обмен (EXCH)** — при EXCH строятся и REF-продукт, и новый TKT-продукт; для нового билета используется buildPaymentsFromXml с refund_ticket_number
+- **Fallback** — при отсутствии payments или без зачёта — один INVOICE (как раньше)
+
+### Изменённые файлы
+- `parsers/constants/MoyAgentConstants.php` — getTicketCreditFopCodes()
+- `parsers/MoyAgentParser.php` — buildPaymentsFromXml, analyzeOrderType, ветка обмена
+
+### Принятые решения
+- tkt_fop в payment: ПК, БИЛЕТ, ТКЕТ, TKT, EXCH — зачёт по билету
+- RELATED_TICKET_NUMBER: из payment[@tkt_number] или refund_ticket_number при обмене
+
+---
+
 ## 2026-03-13 — SFTP timeout и автообработка при навигации
 
 **Запрос пользователя:** Автообработка сбрасывалась при переходе на другую страницу; навигация блокировалась на 5 секунд из-за SFTP timeout.
