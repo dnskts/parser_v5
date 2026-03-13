@@ -141,6 +141,11 @@ switch ($action) {
                 $settings['interval'] = max(10, min(86400, $interval));
             }
 
+            // Порядок колонок таблицы data.php (только визуал, JSON не меняется)
+            if (isset($input['data_column_order']) && is_array($input['data_column_order'])) {
+                $settings['data_column_order'] = array_values($input['data_column_order']);
+            }
+
             // Сохраняем настройки в файл
             $configDir = dirname($configFile);
             if (!is_dir($configDir)) {

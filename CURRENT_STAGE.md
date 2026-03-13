@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-03-10
-**Обновлено после:** SFTP-синхронизатор (cURL + SFTP), настройки в settings.json
+**Последнее обновление:** 2026-03-13
+**Обновлено после:** Добавлены 4 поля пассажира (дата рождения, пол, тип документа, номер документа)
 
 ---
 
@@ -14,7 +14,7 @@
 - 2 фронтенд-файла (JS + CSS), ~920 строк
 - Итого: ~4 920 строк кода
 - 2 парсера (MoyAgent — боевой, DemoHotel — шаблон)
-- 5 тестовых fixture-файлов (XML) в `tests/fixtures/`, ~109 assertions
+- 6 тестовых fixture-файлов (XML) в `tests/fixtures/`, 132 assertions
 
 Ключевые возможности:
 - Автоматическое обнаружение парсеров (plug-and-play)
@@ -24,6 +24,7 @@
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
 - **SFTP-синхронизация: автоматическое копирование XML с сервера поставщика**
+- Данные документов пассажиров: дата рождения, пол, тип документа, номер документа
 - Веб-панель управления с логами в реальном времени
 
 ---
@@ -307,7 +308,7 @@ buildCouponsFromGroup() / buildTaxesFromGroup() с дедупликацией
 
 Метод	Версия	Описание
 parse()	V1	Главный метод парсинга
-buildPassengersMap()	V1	Карта psgr_id → данные
+buildPassengersMap()	V1	Карта psgr_id → данные (+ doc_type, doc_number, doc_country, doc_expire)
 buildTravelDocsMap()	V5	Карта prod_id → данные (+ issuingAgent)
 buildReservationsMap()	V5	Карта supplier → данные (+ bookingAgent)
 buildConjLinksMap()	V4	Карта child_prod_id → main_prod_id
@@ -320,6 +321,9 @@ extractPenalty()	V1	Сумма air_tax[@code=PEN]
 analyzeOrderType()	V1	Определяет TKT/REF/RFND/CANX
 formatDateTime()	V1	"2025-10-13 12:16:00" → "20251013121600"
 mapPassengerAge()	V1	adt→ADULT, chd→CHILD, inf→INFANT
+mapDocType()	V6	IATA-код типа документа → название на русском
+mapGender()	V6	M→Мужской, F→Женский
+buildPassengerDocInfo()	V6	Извлечение 4 полей документа пассажира (birth_date, gender, doc_type, doc_number)
 mapTicketStatus()	V1	TKT→продажа, REF→возврат
 
 Конъюнкции V6: скрытые конъюнкции
@@ -494,13 +498,16 @@ php sftp_sync.php --force
 Настройки API (url, login, password, timeout, enabled)
 JS: assets/app.js (372 строки)
 9.2. data.php — Обработанные заказы
-Серверный рендеринг, 49 колонок
+Серверный рендеринг, 55 колонок
 Кнопка 🔄 для повторной отправки
 Resizable-столбцы (drag-resize)
+Фильтр: поле поиска по всем колонкам (клиентская фильтрация)
+Сортировка: по дате выписки билета или дате загрузки (↑/↓)
+Выгрузка в XLSX: кнопка «Выгрузить в XLSX» — экспорт видимых строк (SheetJS CDN)
 formatRstlsDate() — "20251013121600" → "13.10.2025 12:16"
 formatAgent() — антидубль (V5): CODE===NAME → одно значение
 Даты вылета/прилёта: все сегменты через запятую (V5)
-49 колонок:
+55 колонок:
 
 #	Колонка	Источник
 1	🔄	UI
@@ -528,49 +535,54 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 23	Агент	AGENT (formatAgent)
 24	Тип билета	TICKET_TYPE
 25	Возраст	PASSENGER_AGE
-26	Бланки	CONJ_COUNT
-27	Штраф обмен	PENALTY
-28	Рейсы	COUPONS[].FLIGHT_NUMBER через запятую
-29	Fare Basis	COUPONS[].FARE_BASIS через запятую
-30	Класс	COUPONS[].CLASS через запятую
-31	Дата вылета	все COUPONS[].DEPARTURE_DATETIME через запятую
-32	Дата прилёта	все COUPONS[].ARRIVAL_DATETIME через запятую
-33	Тариф (руб)	TAXES[] CODE=""
-34	Таксы (руб)	TAXES[] CODE≠""
-35	НДС (руб)	sum(TAXES[].VAT_AMOUNT)
-36	Тип платежа	PAYMENTS[].TYPE
-37	Оплата (руб)	PAYMENTS[] INVOICE
-38	Зачёт (руб)	PAYMENTS[] TICKET
-39	Связ. билет	PAYMENTS[].RELATED_TICKET_NUMBER
-40	Комиссия ТКП	COMMISSIONS[] VENDOR
-41	Ставка %	COMMISSIONS[] VENDOR.RATE
-42	Серв. сбор	COMMISSIONS[] CLIENT ~"сервисный сбор"
-43	Сбор пост.	COMMISSIONS[] CLIENT ~"сбор поставщика"
-44	Дата возврата	REFUND.DATA
-45	Сумма возврата	REFUND.EQUIVALENT_AMOUNT
-46	Сбор РСТЛС	REFUND.FEE_CLIENT
-47	Сбор пост. возвр.	REFUND.FEE_VENDOR
-48	Штраф пост.	REFUND.PENALTY_VENDOR
-49	Штраф РСТЛС	REFUND.PENALTY_CLIENT
+26	Дата рождения	PASSENGER_BIRTH_DATE
+27	Пол	PASSENGER_GENDER
+28	Тип документа	PASSENGER_DOC_TYPE
+29	Номер документа	PASSENGER_DOC_NUMBER
+30	Бланки	CONJ_COUNT
+31	Штраф обмен	PENALTY
+32	Рейсы	COUPONS[].FLIGHT_NUMBER через запятую
+33	Fare Basis	COUPONS[].FARE_BASIS через запятую
+34	Класс	COUPONS[].CLASS через запятую
+35	Дата вылета	все COUPONS[].DEPARTURE_DATETIME через запятую
+36	Дата прилёта	все COUPONS[].ARRIVAL_DATETIME через запятую
+37	Тариф (руб)	TAXES[] CODE=""
+38	Таксы (руб)	TAXES[] CODE≠""
+39	НДС (руб)	sum(TAXES[].VAT_AMOUNT)
+40	Тип платежа	PAYMENTS[].TYPE
+41	Оплата (руб)	PAYMENTS[] INVOICE
+42	Зачёт (руб)	PAYMENTS[] TICKET
+43	Связ. билет	PAYMENTS[].RELATED_TICKET_NUMBER
+44	Комиссия ТКП	COMMISSIONS[] VENDOR
+45	Ставка %	COMMISSIONS[] VENDOR.RATE
+46	Серв. сбор	COMMISSIONS[] CLIENT ~"сервисный сбор"
+47	Сбор пост.	COMMISSIONS[] CLIENT ~"сбор поставщика"
+48	Дата возврата	REFUND.DATA
+49	Сумма возврата	REFUND.EQUIVALENT_AMOUNT
+50	Сбор РСТЛС	REFUND.FEE_CLIENT
+51	Сбор пост. возвр.	REFUND.FEE_VENDOR
+52	Штраф пост.	REFUND.PENALTY_VENDOR
+53	Штраф РСТЛС	REFUND.PENALTY_CLIENT
 9.3. api_logs.php — Логи API
 Двухрежимная: HTML-страница + AJAX к самой себе
 Читает logs/api_send.log (JSON Lines)
 Не использует app.js — встроенные скрипты
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
-Тестирует MoyAgentParser V5 на 5 фикстурах из tests/fixtures/
-~109 assertions суммарно (от 20 до 26 на файл)
+Тестирует MoyAgentParser на 6 фикстурах из tests/fixtures/
+132 assertions суммарно
 Вспомогательная функция addCheck() — DRY вместо копипаста
 PASS-блоки свёрнуты по умолчанию, FAIL — развёрнуты
 Badge показывает количество проверок: PASS (22)
 Фикстуры и покрытие:
 
-Файл	Описание	Assertions	Ключевые проверки
-125358843227.xml	Продажа, 1 билет, SVO→KZN→SVO	22	Базовые + даты + CLIENT/VENDOR комиссии
-125358829987.xml	Продажа, 3 билета, 3 пассажира	20	all_travellers, all_tickets
-125358832021.xml	Продажа + EMD конъюнкция, EUR→RUB	20	CONJ_COUNT=2, даты
-125358832769.xml	Возврат REF, penalty 3500	21	REFUND, PENALTY, REFUND.AMOUNT
-125359005865.xml	5 билетов + конъюнкции, SVO→AUH→SVO	26	BOOKING_AGENT, AGENT, 5 пассажиров, 5 билетов
+Файл	Описание	Ключевые проверки
+125358843227.xml	Продажа, 1 билет, SVO→KZN→SVO	Базовые + даты + CLIENT/VENDOR комиссии
+125358829987.xml	Продажа, 3 билета, 3 пассажира	all_travellers, all_tickets
+125358832021.xml	Продажа + EMD (2 продукта: авиа + EMD)	2 продукта, даты
+125358832769.xml	Возврат REF (2 продукта: авиа + EMD возврат)	REFUND, PENALTY, REFUND.AMOUNT
+125359005865.xml	5 авиа + 5 EMD = 10 продуктов, SVO→AUH→SVO	BOOKING_AGENT, AGENT, all_travellers, all_tickets
+125359052102.xml	Скрытая конъюнкция (без emd_ticket_doc), VKO→TIV	CONJ_COUNT=2
 Категории проверок:
 
 Категория	Проверки
@@ -595,10 +607,10 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Парсер «Мой агент» V5 — конъюнкции, маппинг полей
 ✅ Демо-парсер отелей (шаблон)
 ✅ Отправка в API 1С (HTTP POST, Basic Auth)
-✅ Веб-интерфейс (панель, таблица 49 колонок, логи API, тесты)
+✅ Веб-интерфейс (панель, таблица 55 колонок, логи API, тесты)
 ✅ Повторная отправка (кнопка 🔄)
 ✅ Resizable-столбцы в data.php
-✅ Автотесты (test.php, 5 фикстур, ~109 assertions)
+✅ Автотесты (test.php, 6 фикстур, 132 assertions)
 ✅ SFTP-синхронизатор — cURL+SFTP, автономный модуль, настройки в settings.json
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
@@ -608,6 +620,17 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-13	4 поля пассажира (дата рождения, пол, тип документа, номер документа) из XML в JSON и таблицу (51→55 колонок)	parsers/MoyAgentParser.php, data.php
+2026-03-13	Футер привязан к правому нижнему углу экрана (position: fixed)	assets/style.css
+2026-03-13	Исправлены тесты + фикстура 125358954718 (7 фикстур, 153 assertions)	test.php, tests/fixtures/
+2026-03-13	Сводка тестов в одну строку, кнопка справа	test.php
+2026-03-13	Максимально минимальные отступы на test.php	test.php
+2026-03-13	Минимальные отступы во всём интерфейсе	assets/style.css
+2026-03-13	Единый компактный стиль на всех страницах (compact header + wide layout)	style.css, index.php, api_logs.php, test.php
+2026-03-13	EMD без номера и с нулевой суммой пропускаются (не попадают в JSON)	parsers/MoyAgentParser.php
+2026-03-13	Удалено поле EMD_VALUE (EMD значение) из JSON-продуктов и таблицы	parsers/MoyAgentParser.php, data.php
+2026-03-13	data.php: фильтр по таблице, сортировка (дата выписки/загрузки), выгрузка в XLSX (SheetJS)	data.php
+2026-03-13	Исправления MoyAgentParser: original_prod_id по tkt_number, использование reservationsMap, тесты под EMD как отдельные продукты	parsers/MoyAgentParser.php, test.php
 2026-03-10	SFTP-синхронизатор: cURL+SFTP, автономный модуль	core/SftpSync.php, sftp_sync.php
 2026-03-10	Настройки SFTP в settings.json (секция sftp)	config/settings.json
 2026-03-03	Тесты обновлены под V5 (5 фикстур, ~109 assertions)	test.php
