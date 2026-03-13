@@ -67,6 +67,7 @@ parser_v5/
 |------|----------|
 | `assets/app.js` | JS для index.php (372 строки) |
 | `assets/style.css` | Общие стили (BEM) |
+| `assets/xlsx.full.min.js` | SheetJS (локальный fallback для выгрузки в XLSX) |
 
 ### Tests
 

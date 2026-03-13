@@ -11,12 +11,11 @@
     <!-- ============================================ -->
     <!-- ШАПКА СТРАНИЦЫ                               -->
     <!-- ============================================ -->
-    <header class="header">
-        <div class="header__content">
+    <header class="header header--compact">
+        <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
                     <h1 class="header__title">XML Parser</h1>
-                    <p class="header__subtitle">Панель управления обработкой файлов</p>
                 </div>
                 <!-- Навигация между страницами -->
                 <nav class="nav">
@@ -29,14 +28,13 @@
         </div>
     </header>
 
-    <main class="main">
+    <main class="main main--wide">
         <!-- ============================================ -->
         <!-- ПАНЕЛЬ УПРАВЛЕНИЯ                            -->
         <!-- Здесь можно настроить интервал обработки     -->
         <!-- и запустить обработку вручную                -->
         <!-- ============================================ -->
         <section class="panel">
-            <h2 class="panel__title">Управление</h2>
             
             <div class="panel__controls">
                 <!-- Блок настройки интервала -->
@@ -110,7 +108,7 @@
     <!-- ПОДВАЛ СТРАНИЦЫ                              -->
     <!-- ============================================ -->
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
     </footer>
 
     <!-- Подключаем скрипт логики интерфейса -->

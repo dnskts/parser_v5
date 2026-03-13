@@ -84,7 +84,7 @@ class MoyAgentParser implements ParserInterface
         $emdDocsMap = $this->buildEmdDocsMap($xml);
         $reservationsMap = $this->buildReservationsMap($xml);
         $conjLinksMap = $this->buildConjLinksMap($xml, $travelDocsMap, $emdDocsMap);
-        $mainReservation = $this->getMainReservation($xml);
+        $mainReservation = $this->getMainReservationFromMap($reservationsMap);
 
         // ШАГ 4: Тип операции
         $orderAnalysis = $this->analyzeOrderType($xml);
@@ -531,6 +531,10 @@ class MoyAgentParser implements ParserInterface
             $emdTaxes = $emdAirTicket ? (float)(string)$emdAirTicket['taxes'] : 0;
             $emdTotal = $emdFare + $emdTaxes;
 
+            if (trim($emdDoc['tkt_number']) === '' && $emdTotal == 0) {
+                continue;
+            }
+
             $taxes = array();
             $taxes[] = array(
                 'CODE' => '', 'AMOUNT' => $emdFare,
@@ -592,7 +596,6 @@ class MoyAgentParser implements ParserInterface
                 'SUPPLIER' => $this->getSupplierName(),
                 'RELATED_TICKET_NUMBER' => $relatedTicketNumber,
                 'EMD_NAME' => $emdName,
-                'EMD_VALUE' => $rfisc,
                 'COUPONS' => $coupons,
                 'TRAVELLER' => $traveller,
                 'TAXES' => $taxes,
@@ -660,6 +663,10 @@ class MoyAgentParser implements ParserInterface
             $emdFare = $emdAT ? (float)(string)$emdAT['fare'] : 0;
             $emdTax = $emdAT ? (float)(string)$emdAT['taxes'] : 0;
             $emdTotal = $emdFare + $emdTax;
+
+            if (trim($emdDoc['tkt_number']) === '' && $emdTotal == 0) {
+                continue;
+            }
 
             $taxes = array();
             $taxes[] = array('CODE'=>'','AMOUNT'=>$emdFare,'EQUIVALENT_AMOUNT'=>$emdFare,'VAT_RATE'=>0,'VAT_AMOUNT'=>0);
@@ -730,7 +737,6 @@ class MoyAgentParser implements ParserInterface
                 'SUPPLIER'=>$this->getSupplierName(),
                 'RELATED_TICKET_NUMBER'=>$relatedTkt,
                 'EMD_NAME'=>$emdName,
-                'EMD_VALUE'=>$rfisc,
                 'COUPONS'=>$coupons,
                 'TRAVELLER'=>$traveller,
                 'TAXES'=>$taxes,
@@ -841,6 +847,18 @@ class MoyAgentParser implements ParserInterface
         return $map;
     }
 
+    /**
+     * Первая бронь из карты (поставщик → данные).
+     * Используется buildReservationsMap(), чтобы не парсить XML повторно.
+     */
+    private function getMainReservationFromMap($reservationsMap)
+    {
+        if (empty($reservationsMap)) {
+            return null;
+        }
+        return reset($reservationsMap);
+    }
+
     private function getMainReservation($xml)
     {
         if (isset($xml->reservations->reservation)) {
@@ -892,14 +910,21 @@ class MoyAgentParser implements ParserInterface
         }
         foreach ($docs as $d) {
             if (in_array($d['tkt_oper'], array('REF','CANX','RFND'))) {
-                $r['operation']=$d['tkt_oper']; $r['refund_doc']=$d; $r['refund_prod_id']=$d['prod_id']; break;
+                $r['operation'] = $d['tkt_oper'];
+                $r['refund_doc'] = $d;
+                $r['refund_prod_id'] = $d['prod_id'];
+                $refTktNumber = $d['tkt_number'];
+                foreach ($docs as $d2) {
+                    if ($d2['tkt_oper'] === 'TKT' && $d2['tkt_number'] === $refTktNumber) {
+                        $r['original_prod_id'] = $d2['prod_id'];
+                        break;
+                    }
+                }
+                if ($r['original_prod_id'] === null) {
+                    $r['original_prod_id'] = $d['prod_id'];
+                }
+                break;
             }
-        }
-        foreach ($docs as $d) {
-            if ($d['tkt_oper'] === 'TKT') { $r['original_prod_id'] = $d['prod_id']; break; }
-        }
-        if ($r['refund_prod_id'] !== null && $r['original_prod_id'] === null) {
-            $r['original_prod_id'] = $r['refund_prod_id'];
         }
         return $r;
     }

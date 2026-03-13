@@ -51,7 +51,7 @@ if (isset($_GET['action'])) {
     <title>XML Parser — Логи отправки API</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
-        .api-status{display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:12px 16px;border-radius:8px;font-size:14px}
+        .api-status{display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:3px 16px;border-radius:8px;font-size:14px}
         .api-status--on{background:#e8f5e9;border:1px solid #4caf50;color:#2e7d32}
         .api-status--off{background:#fff3e0;border:1px solid #ff9800;color:#e65100}
         .api-status__dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
@@ -80,8 +80,8 @@ if (isset($_GET['action'])) {
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header__content">
+    <header class="header header--compact">
+        <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
                     <h1 class="header__title">XML Parser</h1>
@@ -97,7 +97,7 @@ if (isset($_GET['action'])) {
         </div>
     </header>
 
-    <main class="main">
+    <main class="main main--wide">
         <section class="panel">
             <div id="api-status" class="api-status api-status--off">
                 <div class="api-status__dot"></div>
@@ -132,7 +132,7 @@ if (isset($_GET['action'])) {
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
     </footer>
 
     <script>

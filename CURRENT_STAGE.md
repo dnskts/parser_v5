@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-03-10
-**Обновлено после:** SFTP-синхронизатор (cURL + SFTP), настройки в settings.json
+**Последнее обновление:** 2026-03-13
+**Обновлено после:** EMD без номера и с нулевой суммой пропускаются
 
 ---
 
@@ -14,7 +14,7 @@
 - 2 фронтенд-файла (JS + CSS), ~920 строк
 - Итого: ~4 920 строк кода
 - 2 парсера (MoyAgent — боевой, DemoHotel — шаблон)
-- 5 тестовых fixture-файлов (XML) в `tests/fixtures/`, ~109 assertions
+- 6 тестовых fixture-файлов (XML) в `tests/fixtures/`, 132 assertions
 
 Ключевые возможности:
 - Автоматическое обнаружение парсеров (plug-and-play)
@@ -497,6 +497,9 @@ JS: assets/app.js (372 строки)
 Серверный рендеринг, 49 колонок
 Кнопка 🔄 для повторной отправки
 Resizable-столбцы (drag-resize)
+Фильтр: поле поиска по всем колонкам (клиентская фильтрация)
+Сортировка: по дате выписки билета или дате загрузки (↑/↓)
+Выгрузка в XLSX: кнопка «Выгрузить в XLSX» — экспорт видимых строк (SheetJS CDN)
 formatRstlsDate() — "20251013121600" → "13.10.2025 12:16"
 formatAgent() — антидубль (V5): CODE===NAME → одно значение
 Даты вылета/прилёта: все сегменты через запятую (V5)
@@ -558,19 +561,20 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 Не использует app.js — встроенные скрипты
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
-Тестирует MoyAgentParser V5 на 5 фикстурах из tests/fixtures/
-~109 assertions суммарно (от 20 до 26 на файл)
+Тестирует MoyAgentParser на 6 фикстурах из tests/fixtures/
+132 assertions суммарно
 Вспомогательная функция addCheck() — DRY вместо копипаста
 PASS-блоки свёрнуты по умолчанию, FAIL — развёрнуты
 Badge показывает количество проверок: PASS (22)
 Фикстуры и покрытие:
 
-Файл	Описание	Assertions	Ключевые проверки
-125358843227.xml	Продажа, 1 билет, SVO→KZN→SVO	22	Базовые + даты + CLIENT/VENDOR комиссии
-125358829987.xml	Продажа, 3 билета, 3 пассажира	20	all_travellers, all_tickets
-125358832021.xml	Продажа + EMD конъюнкция, EUR→RUB	20	CONJ_COUNT=2, даты
-125358832769.xml	Возврат REF, penalty 3500	21	REFUND, PENALTY, REFUND.AMOUNT
-125359005865.xml	5 билетов + конъюнкции, SVO→AUH→SVO	26	BOOKING_AGENT, AGENT, 5 пассажиров, 5 билетов
+Файл	Описание	Ключевые проверки
+125358843227.xml	Продажа, 1 билет, SVO→KZN→SVO	Базовые + даты + CLIENT/VENDOR комиссии
+125358829987.xml	Продажа, 3 билета, 3 пассажира	all_travellers, all_tickets
+125358832021.xml	Продажа + EMD (2 продукта: авиа + EMD)	2 продукта, даты
+125358832769.xml	Возврат REF (2 продукта: авиа + EMD возврат)	REFUND, PENALTY, REFUND.AMOUNT
+125359005865.xml	5 авиа + 5 EMD = 10 продуктов, SVO→AUH→SVO	BOOKING_AGENT, AGENT, all_travellers, all_tickets
+125359052102.xml	Скрытая конъюнкция (без emd_ticket_doc), VKO→TIV	CONJ_COUNT=2
 Категории проверок:
 
 Категория	Проверки
@@ -598,7 +602,7 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Веб-интерфейс (панель, таблица 49 колонок, логи API, тесты)
 ✅ Повторная отправка (кнопка 🔄)
 ✅ Resizable-столбцы в data.php
-✅ Автотесты (test.php, 5 фикстур, ~109 assertions)
+✅ Автотесты (test.php, 6 фикстур, 132 assertions)
 ✅ SFTP-синхронизатор — cURL+SFTP, автономный модуль, настройки в settings.json
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
@@ -608,6 +612,16 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-13	Футер привязан к правому нижнему углу экрана (position: fixed)	assets/style.css
+2026-03-13	Исправлены тесты + фикстура 125358954718 (7 фикстур, 153 assertions)	test.php, tests/fixtures/
+2026-03-13	Сводка тестов в одну строку, кнопка справа	test.php
+2026-03-13	Максимально минимальные отступы на test.php	test.php
+2026-03-13	Минимальные отступы во всём интерфейсе	assets/style.css
+2026-03-13	Единый компактный стиль на всех страницах (compact header + wide layout)	style.css, index.php, api_logs.php, test.php
+2026-03-13	EMD без номера и с нулевой суммой пропускаются (не попадают в JSON)	parsers/MoyAgentParser.php
+2026-03-13	Удалено поле EMD_VALUE (EMD значение) из JSON-продуктов и таблицы	parsers/MoyAgentParser.php, data.php
+2026-03-13	data.php: фильтр по таблице, сортировка (дата выписки/загрузки), выгрузка в XLSX (SheetJS)	data.php
+2026-03-13	Исправления MoyAgentParser: original_prod_id по tkt_number, использование reservationsMap, тесты под EMD как отдельные продукты	parsers/MoyAgentParser.php, test.php
 2026-03-10	SFTP-синхронизатор: cURL+SFTP, автономный модуль	core/SftpSync.php, sftp_sync.php
 2026-03-10	Настройки SFTP в settings.json (секция sftp)	config/settings.json
 2026-03-03	Тесты обновлены под V5 (5 фикстур, ~109 assertions)	test.php

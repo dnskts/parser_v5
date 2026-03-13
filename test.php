@@ -107,16 +107,15 @@ $expectations = array(
     ),
 
     // -------------------------------------------------
-    // Тест 3: Продажа с конъюнкцией (EMD)
+    // Тест 3: Продажа с EMD (отдельный продукт)
     // prod_id=0 (основной, fare=28497) + prod_id=1 (emd, fare=2027.63)
     // emd_ticket_doc prod_id="1" main_prod_id="0"
-    // Группировка: 2 air_ticket_prod → 1 PRODUCT
-    // Валюта: crs_currency=EUR, но fare в RUB
+    // EMD — отдельный продукт в PRODUCTS[] (не группируем с авиа)
     // -------------------------------------------------
     '125358832021.xml' => array(
         'description'        => 'Продажа, 1 билет + EMD (конъюнкция), MXP→CDG, EUR→RUB',
         'status'             => 'продажа',
-        'products_count'     => 1,
+        'products_count'     => 2,
         'invoice_number'     => '125358832021',
         'client'             => 'MA1PA6',
         'ticket_number'      => '0572675175754',
@@ -126,11 +125,9 @@ $expectations = array(
         'currency'           => 'RUB',
         'fare'               => 28497.0,
         'has_refund'         => false,
-        // V5: конъюнкция — 2 air_ticket_prod → 1 PRODUCT
         'supplier'           => 'Мой агент',
         'reservation_number' => 'FV2R0F',
-        'conj_count'         => 2,
-        // Даты единственного сегмента
+        'conj_count'         => 1,
         'first_dep_dt'       => '20260207113500',
         'first_arr_dt'       => '20260207131000',
     ),
@@ -139,9 +136,7 @@ $expectations = array(
     // Тест 4: Возврат REF
     // prod_id=0 (TKT, fare=138300) + prod_id=1 (emd, main_prod_id=0)
     // prod_id=3 (REF, fare=138300, penalty PEN=3500)
-    // air_ticket_doc prod_id=0 tkt_oper=TKT
-    // air_ticket_doc prod_id=3 tkt_oper=REF
-    // 2 сегмента SVO→OVB→SVO
+    // Парсер выдаёт: 1 авиа-возврат + 1 EMD-возврат = 2 продукта
     // -------------------------------------------------
     '125358832769.xml' => array(
         'description'        => 'Возврат REF, penalty 3500, SVO→OVB→SVO',
@@ -165,14 +160,9 @@ $expectations = array(
     ),
 
     // -------------------------------------------------
-    // Тест 5: Продажа, 5 пассажиров с конъюнкциями
-    // 10 air_ticket_prod → 5 PRODUCTS
-    // Каждый пассажир: основной (supplier=607, fare=787970)
-    //                + конъюнкция (supplier=BSP_RU1, fare=0)
-    // emd_ticket_doc main_prod_id связывает попарно
-    // reservation bookingAgent="Валерия Подунай"
-    // air_ticket_doc issuingAgent="Валерия Подунай"
-    // КЛЮЧЕВОЙ ТЕСТ НА КОНЪЮНКЦИИ + МАППИНГ ПОЛЕЙ V5
+    // Тест 5: Продажа, 5 пассажиров + 5 EMD (отдельные продукты)
+    // 10 air_ticket_prod → 5 авиа PRODUCTS + 5 EMD PRODUCTS = 10
+    // EMD — отдельные продукты; all_travellers/all_tickets по первому продукту (авиа)
     // -------------------------------------------------
     '125359005865.xml' => array(
         'description'        => 'Продажа, 5 билетов + конъюнкции (emd), SVO→AUH→SVO',
@@ -187,18 +177,15 @@ $expectations = array(
         'currency'           => 'RUB',
         'fare'               => 787970.0,
         'has_refund'         => false,
-        // V5: конъюнкции + маппинг полей
         'supplier'           => 'Мой агент',
         'reservation_number' => 'G1ZXKP',
         'booking_agent'      => 'Валерия Подунай',
         'agent'              => 'Валерия Подунай',
-        'conj_count'         => 2,
-        // Даты: 2 сегмента
+        'conj_count'         => 1,
         'first_dep_dt'       => '20260405124000',
         'first_arr_dt'       => '20260405191000',
         'last_dep_dt'        => '20260411141500',
         'last_arr_dt'        => '20260411190500',
-        // Все 5 пассажиров
         'all_travellers'     => array(
             'MAKAROV KONSTANTIN',
             'BAIBOLOVA DINA',
@@ -206,7 +193,6 @@ $expectations = array(
             'MAKAROVA EKATERINA',
             'MAKAROVA EKATERINA',
         ),
-        // Все 5 номеров билетов
         'all_tickets'        => array(
             '6076506222015',
             '6076506222017',
@@ -226,6 +212,35 @@ $expectations = array(
     // Группировка: 2 air_ticket_prod → 1 PRODUCT
     // КЛЮЧЕВОЙ ТЕСТ НА СКРЫТЫЕ КОНЪЮНКЦИИ V6
     // -------------------------------------------------
+    // -------------------------------------------------
+    // Тест 7: Возврат + 2 EMD с номерами и ненулевой суммой
+    // prod_id=0 (TKT, fare=39190) + prod_id=1 (emd, fare=4254, tkt=5554590327709)
+    // + prod_id=2 (emd, fare=5885, tkt=5554590328700)
+    // prod_id=4 (REF, penalty PEN=5060)
+    // EMD НЕ фильтруются (есть номер и ненулевая сумма)
+    // Парсер: 1 авиа-возврат + 2 EMD-возврата = 3 продукта
+    // -------------------------------------------------
+    '125358954718.xml' => array(
+        'description'        => 'Возврат + 2 EMD (багаж + место), penalty 5060, SVO→EVN',
+        'status'             => 'возврат',
+        'products_count'     => 3,
+        'invoice_number'     => '125358954718',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '5552381291066',
+        'traveller'          => 'AMIRKHANYAN ASYA',
+        'carrier'            => 'SU',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 39190.0,
+        'has_refund'         => true,
+        'penalty'            => 5060.0,
+        'refund_amount'      => 16526.0,
+        'supplier'           => 'Мой агент',
+        'reservation_number' => '93261Z',
+        'booking_agent'      => 'Ольга Никифорова',
+        'agent'              => 'Ольга Никифорова',
+    ),
+
     '125359052102.xml' => array(
         'description'        => 'Продажа, 1 билет + скрытая конъюнкция (без emd), VKO→TIV, 4 сегмента',
         'status'             => 'продажа',
@@ -635,20 +650,42 @@ if ($isCli) {
     <title>XML Parser — Автотесты</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
+        /* Минимальные отступы для страницы тестов */
+        .page-test .main { margin: 4px auto; padding: 0 8px; }
+        .page-test .main .panel { padding: 6px 8px; margin-bottom: 6px; }
+        .page-test .main .panel__title { margin-bottom: 4px; padding-bottom: 4px; }
+        .test-summary-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
         .test-summary {
             display: flex;
-            gap: 20px;
-            margin-bottom: 24px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
         .test-summary__card {
-            padding: 16px 24px;
-            border-radius: 8px;
-            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 16px;
             font-weight: 600;
-            min-width: 140px;
-            text-align: center;
+        }
+
+        .test-summary__num {
+            flex-shrink: 0;
+        }
+
+        .test-summary__label {
+            font-size: 12px;
+            font-weight: 400;
+            opacity: 0.85;
         }
 
         .test-summary__card--total {
@@ -666,29 +703,25 @@ if ($isCli) {
             color: #c62828;
         }
 
-        .test-summary__label {
-            font-size: 12px;
-            font-weight: 400;
-            display: block;
-            margin-top: 4px;
-            opacity: 0.7;
+        .test-summary__btn {
+            margin-left: auto;
         }
 
         .test-file {
             background: #fff;
             border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            margin-bottom: 16px;
+            border-radius: 4px;
+            margin-bottom: 6px;
             overflow: hidden;
         }
 
         .test-file__header {
-            padding: 12px 20px;
+            padding: 4px 8px;
             font-weight: 600;
-            font-size: 15px;
+            font-size: 14px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             cursor: pointer;
             user-select: none;
         }
@@ -713,7 +746,7 @@ if ($isCli) {
         }
 
         .test-file__icon {
-            font-size: 18px;
+            font-size: 16px;
             flex-shrink: 0;
         }
 
@@ -724,13 +757,13 @@ if ($isCli) {
         .test-file__desc {
             color: #757575;
             font-weight: 400;
-            font-size: 13px;
+            font-size: 12px;
         }
 
         .test-file__badge {
-            font-size: 12px;
-            padding: 2px 10px;
-            border-radius: 12px;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 8px;
             font-weight: 600;
         }
 
@@ -750,18 +783,18 @@ if ($isCli) {
         }
 
         .test-file__body {
-            padding: 0 20px 16px;
+            padding: 0 8px 6px;
         }
 
         .test-checks {
             width: 100%;
             border-collapse: collapse;
-            font-size: 13px;
+            font-size: 12px;
         }
 
         .test-checks th {
             text-align: left;
-            padding: 6px 12px;
+            padding: 4px 6px;
             background: #fafafa;
             border-bottom: 1px solid #e0e0e0;
             font-weight: 600;
@@ -769,7 +802,7 @@ if ($isCli) {
         }
 
         .test-checks td {
-            padding: 5px 12px;
+            padding: 4px 6px;
             border-bottom: 1px solid #f0f0f0;
         }
 
@@ -778,13 +811,13 @@ if ($isCli) {
         }
 
         .test-checks__icon {
-            width: 30px;
+            width: 24px;
             text-align: center;
-            font-size: 15px;
+            font-size: 14px;
         }
 
         .test-checks__name {
-            width: 180px;
+            width: 160px;
         }
 
         .test-checks__expected {
@@ -797,25 +830,21 @@ if ($isCli) {
         }
 
         .test-file__error {
-            padding: 12px 20px;
+            padding: 6px 8px;
             color: #c62828;
-            font-size: 13px;
-        }
-
-        .test-actions {
-            margin-bottom: 20px;
+            font-size: 12px;
         }
 
         .test-meta {
             color: #9e9e9e;
-            font-size: 12px;
-            margin-bottom: 20px;
+            font-size: 11px;
+            margin-bottom: 6px;
         }
     </style>
 </head>
-<body>
-    <header class="header">
-        <div class="header__content">
+<body class="page-test">
+    <header class="header header--compact">
+        <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
                     <h1 class="header__title">XML Parser</h1>
@@ -831,8 +860,8 @@ if ($isCli) {
         </div>
     </header>
 
-    <main class="main">
-        <section class="panel">
+    <main class="main main--wide">
+        <section class="panel panel--compact">
             <h2 class="panel__title">Результаты тестов — MoyAgentParser V6</h2>
 
             <div class="test-meta">
@@ -841,23 +870,22 @@ if ($isCli) {
                 Файлов: <?php echo count($results); ?>
             </div>
 
-            <div class="test-actions">
-                <a href="test.php" class="btn btn--primary">↻ Перезапустить тесты</a>
-            </div>
-
-            <div class="test-summary">
-                <div class="test-summary__card test-summary__card--total">
-                    <?php echo $totalTests; ?>
-                    <span class="test-summary__label">тестов</span>
+            <div class="test-summary-row">
+                <div class="test-summary">
+                    <div class="test-summary__card test-summary__card--total">
+                        <span class="test-summary__num"><?php echo $totalTests; ?></span>
+                        <span class="test-summary__label">тестов</span>
+                    </div>
+                    <div class="test-summary__card test-summary__card--passed">
+                        <span class="test-summary__num">✅ <?php echo $passedTests; ?></span>
+                        <span class="test-summary__label">прошло</span>
+                    </div>
+                    <div class="test-summary__card <?php echo $failedTests > 0 ? 'test-summary__card--failed' : 'test-summary__card--passed'; ?>">
+                        <span class="test-summary__num"><?php echo $failedTests > 0 ? '❌' : '✅'; ?> <?php echo $failedTests; ?></span>
+                        <span class="test-summary__label">упало</span>
+                    </div>
                 </div>
-                <div class="test-summary__card test-summary__card--passed">
-                    ✅ <?php echo $passedTests; ?>
-                    <span class="test-summary__label">прошло</span>
-                </div>
-                <div class="test-summary__card <?php echo $failedTests > 0 ? 'test-summary__card--failed' : 'test-summary__card--passed'; ?>">
-                    <?php echo $failedTests > 0 ? '❌' : '✅'; ?> <?php echo $failedTests; ?>
-                    <span class="test-summary__label">упало</span>
-                </div>
+                <a href="test.php" class="btn btn--primary test-summary__btn">↻ Перезапустить тесты</a>
             </div>
 
             <?php foreach ($results as $r): ?>
@@ -939,7 +967,7 @@ if ($isCli) {
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
     </footer>
 
     <script>
