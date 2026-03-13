@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-03-13 — SFTP timeout и автообработка при навигации
+
+**Запрос пользователя:** Автообработка сбрасывалась при переходе на другую страницу; навигация блокировалась на 5 секунд из-за SFTP timeout.
+
+### Что было сделано
+- **core/SftpSync.php** — `testConnection()`: CONNECTTIMEOUT=1с, TIMEOUT=2с (было: только TIMEOUT=5с). Блокировка однопоточного PHP dev-сервера снижена с 5с до ~1с
+- **assets/app.js** — состояние автообработки сохраняется в `localStorage('parser_auto_enabled')`; при загрузке `loadSettings` восстанавливает таймер
+- **assets/app.js** — `AbortController` для fetch `api.php?action=run`; при `beforeunload` запрос прерывается, навигация не блокируется
+
+### Изменённые файлы
+- `core/SftpSync.php` — CURLOPT_CONNECTTIMEOUT + уменьшен TIMEOUT
+- `assets/app.js` — localStorage, AbortController, восстановление авто
+
+### Принятые решения
+- На внутренней сети CONNECTTIMEOUT=1с достаточен: если сервер доступен, соединение <100мс
+- localStorage надёжнее серверного хранения — работает без дополнительных запросов
+
+---
+
+## 2026-03-13 — SFTP встроен в панель обработки
+
+**Запрос пользователя:** Встроить SFTP-синхронизацию так, чтобы работала через кнопку «Запустить обработку» и автообработку (по той же кнопке, что и забор XML).
+
+### Что было сделано
+- **process.php** — добавлена функция `runSftpSync($force)`: читает settings.json (секция sftp), при enabled и при force/интервале вызывает SftpSync->sync(), обновляет sftp_last_run.txt
+- **runProcessing()** — в начале вызывает runSftpSync($force), затем Processor->run(); в результат добавляет sftp_downloaded, sftp_errors
+- **assets/app.js** — при успешном ответе показывает «SFTP: N файлов. Готово: ...» если sftp_downloaded > 0
+
+### Изменённые файлы
+- `process.php` — runSftpSync(), интеграция в runProcessing()
+- `assets/app.js` — отображение sftp_downloaded в статусе
+- `CURRENT_STAGE.md` — pipeline, 8.7, контекст AI
+- `structure.md` — описание process.php
+- `CHANGELOG_AI.md` — эта запись
+
+### Принятые решения
+- SFTP вызывается перед Processor в каждом runProcessing(); sftp_sync.php остаётся для standalone-запуска
+- При sftp.enabled=false или отсутствии секции sftp — runSftpSync возвращает skipped, обработка продолжается
+
+---
+
 ## 2026-03-13 — Кнопка «Очистить таблицу» удаляет JSON-файлы
 
 **Запрос пользователя:** При нажатии на «Очистить таблицу» удалять все JSON-файлы из папки json/.

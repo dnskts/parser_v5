@@ -59,7 +59,7 @@ parser_v5/
 | `data.php` | Таблица заказов (60 колонок, серверный рендеринг) |
 | `api_logs.php` | Логи API (HTML + AJAX к себе) |
 | `api.php` | AJAX API (logs/run/settings/clear_logs/clear_json/resend) |
-| `process.php` | Точка входа pipeline (CLI + модуль) |
+| `process.php` | Точка входа pipeline: runSftpSync + Processor (CLI + модуль) |
 | `sftp_sync.php` | Точка входа SFTP-синхронизации (CLI + браузер, автономный) |
 | `test.php` | Автотесты парсеров (Web + CLI) |
 

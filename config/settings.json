@@ -1,6 +1,6 @@
 {
-    "interval": 60,
-    "last_run": 1773413294,
+    "interval": 10,
+    "last_run": 1773427015,
     "api": {
         "enabled": true,
         "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",

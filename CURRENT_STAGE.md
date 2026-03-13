@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-13
-**Обновлено после:** Справочник констант MoyAgentConstants, маппинги (типы пассажиров, пол, классы, type_id, GDS, тип перелёта), 60 колонок в data.php
+**Обновлено после:** SFTP timeout 5→2с, автообработка сохраняется при навигации (localStorage)
 
 ---
 
@@ -23,7 +23,7 @@
 - Группировка конъюнкционных бланков (emd_ticket_doc + air_ticket_doc)
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
-- **SFTP-синхронизация: автоматическое копирование XML с сервера поставщика**
+- **SFTP-синхронизация встроена в обработку:** загрузка XML с сервера поставщика при каждом запуске (кнопка «Запустить» и автообработка)
 - Данные документов пассажиров: дата рождения, пол, тип документа, номер документа
 - Справочник констант (parsers/constants/): типы пассажиров, пол, классы, type_id, GDS, типы перелёта, статусы сегментов
 - Веб-панель управления с логами в реальном времени
@@ -80,23 +80,16 @@ parser_v5/
 ## 4. Архитектура и взаимосвязи
 
 ### 4.1. Полный pipeline обработки (с SFTP)
-[cron] php sftp_sync.php          [Web] sftp_sync.php?force=1
-│                                  │
-▼                                  ▼
-┌──────────────────┐
-│    SftpSync      │  cURL+SFTP → листинг → скачать → переместить в Processed на SFTP
-└───────┬──────────┘
-│ XML-файлы в input/moyagent/
-▼
-[cron] php process.php    [Web UI] index.php → кнопка «Запуск»
+[cron] php process.php    [Web UI] index.php → кнопка «Запуск» / автообработка
 │                              │
 ▼                              ▼
-runProcessing(false)         fetch('api.php?action=run')
-(проверяет интервал)                 │
-│                              ▼
-│                        api.php (POST)
-│                        require process.php
-│                        runProcessing(true) ← force
+runProcessing($force)         fetch('api.php?action=run')
+│                              │
+│  1. runSftpSync($force) ──────┘  (если sftp.enabled)
+│     SftpSync → cURL+SFTP → листинг → скачать → переместить в Processed на SFTP
+│     XML-файлы в input/moyagent/
+│
+│  2. Processor->run($force)
 └──────────┬───────────────────┘
 ▼
 ┌─────────────────┐
@@ -138,10 +131,8 @@ data.php ─── серверный рендеринг + JS ─── style.cs
 api_logs.php ─── встроенный JS ─── style.css
 │  AJAX к самому себе (?action=get_logs/clear_logs/get_settings)
 
-sftp_sync.php ─── автономный (CLI + браузер) ─── без UI
-│  Читает config/settings.json (секция sftp)
-│  Пишет logs/sftp_sync.log
-│  Обновляет config/sftp_last_run.txt
+sftp_sync.php ─── standalone (CLI + браузер) ─── для ручного/отдельного запуска
+│  SFTP также встроен в runProcessing() — вызывается при каждом «Запустить» и автообработке
 
 
 
@@ -153,7 +144,7 @@ sftp_sync.php ─── автономный (CLI + браузер) ─── б
 4. **Три раздельных лога:** `app.log` (текстовый), `api_send.log` (JSON Lines), `sftp_sync.log` (текстовый)
 5. **Интервальный контроль:** cron проверяет `last_run + interval`, UI — `force=true`
 6. **SFTP через cURL:** используется встроенная поддержка SFTP в ext-curl (libssh2), без ext-ssh2 и без внешних библиотек
-7. **Двухэтапный pipeline:** SFTP-синхронизация (sftp_sync.php) → обработка (process.php) — независимые модули
+7. **SFTP встроен в runProcessing:** при каждом запуске (Web UI или CLI) сначала runSftpSync(), затем Processor. sftp_sync.php остаётся для standalone-запуска
 
 ### 4.4. Processor.run() — детальная логика
 Проверка интервала: if (!$force && !isIntervalPassed()) → return
@@ -469,18 +460,16 @@ ma-files/                            input/moyagent/
 На SFTP: SftpSync перемещает скачанный файл в ma-files/Processed/
 Локально: Processor перемещает обработанный файл в input/moyagent/Processed/ (успех) или input/moyagent/Error/ (ошибка) — без изменений
 8.7. Запуск
+**Встроенный pipeline (без cron):** кнопка «Запустить» и автообработка в index.php вызывают api.php?action=run → runSftpSync + runProcessing (SFTP + обработка в одном запросе).
+
 bash
 
-# CLI (cron) — каждую минуту
+# CLI (cron) — один скрипт: SFTP + обработка
+* * * * * php /path/to/parser_v5/process.php
+
+# Standalone SFTP (если нужен отдельный запуск)
 * * * * * php /path/to/parser_v5/sftp_sync.php
-
-# Затем обработка (с задержкой 5 сек)
-* * * * * php /path/to/parser_v5/sftp_sync.php && sleep 5 && php /path/to/parser_v5/process.php
-
-# Браузер (force)
 http://server/parser_v5/sftp_sync.php?force=1
-
-# CLI force
 php sftp_sync.php --force
 8.8. Логирование
 Отдельный файл logs/sftp_sync.log, формат как app.log:
@@ -611,7 +600,7 @@ Multi-passenger	all_travellers, all_tickets
 9.5. api.php — AJAX API
 action	Метод	Описание
 logs	GET	Последние N строк app.log
-run	POST	Запуск process.php (force=true)
+run	POST	runSftpSync + runProcessing (SFTP + обработка, force=true)
 settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
 clear_json	POST	Удаление всех *.json из json/
@@ -626,7 +615,7 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Повторная отправка (кнопка 🔄), очистка JSON (кнопка «Очистить таблицу»)
 ✅ Resizable-столбцы в data.php
 ✅ Автотесты (test.php, 6 фикстур, 132 assertions)
-✅ SFTP-синхронизатор — cURL+SFTP, автономный модуль, настройки в settings.json
+✅ SFTP-синхронизатор встроен в обработку — при «Запустить» и автообработке (cURL+SFTP)
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
 Известные проблемы (⚠️)
@@ -635,6 +624,8 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-13	SFTP timeout 5→2с (CONNECTTIMEOUT=1), автообработка сохраняется при навигации (localStorage), AbortController для fetch	core/SftpSync.php, assets/app.js
+2026-03-13	SFTP встроен в pipeline: runSftpSync в runProcessing, кнопка «Запустить» и автообработка забирают XML с SFTP	process.php, assets/app.js
 2026-03-13	Кнопка «Очистить таблицу» удаляет все JSON из json/ (api.php clear_json, data.php)	api.php, data.php
 2026-03-13	Справочник MoyAgentConstants, маппинги (типы пассажиров, пол, классы, type_id, GDS, тип перелёта), FLIGHT_TYPE/GDS в JSON, 6 колонок в data.php (55→60)	parsers/constants/MoyAgentConstants.php, parsers/MoyAgentParser.php, data.php
 2026-03-13	4 поля пассажира (дата рождения, пол, тип документа, номер документа) из XML в JSON и таблицу (51→55 колонок)	parsers/MoyAgentParser.php, data.php
@@ -679,7 +670,7 @@ UUID — только Utils::generateUUID(), require core/Utils.php
 Processor привязан к glob(*.xml) — другие форматы потребуют рефакторинга
 Нет retry при отправке в 1С; ручная переотправка через 🔄 в data.php
 app.js обслуживает только index.php; data.php и api_logs.php имеют встроенные скрипты
-sftp_sync.php — автономный модуль, не связан с app.js и Web UI
+SFTP встроен в runProcessing(); sftp_sync.php — standalone для отдельного запуска
 ext-curl обязателен (+ поддержка SFTP через libssh2)
 settings.json модифицируется автоматически (last_run), содержит секции api и sftp
 SUPPLIER берётся из getSupplierName(), НЕ из air_ticket_prod[@supplier]
@@ -689,7 +680,7 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
 data.php formatAgent() — антидубль: если CODE===NAME → одно значение
 data.php даты — все сегменты через запятую, не первый/последний
-SFTP-синхронизация и обработка — два независимых процесса (sftp_sync.php → process.php)
+SFTP вызывается из runProcessing() перед Processor; единый pipeline при «Запустить» и автообработке
 SFTP-путь относительный (от домашней директории пользователя, формат ~/remote_path/)
 Тестовые фикстуры — реальные имена
 Фикстуры названы по номерам заказов (ord_id из XML), не по типу теста:
