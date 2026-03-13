@@ -164,6 +164,8 @@ class MoyAgentParser implements ParserInterface
             $refTaxes = (float)(string)$refAirTicket['taxes'];
             $refundAmount = $refFare + $refTaxes - $penalty;
 
+            $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
+
             $products[] = array(
                 'UID' => Utils::generateUUID(),
                 'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
@@ -175,6 +177,10 @@ class MoyAgentParser implements ParserInterface
                 'STATUS' => 'возврат',
                 'TICKET_TYPE' => 'OWN',
                 'PASSENGER_AGE' => $passengerAge,
+                'PASSENGER_BIRTH_DATE' => $passengerDocInfo['birth_date'],
+                'PASSENGER_GENDER' => $passengerDocInfo['gender'],
+                'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
+                'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
                 'CONJ_COUNT' => 0,
                 'PENALTY' => $penalty,
                 'CARRIER' => (string)$origAirTicket['validating_carrier'],
@@ -308,6 +314,8 @@ class MoyAgentParser implements ParserInterface
                     'RELATED_TICKET_NUMBER' => null
                 ));
 
+                $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
+
                 $products[] = array(
                     'UID' => Utils::generateUUID(),
                     'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
@@ -319,6 +327,10 @@ class MoyAgentParser implements ParserInterface
                     'STATUS' => 'продажа',
                     'TICKET_TYPE' => 'OWN',
                     'PASSENGER_AGE' => $passengerAge,
+                    'PASSENGER_BIRTH_DATE' => $passengerDocInfo['birth_date'],
+                    'PASSENGER_GENDER' => $passengerDocInfo['gender'],
+                    'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
+                    'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
                     'CONJ_COUNT' => count($prodIds),
                     'PENALTY' => 0,
                     'CARRIER' => (string)$airTicket['validating_carrier'],
@@ -508,6 +520,7 @@ class MoyAgentParser implements ParserInterface
             $psgId = $emdDoc['psgr_id'];
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = $passenger ? $passenger['name'] . ' ' . $passenger['first_name'] : '';
+            $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
 
             $psgType = '';
             if ($emdAirTicket) {
@@ -590,6 +603,10 @@ class MoyAgentParser implements ParserInterface
                 'STATUS' => 'продажа',
                 'TICKET_TYPE' => 'OWN',
                 'PASSENGER_AGE' => $this->mapPassengerAge($psgType),
+                'PASSENGER_BIRTH_DATE' => $passengerDocInfo['birth_date'],
+                'PASSENGER_GENDER' => $passengerDocInfo['gender'],
+                'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
+                'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
                 'CONJ_COUNT' => 0,
                 'PENALTY' => 0,
                 'CARRIER' => $carrier,
@@ -645,6 +662,7 @@ class MoyAgentParser implements ParserInterface
             $psgId = $emdDoc['psgr_id'];
             $psg = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = $psg ? $psg['name'] . ' ' . $psg['first_name'] : '';
+            $passengerDocInfo = $this->buildPassengerDocInfo($psg);
 
             $psgType = '';
             if ($emdAT) { $psgType = (string)$emdAT['psg_type']; }
@@ -731,6 +749,10 @@ class MoyAgentParser implements ParserInterface
                 'STATUS'=>'возврат',
                 'TICKET_TYPE'=>'OWN',
                 'PASSENGER_AGE'=>$this->mapPassengerAge($psgType),
+                'PASSENGER_BIRTH_DATE'=>$passengerDocInfo['birth_date'],
+                'PASSENGER_GENDER'=>$passengerDocInfo['gender'],
+                'PASSENGER_DOC_TYPE'=>$passengerDocInfo['doc_type'],
+                'PASSENGER_DOC_NUMBER'=>$passengerDocInfo['doc_number'],
                 'CONJ_COUNT'=>0,
                 'PENALTY'=>$emdPen,
                 'CARRIER'=>$carrier,
@@ -764,7 +786,9 @@ class MoyAgentParser implements ParserInterface
                 $id = (string)$p['psgr_id'];
                 $map[$id] = array('psgr_id'=>$id,'psgr_type'=>(string)$p['psgr_type'],
                     'first_name'=>(string)$p['first_name'],'name'=>(string)$p['name'],
-                    'gender'=>(string)$p['gender'],'birth_date'=>(string)$p['birth_date']);
+                    'gender'=>(string)$p['gender'],'birth_date'=>(string)$p['birth_date'],
+                    'doc_type'=>(string)$p['doc_type'],'doc_number'=>(string)$p['doc_number'],
+                    'doc_country'=>(string)$p['doc_country'],'doc_expire'=>(string)$p['doc_expire']);
             }
         }
         return $map;
@@ -1033,5 +1057,60 @@ class MoyAgentParser implements ParserInterface
         $m = array('adt'=>'ADULT','chd'=>'CHILD','inf'=>'INFANT','ins'=>'INFANT');
         $psgType = strtolower(trim($psgType));
         return isset($m[$psgType]) ? $m[$psgType] : 'ADULT';
+    }
+
+    /**
+     * Маппинг однобуквенного IATA-кода типа документа в читаемое название.
+     */
+    private function mapDocType($docTypeCode)
+    {
+        $m = array(
+            'P' => 'Паспорт',
+            'N' => 'Национальный паспорт',
+            'I' => 'Удостоверение личности',
+            'A' => 'Паспорт (заграничный)',
+            'C' => 'Пропуск экипажа',
+            'M' => 'Военный билет',
+            'F' => 'Удостоверение (спец.)',
+            'T' => 'Проездной документ беженца',
+            'V' => 'Виза',
+            ''  => ''
+        );
+        return isset($m[$docTypeCode]) ? $m[$docTypeCode] : $docTypeCode;
+    }
+
+    /**
+     * Маппинг кода пола в читаемое название.
+     */
+    private function mapGender($genderCode)
+    {
+        $m = array('M' => 'Мужской', 'F' => 'Женский', '' => '');
+        return isset($m[$genderCode]) ? $m[$genderCode] : $genderCode;
+    }
+
+    /**
+     * Извлечение данных документа пассажира из passengersMap.
+     * Возвращает массив с полями birth_date, gender, doc_type, doc_number.
+     */
+    private function buildPassengerDocInfo($passenger)
+    {
+        if ($passenger === null) {
+            return array('birth_date' => '', 'gender' => '', 'doc_type' => '', 'doc_number' => '');
+        }
+
+        $birthDate = '';
+        if (isset($passenger['birth_date']) && $passenger['birth_date'] !== '') {
+            $ts = strtotime($passenger['birth_date']);
+            if ($ts !== false) {
+                $birthDate = date('d.m.Y', $ts);
+            }
+        }
+
+        return array(
+            'birth_date' => $birthDate,
+            'gender'     => $this->mapGender(isset($passenger['gender']) ? $passenger['gender'] : ''),
+            'doc_type'   => $this->mapDocType(isset($passenger['doc_type']) ? $passenger['doc_type'] : ''),
+            'doc_number' => isset($passenger['doc_number']) ? $passenger['doc_number'] : ''
+        );
     }
 }

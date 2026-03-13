@@ -184,6 +184,10 @@ if (is_dir($jsonDir)) {
                 'agent' => $agent,
                 'ticket_type' => $ticketType,
                 'passenger_age' => $passengerAge,
+                'passenger_birth_date' => isset($product['PASSENGER_BIRTH_DATE']) ? $product['PASSENGER_BIRTH_DATE'] : '',
+                'passenger_gender' => isset($product['PASSENGER_GENDER']) ? $product['PASSENGER_GENDER'] : '',
+                'passenger_doc_type' => isset($product['PASSENGER_DOC_TYPE']) ? $product['PASSENGER_DOC_TYPE'] : '',
+                'passenger_doc_number' => isset($product['PASSENGER_DOC_NUMBER']) ? $product['PASSENGER_DOC_NUMBER'] : '',
                 'conj_count' => $conjCount,
                 'penalty' => $penalty,
                 'flight_numbers' => $flightNumbers,
@@ -340,30 +344,34 @@ function formatAgent($agent)
                                 <th class="data-table__th" data-col-index="24" draggable="true">Агент</th>
                                 <th class="data-table__th" data-col-index="25" draggable="true">Тип билета</th>
                                 <th class="data-table__th" data-col-index="26" draggable="true">Возраст</th>
-                                <th class="data-table__th" data-col-index="27" draggable="true">Бланки</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="28" draggable="true">Штраф обмен</th>
-                                <th class="data-table__th" data-col-index="29" draggable="true">Рейсы</th>
-                                <th class="data-table__th" data-col-index="30" draggable="true">Fare Basis</th>
-                                <th class="data-table__th" data-col-index="31" draggable="true">Класс</th>
-                                <th class="data-table__th data-table__td--nowrap" data-col-index="32" draggable="true">Дата вылета</th>
-                                <th class="data-table__th data-table__td--nowrap" data-col-index="33" draggable="true">Дата прилёта</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="34" draggable="true">Тариф (руб)</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="35" draggable="true">Таксы (руб)</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="36" draggable="true">НДС (руб)</th>
-                                <th class="data-table__th" data-col-index="37" draggable="true">Тип платежа</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="38" draggable="true">Оплата (руб)</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="39" draggable="true">Зачёт (руб)</th>
-                                <th class="data-table__th" data-col-index="40" draggable="true">Связ. билет</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="41" draggable="true">Комиссия ТКП</th>
-                                <th class="data-table__th" data-col-index="42" draggable="true">Ставка %</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="43" draggable="true">Серв. сбор</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="44" draggable="true">Сбор пост.</th>
-                                <th class="data-table__th data-table__td--nowrap" data-col-index="45" draggable="true">Дата возврата</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="46" draggable="true">Сумма возврата</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="47" draggable="true">Сбор РСТЛС</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="48" draggable="true">Сбор пост. возвр.</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="49" draggable="true">Штраф пост.</th>
-                                <th class="data-table__th data-table__th--right" data-col-index="50" draggable="true">Штраф РСТЛС</th>
+                                <th class="data-table__th data-table__td--nowrap" data-col-index="27" draggable="true">Дата рождения</th>
+                                <th class="data-table__th" data-col-index="28" draggable="true">Пол</th>
+                                <th class="data-table__th" data-col-index="29" draggable="true">Тип документа</th>
+                                <th class="data-table__th" data-col-index="30" draggable="true">Номер документа</th>
+                                <th class="data-table__th" data-col-index="31" draggable="true">Бланки</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="32" draggable="true">Штраф обмен</th>
+                                <th class="data-table__th" data-col-index="33" draggable="true">Рейсы</th>
+                                <th class="data-table__th" data-col-index="34" draggable="true">Fare Basis</th>
+                                <th class="data-table__th" data-col-index="35" draggable="true">Класс</th>
+                                <th class="data-table__th data-table__td--nowrap" data-col-index="36" draggable="true">Дата вылета</th>
+                                <th class="data-table__th data-table__td--nowrap" data-col-index="37" draggable="true">Дата прилёта</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="38" draggable="true">Тариф (руб)</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="39" draggable="true">Таксы (руб)</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="40" draggable="true">НДС (руб)</th>
+                                <th class="data-table__th" data-col-index="41" draggable="true">Тип платежа</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="42" draggable="true">Оплата (руб)</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="43" draggable="true">Зачёт (руб)</th>
+                                <th class="data-table__th" data-col-index="44" draggable="true">Связ. билет</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="45" draggable="true">Комиссия ТКП</th>
+                                <th class="data-table__th" data-col-index="46" draggable="true">Ставка %</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="47" draggable="true">Серв. сбор</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="48" draggable="true">Сбор пост.</th>
+                                <th class="data-table__th data-table__td--nowrap" data-col-index="49" draggable="true">Дата возврата</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="50" draggable="true">Сумма возврата</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="51" draggable="true">Сбор РСТЛС</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="52" draggable="true">Сбор пост. возвр.</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="53" draggable="true">Штраф пост.</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="54" draggable="true">Штраф РСТЛС</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -407,30 +415,34 @@ function formatAgent($agent)
                                     <td class="data-table__td" data-col-index="24"><?php echo htmlspecialchars($row['agent']); ?></td>
                                     <td class="data-table__td" data-col-index="25"><?php echo htmlspecialchars($row['ticket_type']); ?></td>
                                     <td class="data-table__td" data-col-index="26"><?php echo htmlspecialchars($row['passenger_age']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="27"><?php echo $row['conj_count'] !== '' ? htmlspecialchars($row['conj_count']) : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="28"><?php echo $row['penalty'] > 0 ? number_format($row['penalty'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="29"><?php echo htmlspecialchars($row['flight_numbers']); ?></td>
-                                    <td class="data-table__td" data-col-index="30"><?php echo htmlspecialchars($row['fare_basis']); ?></td>
-                                    <td class="data-table__td" data-col-index="31"><?php echo htmlspecialchars($row['classes']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="32"><?php echo htmlspecialchars($row['departure_date']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="33"><?php echo htmlspecialchars($row['arrival_date']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="34"><?php echo $row['tariff_rub'] > 0 ? number_format($row['tariff_rub'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="35"><?php echo $row['taxes_rub'] > 0 ? number_format($row['taxes_rub'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="36"><?php echo $row['vat_total'] > 0 ? number_format($row['vat_total'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="37"><?php echo htmlspecialchars($row['payment_types']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="38"><?php echo number_format($row['payment_amount'], 2, '.', ' '); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="39"><?php echo $row['ticket_amount'] > 0 ? number_format($row['ticket_amount'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="40"><?php echo htmlspecialchars($row['related_ticket']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="41"><?php echo is_numeric($row['commission_tkp']) ? number_format((float)$row['commission_tkp'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="42"><?php echo $row['commission_rate'] !== '' ? htmlspecialchars($row['commission_rate']) . '%' : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="43"><?php echo is_numeric($row['service_fee']) ? number_format((float)$row['service_fee'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="44"><?php echo is_numeric($row['supplier_fee']) ? number_format((float)$row['supplier_fee'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="45"><?php echo htmlspecialchars($row['refund_date']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="46"><?php echo is_numeric($row['refund_amount']) ? number_format((float)$row['refund_amount'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="47"><?php echo is_numeric($row['refund_fee_client']) ? number_format((float)$row['refund_fee_client'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="48"><?php echo is_numeric($row['refund_fee_vendor']) ? number_format((float)$row['refund_fee_vendor'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="49"><?php echo is_numeric($row['refund_penalty_vendor']) ? number_format((float)$row['refund_penalty_vendor'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="50"><?php echo ($row['refund_penalty_client'] !== '') ? number_format((float)$row['refund_penalty_client'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--nowrap" data-col-index="27"><?php echo htmlspecialchars($row['passenger_birth_date']); ?></td>
+                                    <td class="data-table__td" data-col-index="28"><?php echo htmlspecialchars($row['passenger_gender']); ?></td>
+                                    <td class="data-table__td" data-col-index="29"><?php echo htmlspecialchars($row['passenger_doc_type']); ?></td>
+                                    <td class="data-table__td" data-col-index="30"><?php echo htmlspecialchars($row['passenger_doc_number']); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="31"><?php echo $row['conj_count'] !== '' ? htmlspecialchars($row['conj_count']) : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="32"><?php echo $row['penalty'] > 0 ? number_format($row['penalty'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td" data-col-index="33"><?php echo htmlspecialchars($row['flight_numbers']); ?></td>
+                                    <td class="data-table__td" data-col-index="34"><?php echo htmlspecialchars($row['fare_basis']); ?></td>
+                                    <td class="data-table__td" data-col-index="35"><?php echo htmlspecialchars($row['classes']); ?></td>
+                                    <td class="data-table__td data-table__td--nowrap" data-col-index="36"><?php echo htmlspecialchars($row['departure_date']); ?></td>
+                                    <td class="data-table__td data-table__td--nowrap" data-col-index="37"><?php echo htmlspecialchars($row['arrival_date']); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="38"><?php echo $row['tariff_rub'] > 0 ? number_format($row['tariff_rub'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="39"><?php echo $row['taxes_rub'] > 0 ? number_format($row['taxes_rub'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="40"><?php echo $row['vat_total'] > 0 ? number_format($row['vat_total'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td" data-col-index="41"><?php echo htmlspecialchars($row['payment_types']); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="42"><?php echo number_format($row['payment_amount'], 2, '.', ' '); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="43"><?php echo $row['ticket_amount'] > 0 ? number_format($row['ticket_amount'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td" data-col-index="44"><?php echo htmlspecialchars($row['related_ticket']); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="45"><?php echo is_numeric($row['commission_tkp']) ? number_format((float)$row['commission_tkp'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td" data-col-index="46"><?php echo $row['commission_rate'] !== '' ? htmlspecialchars($row['commission_rate']) . '%' : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="47"><?php echo is_numeric($row['service_fee']) ? number_format((float)$row['service_fee'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="48"><?php echo is_numeric($row['supplier_fee']) ? number_format((float)$row['supplier_fee'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--nowrap" data-col-index="49"><?php echo htmlspecialchars($row['refund_date']); ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="50"><?php echo is_numeric($row['refund_amount']) ? number_format((float)$row['refund_amount'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="51"><?php echo is_numeric($row['refund_fee_client']) ? number_format((float)$row['refund_fee_client'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="52"><?php echo is_numeric($row['refund_fee_vendor']) ? number_format((float)$row['refund_fee_vendor'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="53"><?php echo is_numeric($row['refund_penalty_vendor']) ? number_format((float)$row['refund_penalty_vendor'], 2, '.', ' ') : ''; ?></td>
+                                    <td class="data-table__td data-table__td--right" data-col-index="54"><?php echo ($row['refund_penalty_client'] !== '') ? number_format((float)$row['refund_penalty_client'], 2, '.', ' ') : ''; ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
