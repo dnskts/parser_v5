@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-03-13 — Кнопка «Очистить таблицу» удаляет JSON-файлы
+
+**Запрос пользователя:** При нажатии на «Очистить таблицу» удалять все JSON-файлы из папки json/.
+
+### Что было сделано
+- **api.php** — новый action `clear_json` (POST): удаляет все `*.json` из `json/`, возвращает количество удалённых файлов
+- **data.php** — кнопка «Очистить таблицу» вызывает API `clear_json`, подтверждение, перезагрузка страницы после успеха
+
+### Изменённые файлы
+- `api.php` — case 'clear_json'
+- `data.php` — id="btnClearTable", fetch + location.reload()
+
+---
+
+## 2026-03-13 — Справочник констант и маппинги для MoyAgentParser
+
+**Запрос пользователя:** Подправить константы, добавить справочник, типы пассажиров/пол/классы/type_id/типы перелёта/GDS/статусы в JSON и таблицу.
+
+### Что было сделано
+- **parsers/constants/MoyAgentConstants.php** — новый справочник: типы пассажиров (adt, chd, inf, src, yth, ins), пол (M, F, MI, FI), типы документов, классы обслуживания (E,B,F,W,A), type_id (1–6), типы перелёта, статусы сегментов, GDS ID, статусы заказов
+- **MoyAgentParser** — подключение справочника, mapPassengerAge/mapGender/mapDocType через константы; новые mapCabinClass, mapTypeId, mapFlightType, mapGdsId, mapSegmentStatus
+- **Купоны** — COUPONS: CLASS (raw), CLASS_NAME, TYPE_ID, TYPE_ID_NAME, SEGMENT_STATUS, SEGMENT_STATUS_NAME
+- **Product** — FLIGHT_TYPE (из tkt_charter), GDS_ID, GDS_NAME (из reservation crs)
+- **buildTravelDocsMap** — добавить flight_type_raw из tkt_charter или flight_type
+- **data.php** — 6 новых колонок: Класс обслуж., Класс перелёта, Тип перелёта, GDS ID, GDS (60 колонок, индексы 0..59)
+
+### Изменённые файлы
+- `parsers/constants/MoyAgentConstants.php` — новый
+- `parsers/MoyAgentParser.php` — справочник, маппинги, купоны, product
+- `data.php` — $rows[], thead, tbody
+- `structure.md` — parsers/constants/, колонки
+
+---
+
 ## 2026-03-13 — Футер привязан к правому нижнему углу экрана
 
 **Запрос пользователя:** Футер должен быть привязан к правому нижнему углу экрана.

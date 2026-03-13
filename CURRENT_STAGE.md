@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-13
-**Обновлено после:** Добавлены 4 поля пассажира (дата рождения, пол, тип документа, номер документа)
+**Обновлено после:** Справочник констант MoyAgentConstants, маппинги (типы пассажиров, пол, классы, type_id, GDS, тип перелёта), 60 колонок в data.php
 
 ---
 
@@ -25,6 +25,7 @@
 - Повторная отправка из веб-интерфейса
 - **SFTP-синхронизация: автоматическое копирование XML с сервера поставщика**
 - Данные документов пассажиров: дата рождения, пол, тип документа, номер документа
+- Справочник констант (parsers/constants/): типы пассажиров, пол, классы, type_id, GDS, типы перелёта, статусы сегментов
 - Веб-панель управления с логами в реальном времени
 
 ---
@@ -55,6 +56,8 @@ parser_v5/
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
 │   └── Utils.php             — Utils::generateUUID() (v4)
 ├── parsers/
+│   ├── constants/
+│   │   └── MoyAgentConstants.php — справочник констант и маппингов
 │   ├── MoyAgentParser.php    — «Мой агент» авиа V5 (TKT/REF/RFND/CANX + конъюнкции)
 │   └── DemoHotelParser.php   — шаблон отелей
 ├── input/{supplier}/         — XML (подпапки Processed/, Error/)
@@ -62,9 +65,9 @@ parser_v5/
 ├── logs/                     — app.log + api_send.log + sftp_sync.log
 ├── tests/fixtures/           — 5 XML-фикстур для MoyAgentParser
 ├── index.php                 — панель управления (app.js, AJAX)
-├── data.php                  — таблица заказов (серверный рендеринг, 49 колонок)
+├── data.php                  — таблица заказов (серверный рендеринг, 60 колонок)
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/resend)
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
 ├── test.php                  — автотесты парсеров (Web + CLI)
@@ -128,8 +131,9 @@ index.php ─── assets/app.js ─── assets/style.css
 │  fetch('api.php?action=settings')    → settings.json
 │  fetch('api.php?action=clear_logs')  → app.log
 
-data.php ─── серверный рендеринг (без AJAX) ─── style.css
-│  fetch('api.php?action=resend')      → повторная отправка
+data.php ─── серверный рендеринг + JS ─── style.css
+│  fetch('api.php?action=resend')       → повторная отправка
+│  fetch('api.php?action=clear_json')   → удаление всех JSON из json/
 
 api_logs.php ─── встроенный JS ─── style.css
 │  AJAX к самому себе (?action=get_logs/clear_logs/get_settings)
@@ -309,7 +313,7 @@ buildCouponsFromGroup() / buildTaxesFromGroup() с дедупликацией
 Метод	Версия	Описание
 parse()	V1	Главный метод парсинга
 buildPassengersMap()	V1	Карта psgr_id → данные (+ doc_type, doc_number, doc_country, doc_expire)
-buildTravelDocsMap()	V5	Карта prod_id → данные (+ issuingAgent)
+buildTravelDocsMap()	V5	Карта prod_id → данные (+ issuingAgent, flight_type_raw)
 buildReservationsMap()	V5	Карта supplier → данные (+ bookingAgent)
 buildConjLinksMap()	V4	Карта child_prod_id → main_prod_id
 getMainReservation()	V5	Первая reservation из XML
@@ -320,9 +324,14 @@ buildCommissions()	V1	service_fee + fees/fee[@type=commission]
 extractPenalty()	V1	Сумма air_tax[@code=PEN]
 analyzeOrderType()	V1	Определяет TKT/REF/RFND/CANX
 formatDateTime()	V1	"2025-10-13 12:16:00" → "20251013121600"
-mapPassengerAge()	V1	adt→ADULT, chd→CHILD, inf→INFANT
-mapDocType()	V6	IATA-код типа документа → название на русском
-mapGender()	V6	M→Мужской, F→Женский
+mapPassengerAge()	V6	Типы пассажиров через MoyAgentConstants (adt, chd, inf, src, yth, ins)
+mapDocType()	V6	IATA-код типа документа → название (MoyAgentConstants)
+mapGender()	V6	M, F, MI, FI → мужчина, женщина и т.д. (MoyAgentConstants)
+mapCabinClass()	V6	E,B,F,W,A → ECONOMY, BUSINESS, FIRST и т.д.
+mapTypeId()	V6	1–6 → Эконом, Бизнес, Первый и т.д.
+mapFlightType()	V6	regular, charter, lowcost и т.д. → русские названия
+mapGdsId()	V6	crs (число) → название GDS
+mapSegmentStatus()	V6	Код статуса сегмента → название
 buildPassengerDocInfo()	V6	Извлечение 4 полей документа пассажира (birth_date, gender, doc_type, doc_number)
 mapTicketStatus()	V1	TKT→продажа, REF→возврат
 
@@ -498,7 +507,7 @@ php sftp_sync.php --force
 Настройки API (url, login, password, timeout, enabled)
 JS: assets/app.js (372 строки)
 9.2. data.php — Обработанные заказы
-Серверный рендеринг, 55 колонок
+Серверный рендеринг, 60 колонок
 Кнопка 🔄 для повторной отправки
 Resizable-столбцы (drag-resize)
 Фильтр: поле поиска по всем колонкам (клиентская фильтрация)
@@ -507,7 +516,7 @@ Resizable-столбцы (drag-resize)
 formatRstlsDate() — "20251013121600" → "13.10.2025 12:16"
 formatAgent() — антидубль (V5): CODE===NAME → одно значение
 Даты вылета/прилёта: все сегменты через запятую (V5)
-55 колонок:
+60 колонок:
 
 #	Колонка	Источник
 1	🔄	UI
@@ -544,25 +553,30 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 32	Рейсы	COUPONS[].FLIGHT_NUMBER через запятую
 33	Fare Basis	COUPONS[].FARE_BASIS через запятую
 34	Класс	COUPONS[].CLASS через запятую
-35	Дата вылета	все COUPONS[].DEPARTURE_DATETIME через запятую
-36	Дата прилёта	все COUPONS[].ARRIVAL_DATETIME через запятую
-37	Тариф (руб)	TAXES[] CODE=""
-38	Таксы (руб)	TAXES[] CODE≠""
-39	НДС (руб)	sum(TAXES[].VAT_AMOUNT)
-40	Тип платежа	PAYMENTS[].TYPE
-41	Оплата (руб)	PAYMENTS[] INVOICE
-42	Зачёт (руб)	PAYMENTS[] TICKET
-43	Связ. билет	PAYMENTS[].RELATED_TICKET_NUMBER
-44	Комиссия ТКП	COMMISSIONS[] VENDOR
-45	Ставка %	COMMISSIONS[] VENDOR.RATE
-46	Серв. сбор	COMMISSIONS[] CLIENT ~"сервисный сбор"
-47	Сбор пост.	COMMISSIONS[] CLIENT ~"сбор поставщика"
-48	Дата возврата	REFUND.DATA
-49	Сумма возврата	REFUND.EQUIVALENT_AMOUNT
-50	Сбор РСТЛС	REFUND.FEE_CLIENT
-51	Сбор пост. возвр.	REFUND.FEE_VENDOR
-52	Штраф пост.	REFUND.PENALTY_VENDOR
-53	Штраф РСТЛС	REFUND.PENALTY_CLIENT
+35	Класс обслуж.	COUPONS[].CLASS_NAME
+36	Класс перелёта	COUPONS[].TYPE_ID_NAME
+37	Тип перелёта	FLIGHT_TYPE
+38	GDS ID	GDS_ID (reservation crs)
+39	GDS	GDS_NAME
+40	Дата вылета	все COUPONS[].DEPARTURE_DATETIME через запятую
+41	Дата прилёта	все COUPONS[].ARRIVAL_DATETIME через запятую
+42	Тариф (руб)	TAXES[] CODE=""
+43	Таксы (руб)	TAXES[] CODE≠""
+44	НДС (руб)	sum(TAXES[].VAT_AMOUNT)
+45	Тип платежа	PAYMENTS[].TYPE
+46	Оплата (руб)	PAYMENTS[] INVOICE
+47	Зачёт (руб)	PAYMENTS[] TICKET
+48	Связ. билет	PAYMENTS[].RELATED_TICKET_NUMBER
+49	Комиссия ТКП	COMMISSIONS[] VENDOR
+50	Ставка %	COMMISSIONS[] VENDOR.RATE
+51	Серв. сбор	COMMISSIONS[] CLIENT ~"сервисный сбор"
+52	Сбор пост.	COMMISSIONS[] CLIENT ~"сбор поставщика"
+53	Дата возврата	REFUND.DATA
+54	Сумма возврата	REFUND.EQUIVALENT_AMOUNT
+55	Сбор РСТЛС	REFUND.FEE_CLIENT
+56	Сбор пост. возвр.	REFUND.FEE_VENDOR
+57	Штраф пост.	REFUND.PENALTY_VENDOR
+58	Штраф РСТЛС	REFUND.PENALTY_CLIENT
 9.3. api_logs.php — Логи API
 Двухрежимная: HTML-страница + AJAX к самой себе
 Читает logs/api_send.log (JSON Lines)
@@ -600,6 +614,7 @@ logs	GET	Последние N строк app.log
 run	POST	Запуск process.php (force=true)
 settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
+clear_json	POST	Удаление всех *.json из json/
 resend	POST	Повторная отправка JSON в 1С
 10. Текущее состояние
 Реализовано (✅)
@@ -607,8 +622,8 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Парсер «Мой агент» V5 — конъюнкции, маппинг полей
 ✅ Демо-парсер отелей (шаблон)
 ✅ Отправка в API 1С (HTTP POST, Basic Auth)
-✅ Веб-интерфейс (панель, таблица 55 колонок, логи API, тесты)
-✅ Повторная отправка (кнопка 🔄)
+✅ Веб-интерфейс (панель, таблица 60 колонок, логи API, тесты)
+✅ Повторная отправка (кнопка 🔄), очистка JSON (кнопка «Очистить таблицу»)
 ✅ Resizable-столбцы в data.php
 ✅ Автотесты (test.php, 6 фикстур, 132 assertions)
 ✅ SFTP-синхронизатор — cURL+SFTP, автономный модуль, настройки в settings.json
@@ -620,6 +635,8 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-13	Кнопка «Очистить таблицу» удаляет все JSON из json/ (api.php clear_json, data.php)	api.php, data.php
+2026-03-13	Справочник MoyAgentConstants, маппинги (типы пассажиров, пол, классы, type_id, GDS, тип перелёта), FLIGHT_TYPE/GDS в JSON, 6 колонок в data.php (55→60)	parsers/constants/MoyAgentConstants.php, parsers/MoyAgentParser.php, data.php
 2026-03-13	4 поля пассажира (дата рождения, пол, тип документа, номер документа) из XML в JSON и таблицу (51→55 колонок)	parsers/MoyAgentParser.php, data.php
 2026-03-13	Футер привязан к правому нижнему углу экрана (position: fixed)	assets/style.css
 2026-03-13	Исправлены тесты + фикстура 125358954718 (7 фикстур, 153 assertions)	test.php, tests/fixtures/

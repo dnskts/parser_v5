@@ -14,7 +14,8 @@
  * - action=run          — запустить обработку файлов вручную (POST)
  * - action=settings     — получить настройки (GET) или сохранить (POST)
  * - action=clear_logs   — очистить файл логов (POST)
- * - action=resend      — повторная отправка JSON в API 1С (POST)
+ * - action=clear_json   — удалить все JSON-файлы из json/ (POST)
+ * - action=resend       — повторная отправка JSON в API 1С (POST)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -187,6 +188,40 @@ switch ($action) {
         echo json_encode(array(
             'status' => 'ok',
             'message' => 'Логи очищены'
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * УДАЛЕНИЕ ВСЕХ JSON-ФАЙЛОВ
+     *
+     * Удаляет все *.json файлы из папки json/.
+     * Принимает только POST-запросы.
+     */
+    case 'clear_json':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Требуется POST-запрос'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $jsonDir = BASE_DIR . '/json';
+        $deleted = 0;
+        if (is_dir($jsonDir)) {
+            $files = glob($jsonDir . '/*.json');
+            foreach ($files as $file) {
+                if (is_file($file) && unlink($file)) {
+                    $deleted++;
+                }
+            }
+        }
+
+        echo json_encode(array(
+            'status' => 'ok',
+            'message' => "Удалено файлов: {$deleted}",
+            'deleted' => $deleted
         ), JSON_UNESCAPED_UNICODE);
         break;
 

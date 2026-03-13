@@ -5,6 +5,7 @@ parser_v5/
 ├── config/          — конфигурация приложения
 ├── core/            — ядро системы (7 файлов)
 ├── parsers/         — реализации парсеров (plug-and-play)
+│   └── constants/   — справочники констант (MoyAgentConstants.php)
 ├── input/           — входные XML-файлы
 │   ├── moyagent/    — файлы «Мой агент»
 │   │   ├── Processed/   — обработанные
@@ -47,6 +48,7 @@ parser_v5/
 | Файл | Описание |
 |------|----------|
 | `parsers/MoyAgentParser.php` | «Мой агент» авиа V5: TKT/REF/RFND/CANX, конъюнкции |
+| `parsers/constants/MoyAgentConstants.php` | Справочник констант и маппингов для MoyAgentParser |
 | `parsers/DemoHotelParser.php` | Демо-парсер отелей (шаблон) |
 
 ### Web UI
@@ -54,9 +56,9 @@ parser_v5/
 | Файл | Описание |
 |------|----------|
 | `index.php` | Панель управления (логи, обработка, настройки) |
-| `data.php` | Таблица заказов (49 колонок, серверный рендеринг) |
+| `data.php` | Таблица заказов (60 колонок, серверный рендеринг) |
 | `api_logs.php` | Логи API (HTML + AJAX к себе) |
-| `api.php` | AJAX API (logs/run/settings/clear_logs/resend) |
+| `api.php` | AJAX API (logs/run/settings/clear_logs/clear_json/resend) |
 | `process.php` | Точка входа pipeline (CLI + модуль) |
 | `sftp_sync.php` | Точка входа SFTP-синхронизации (CLI + браузер, автономный) |
 | `test.php` | Автотесты парсеров (Web + CLI) |
