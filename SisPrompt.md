@@ -17,7 +17,7 @@ api_logs.php — логи API (HTML + AJAX к себе)
 api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend)
 process.php — pipeline: runSftpSync + Processor (CLI cron + require из api.php)
 sftp_sync.php — SFTP standalone (CLI + браузер, для отдельного запуска)
-test.php — автотесты (6 фикстур, 132 assertions)
+test.php — автотесты (7 фикстур, MoyAgentParser)
 
 Pipeline (единый)
 process.php и кнопка «Запустить»: runSftpSync() → Processor.run(). SFTP встроен в pipeline — при каждом запуске сначала загрузка XML с SFTP в input/moyagent/, затем обработка. sftp_sync.php — только для standalone.
