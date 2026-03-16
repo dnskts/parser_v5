@@ -165,7 +165,8 @@ class SftpSync
         $url = $this->buildRemoteUrl('/');
         $ch = $this->createCurlHandle($url);
         curl_setopt($ch, CURLOPT_NOBODY, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
 
         curl_exec($ch);
         $error = curl_error($ch);

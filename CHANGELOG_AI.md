@@ -2,6 +2,102 @@
 
 ---
 
+## 2026-03-13 — Зачёт и Связ.билет при обмене (PAYMENTS из XML)
+
+**Запрос пользователя:** Заполнять колонки «Зачёт» и «Связ. билет» при обмене.
+
+### Что было сделано
+- **MoyAgentConstants** — `getTicketCreditFopCodes()`: ПК, БИЛЕТ, ТКЕТ, TKT, EXCH (tkt_fop = зачёт по билету)
+- **MoyAgentParser** — `buildPaymentsFromXml()`: парсит `xml->payments->payment`, при pay_oper=PAY и tkt_fop в списке зачёта формирует TYPE='TICKET' с RELATED_TICKET_NUMBER
+- **analyzeOrderType** — добавлены EXCH и refund_ticket_number; при обмене возвращается номер возвращённого билета
+- **Обмен (EXCH)** — при EXCH строятся и REF-продукт, и новый TKT-продукт; для нового билета используется buildPaymentsFromXml с refund_ticket_number
+- **Fallback** — при отсутствии payments или без зачёта — один INVOICE (как раньше)
+
+### Изменённые файлы
+- `parsers/constants/MoyAgentConstants.php` — getTicketCreditFopCodes()
+- `parsers/MoyAgentParser.php` — buildPaymentsFromXml, analyzeOrderType, ветка обмена
+
+### Принятые решения
+- tkt_fop в payment: ПК, БИЛЕТ, ТКЕТ, TKT, EXCH — зачёт по билету
+- RELATED_TICKET_NUMBER: из payment[@tkt_number] или refund_ticket_number при обмене
+
+---
+
+## 2026-03-13 — SFTP timeout и автообработка при навигации
+
+**Запрос пользователя:** Автообработка сбрасывалась при переходе на другую страницу; навигация блокировалась на 5 секунд из-за SFTP timeout.
+
+### Что было сделано
+- **core/SftpSync.php** — `testConnection()`: CONNECTTIMEOUT=1с, TIMEOUT=2с (было: только TIMEOUT=5с). Блокировка однопоточного PHP dev-сервера снижена с 5с до ~1с
+- **assets/app.js** — состояние автообработки сохраняется в `localStorage('parser_auto_enabled')`; при загрузке `loadSettings` восстанавливает таймер
+- **assets/app.js** — `AbortController` для fetch `api.php?action=run`; при `beforeunload` запрос прерывается, навигация не блокируется
+
+### Изменённые файлы
+- `core/SftpSync.php` — CURLOPT_CONNECTTIMEOUT + уменьшен TIMEOUT
+- `assets/app.js` — localStorage, AbortController, восстановление авто
+
+### Принятые решения
+- На внутренней сети CONNECTTIMEOUT=1с достаточен: если сервер доступен, соединение <100мс
+- localStorage надёжнее серверного хранения — работает без дополнительных запросов
+
+---
+
+## 2026-03-13 — SFTP встроен в панель обработки
+
+**Запрос пользователя:** Встроить SFTP-синхронизацию так, чтобы работала через кнопку «Запустить обработку» и автообработку (по той же кнопке, что и забор XML).
+
+### Что было сделано
+- **process.php** — добавлена функция `runSftpSync($force)`: читает settings.json (секция sftp), при enabled и при force/интервале вызывает SftpSync->sync(), обновляет sftp_last_run.txt
+- **runProcessing()** — в начале вызывает runSftpSync($force), затем Processor->run(); в результат добавляет sftp_downloaded, sftp_errors
+- **assets/app.js** — при успешном ответе показывает «SFTP: N файлов. Готово: ...» если sftp_downloaded > 0
+
+### Изменённые файлы
+- `process.php` — runSftpSync(), интеграция в runProcessing()
+- `assets/app.js` — отображение sftp_downloaded в статусе
+- `CURRENT_STAGE.md` — pipeline, 8.7, контекст AI
+- `structure.md` — описание process.php
+- `CHANGELOG_AI.md` — эта запись
+
+### Принятые решения
+- SFTP вызывается перед Processor в каждом runProcessing(); sftp_sync.php остаётся для standalone-запуска
+- При sftp.enabled=false или отсутствии секции sftp — runSftpSync возвращает skipped, обработка продолжается
+
+---
+
+## 2026-03-13 — Кнопка «Очистить таблицу» удаляет JSON-файлы
+
+**Запрос пользователя:** При нажатии на «Очистить таблицу» удалять все JSON-файлы из папки json/.
+
+### Что было сделано
+- **api.php** — новый action `clear_json` (POST): удаляет все `*.json` из `json/`, возвращает количество удалённых файлов
+- **data.php** — кнопка «Очистить таблицу» вызывает API `clear_json`, подтверждение, перезагрузка страницы после успеха
+
+### Изменённые файлы
+- `api.php` — case 'clear_json'
+- `data.php` — id="btnClearTable", fetch + location.reload()
+
+---
+
+## 2026-03-13 — Справочник констант и маппинги для MoyAgentParser
+
+**Запрос пользователя:** Подправить константы, добавить справочник, типы пассажиров/пол/классы/type_id/типы перелёта/GDS/статусы в JSON и таблицу.
+
+### Что было сделано
+- **parsers/constants/MoyAgentConstants.php** — новый справочник: типы пассажиров (adt, chd, inf, src, yth, ins), пол (M, F, MI, FI), типы документов, классы обслуживания (E,B,F,W,A), type_id (1–6), типы перелёта, статусы сегментов, GDS ID, статусы заказов
+- **MoyAgentParser** — подключение справочника, mapPassengerAge/mapGender/mapDocType через константы; новые mapCabinClass, mapTypeId, mapFlightType, mapGdsId, mapSegmentStatus
+- **Купоны** — COUPONS: CLASS (raw), CLASS_NAME, TYPE_ID, TYPE_ID_NAME, SEGMENT_STATUS, SEGMENT_STATUS_NAME
+- **Product** — FLIGHT_TYPE (из tkt_charter), GDS_ID, GDS_NAME (из reservation crs)
+- **buildTravelDocsMap** — добавить flight_type_raw из tkt_charter или flight_type
+- **data.php** — 6 новых колонок: Класс обслуж., Класс перелёта, Тип перелёта, GDS ID, GDS (60 колонок, индексы 0..59)
+
+### Изменённые файлы
+- `parsers/constants/MoyAgentConstants.php` — новый
+- `parsers/MoyAgentParser.php` — справочник, маппинги, купоны, product
+- `data.php` — $rows[], thead, tbody
+- `structure.md` — parsers/constants/, колонки
+
+---
+
 ## 2026-03-13 — Футер привязан к правому нижнему углу экрана
 
 **Запрос пользователя:** Футер должен быть привязан к правому нижнему углу экрана.

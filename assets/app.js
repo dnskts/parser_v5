@@ -65,6 +65,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     /** Флаг: идёт ли обработка прямо сейчас (чтобы не запускать повторно) */
     var isRunning = false;
+    
+    /** AbortController для прерывания fetch при уходе со страницы */
+    var runAbortController = null;
 
     // -------------------------------------------------------
     // ЗАГРУЗКА НАСТРОЕК ПРИ ОТКРЫТИИ СТРАНИЦЫ
@@ -87,6 +90,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         var date = new Date(data.settings.last_run * 1000);
                         lastRunText.textContent = 'Последний запуск: ' + formatDate(date);
                     }
+                    // Восстанавливаем автообработку после возврата на страницу (навигация сбрасывала таймер)
+                    try {
+                        if (localStorage.getItem('parser_auto_enabled') === '1') {
+                            toggleAutoProcessing();
+                        }
+                    } catch (e) {}
                 }
             })
             .catch(function(error) {
@@ -192,14 +201,18 @@ document.addEventListener('DOMContentLoaded', function() {
         isRunning = true;
         btnRun.disabled = true;
         setStatus('running', 'Обработка...');
+        if (runAbortController) runAbortController.abort();
+        runAbortController = new AbortController();
 
-        fetch('api.php?action=run', { method: 'POST' })
+        fetch('api.php?action=run', { method: 'POST', signal: runAbortController.signal })
             .then(function(response) { return response.json(); })
             .then(function(data) {
                 if (data.status === 'ok') {
-                    setStatus('success', 
-                        'Готово: ' + data.processed + ' обработано, ' + data.errors + ' ошибок'
-                    );
+                    var msg = 'Готово: ' + data.processed + ' обработано, ' + data.errors + ' ошибок';
+                    if (data.sftp_downloaded > 0) {
+                        msg = 'SFTP: ' + data.sftp_downloaded + ' файлов. ' + msg;
+                    }
+                    setStatus('success', msg);
                     lastRunText.textContent = 'Последний запуск: ' + formatDate(new Date());
                 } else {
                     setStatus('error', data.message || 'Ошибка обработки');
@@ -208,6 +221,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadLogs();
             })
             .catch(function(error) {
+                if (error.name === 'AbortError') return;
                 setStatus('error', 'Ошибка связи с сервером');
                 console.error('Ошибка запуска обработки:', error);
             })
@@ -243,6 +257,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Выключаем автообработку
             clearInterval(autoTimer);
             autoTimer = null;
+            try { localStorage.removeItem('parser_auto_enabled'); } catch (e) {}
             btnToggleAuto.textContent = '⏱ Вкл. автообработку';
             btnToggleAuto.classList.remove('btn--active');
             btnToggleAuto.classList.add('btn--outline');
@@ -251,7 +266,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             // Включаем автообработку
             var interval = parseInt(intervalInput.value, 10) || 60;
-            
+            try { localStorage.setItem('parser_auto_enabled', '1'); } catch (e) {}
             // Запускаем обработку сразу при включении
             runProcessing();
             
@@ -358,6 +373,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Загружаем настройки и логи сразу при открытии
     loadSettings();
     loadLogs();
+
+    // Прерываем fetch при уходе со страницы — браузер не будет блокировать навигацию
+    window.addEventListener('beforeunload', function() {
+        if (runAbortController) runAbortController.abort();
+    });
 
         // Запускаем автоматическое обновление логов каждые 3 секунды
         logsTimer = setInterval(loadLogs, 3000);

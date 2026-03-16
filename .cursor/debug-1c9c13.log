@@ -1,0 +1,3 @@
+{"sessionId":"1c9c13","location":"app.js:runProcessing:entry","message":"runProcessing called","data":{"isRunning":false},"timestamp":1773426320185,"hypothesisId":"H1"}
+{"sessionId":"1c9c13","location":"app.js:runProcessing:fetchStart","message":"fetch api.php?action=run started","data":{},"timestamp":1773426320186,"hypothesisId":"H3"}
+{"sessionId":"1c9c13","location":"app.js:runProcessing:finally","message":"fetch completed, isRunning->false","data":{},"timestamp":1773426327390,"hypothesisId":"H4"}
