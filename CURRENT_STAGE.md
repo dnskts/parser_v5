@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-03-13
-**Обновлено после:** Зачёт и Связ.билет из XML payments (tkt_fop ПК/БИЛЕТ), EXCH в analyzeOrderType
+**Последнее обновление:** 2026-03-16
+**Обновлено после:** Аудит проекта: structure.md, nextstep.md, комментарии ApiSender, порядок комментариев в test.php
 
 ---
 
@@ -14,7 +14,7 @@
 - 2 фронтенд-файла (JS + CSS), ~920 строк
 - Итого: ~4 920 строк кода
 - 2 парсера (MoyAgent — боевой, DemoHotel — шаблон)
-- 6 тестовых fixture-файлов (XML) в `tests/fixtures/`, 132 assertions
+- 7 тестовых fixture-файлов (XML) в `tests/fixtures/` для MoyAgentParser
 
 Ключевые возможности:
 - Автоматическое обнаружение парсеров (plug-and-play)
@@ -573,7 +573,7 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
 Тестирует MoyAgentParser на 6 фикстурах из tests/fixtures/
-132 assertions суммарно
+7 фикстур, assertions по каждому файлу
 Вспомогательная функция addCheck() — DRY вместо копипаста
 PASS-блоки свёрнуты по умолчанию, FAIL — развёрнуты
 Badge показывает количество проверок: PASS (22)
@@ -585,6 +585,7 @@ Badge показывает количество проверок: PASS (22)
 125358832021.xml	Продажа + EMD (2 продукта: авиа + EMD)	2 продукта, даты
 125358832769.xml	Возврат REF (2 продукта: авиа + EMD возврат)	REFUND, PENALTY, REFUND.AMOUNT
 125359005865.xml	5 авиа + 5 EMD = 10 продуктов, SVO→AUH→SVO	BOOKING_AGENT, AGENT, all_travellers, all_tickets
+125358954718.xml	Возврат + 2 EMD (номера и ненулевая сумма), penalty 5060	REFUND, 3 продукта
 125359052102.xml	Скрытая конъюнкция (без emd_ticket_doc), VKO→TIV	CONJ_COUNT=2
 Категории проверок:
 

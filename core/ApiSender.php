@@ -3,13 +3,35 @@
  * ============================================================
  * ОТПРАВКА ЗАКАЗОВ В API 1С
  * ============================================================
+ *
+ * Класс отвечает за отправку обработанных заказов (в формате JSON)
+ * во внешнюю систему 1С:Предприятие по протоколу HTTP.
+ *
+ * Что делает класс:
+ * - Проверяет доступность API (метод isAvailable)
+ * - Отправляет данные заказа методом POST с базовой авторизацией
+ * - Удаляет служебные поля (SOURCE_FILE, PARSED_AT) перед отправкой
+ * - Записывает каждую попытку отправки в лог (JSON Lines)
+ * - Возвращает понятные сообщения об ошибках (сеть, таймаут, HTTP-код)
+ *
+ * Настройки берутся из config/settings.json, секция "api".
+ * ============================================================
  */
 
 class ApiSender
 {
+    /** @var array Настройки API: url, login, password, timeout, enabled */
     private $config;
+
+    /** @var string Путь к файлу лога отправок (logs/api_send.log) */
     private $logFile;
 
+    /**
+     * Создание отправителя.
+     *
+     * @param array  $apiConfig — настройки из settings.json (api)
+     * @param string $logFile   — путь к файлу лога (JSON Lines)
+     */
     public function __construct($apiConfig, $logFile)
     {
         $this->config = $apiConfig;
@@ -19,6 +41,14 @@ class ApiSender
             mkdir($logDir, 0755, true);
         }
     }
+
+    /**
+     * Проверяет, доступен ли сервер API 1С.
+     * Выполняет лёгкий запрос (HEAD), не отправляя данные.
+     * Результат можно использовать, чтобы не слать заказы при недоступном API.
+     *
+     * @return bool true, если API включён в настройках и сервер отвечает
+     */
     public function isAvailable()
     {
         $enabled = isset($this->config['enabled']) ? (bool)$this->config['enabled'] : false;
@@ -130,6 +160,15 @@ class ApiSender
         return array('success' => false, 'message' => $explanation, 'http_code' => $httpCode);
     }
 
+    /**
+     * Выполняет HTTP POST-запрос к API с телом JSON и базовой авторизацией.
+     *
+     * @param string $url      — адрес API
+     * @param string $jsonBody  — тело запроса (JSON-строка)
+     * @param string $login    — логин для Basic Auth
+     * @param string $password — пароль для Basic Auth
+     * @return array — response (строка ответа), http_code, error, errno
+     */
     private function httpPost($url, $jsonBody, $login, $password)
     {
         $timeout = isset($this->config['timeout']) ? (int)$this->config['timeout'] : 30;
@@ -166,6 +205,14 @@ class ApiSender
         );
     }
 
+    /**
+     * Преобразует код ошибки cURL в понятное сообщение на русском.
+     *
+     * @param int    $errno — код ошибки cURL
+     * @param string $error — текст ошибки от cURL
+     * @param string $url   — URL, к которому шёл запрос
+     * @return string — сообщение для пользователя
+     */
     private function explainCurlError($errno, $error, $url)
     {
         switch ($errno) {
@@ -188,6 +235,16 @@ class ApiSender
         }
     }
 
+    /**
+     * Добавляет одну строку в лог отправок (JSON Lines).
+     *
+     * @param string      $status       — статус: SEND, OK, ERROR, SKIP
+     * @param string      $jsonFileName — имя JSON-файла
+     * @param string      $sourceXml    — имя исходного XML
+     * @param int|null    $httpCode     — HTTP-код ответа
+     * @param string|null $responseBody — тело ответа (обрезается)
+     * @param string      $message      — пояснение
+     */
     private function writeLog($status, $jsonFileName, $sourceXml, $httpCode, $responseBody, $message)
     {
         $entry = array(
@@ -203,6 +260,13 @@ class ApiSender
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
     }
 
+    /**
+     * Обрезает строку до заданной длины; если длиннее — добавляет "..." в конец.
+     *
+     * @param string|null $str    — исходная строка
+     * @param int         $maxLen — максимальная длина
+     * @return string
+     */
     private function truncate($str, $maxLen)
     {
         if ($str === null) return '';
@@ -211,7 +275,11 @@ class ApiSender
     }
 
     /**
-     * Читает последние N записей лога (от новых к старым).
+     * Читает последние N записей лога отправок (от новых к старым).
+     * Используется на странице api_logs.php для отображения таблицы.
+     *
+     * @param int $limit — сколько записей вернуть (по умолчанию 500)
+     * @return array — массив записей, каждая запись — массив с полями (timestamp, status, json_file, source_xml, http_code, response, message)
      */
     public function getLogEntries($limit = 500)
     {
@@ -228,6 +296,9 @@ class ApiSender
         return $entries;
     }
 
+    /**
+     * Очищает файл лога отправок (остаётся пустой файл).
+     */
     public function clearLog()
     {
         if (file_exists($this->logFile)) {
