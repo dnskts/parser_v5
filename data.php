@@ -176,10 +176,20 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                                 <th class="data-table__th data-table__th--right" data-col-index="57" draggable="true">Сбор пост. возвр.</th>
                                 <th class="data-table__th data-table__th--right" data-col-index="58" draggable="true">Штраф пост.</th>
                                 <th class="data-table__th data-table__th--right" data-col-index="59" draggable="true">Штраф РСТЛС</th>
+                                <th class="data-table__th" data-col-index="60" draggable="true">Cont. e-mail</th>
+                                <th class="data-table__th" data-col-index="61" draggable="true">Cont. телефон</th>
+                                <th class="data-table__th" data-col-index="62" draggable="true">Cont. имя</th>
+                                <th class="data-table__th" data-col-index="63" draggable="true">Поставщик (код)</th>
+                                <th class="data-table__th" data-col-index="64" draggable="true">Перевозчики (сегм.)</th>
+                                <th class="data-table__th" data-col-index="65" draggable="true">Багаж</th>
+                                <th class="data-table__th data-table__th--right" data-col-index="66" draggable="true">Discount</th>
+                                <th class="data-table__th" data-col-index="67" draggable="true">Отчество</th>
+                                <th class="data-table__th" data-col-index="68" draggable="true">Страна док.</th>
+                                <th class="data-table__th" data-col-index="69" draggable="true">Срок действия док.</th>
                             </tr>
                         </thead>
                         <tbody id="dataTableBody">
-                            <tr><td colspan="60" class="data-table__td data-table__td--empty">Загрузка...</td></tr>
+                            <tr><td colspan="70" class="data-table__td data-table__td--empty">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -296,17 +306,27 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                 '<td class="data-table__td data-table__td--right" data-col-index="57">' + (isNaN(parseFloat(row.refund_fee_vendor)) ? '' : numFmt(row.refund_fee_vendor)) + '</td>' +
                 '<td class="data-table__td data-table__td--right" data-col-index="58">' + (isNaN(parseFloat(row.refund_penalty_vendor)) ? '' : numFmt(row.refund_penalty_vendor)) + '</td>' +
                 '<td class="data-table__td data-table__td--right" data-col-index="59">' + (isNaN(refundPc) ? '' : numFmt(row.refund_penalty_client)) + '</td>' +
+                '<td class="data-table__td" data-col-index="60">' + esc(row.cont_email) + '</td>' +
+                '<td class="data-table__td" data-col-index="61">' + esc(row.cont_phone) + '</td>' +
+                '<td class="data-table__td" data-col-index="62">' + esc(row.cont_name) + '</td>' +
+                '<td class="data-table__td" data-col-index="63">' + esc(row.supplier_code) + '</td>' +
+                '<td class="data-table__td" data-col-index="64">' + esc(row.seg_carriers) + '</td>' +
+                '<td class="data-table__td" data-col-index="65">' + esc(row.bag_allowance) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="66">' + numFmt(row.discount) + '</td>' +
+                '<td class="data-table__td" data-col-index="67">' + esc(row.passenger_middle_name) + '</td>' +
+                '<td class="data-table__td" data-col-index="68">' + esc(row.passenger_doc_country) + '</td>' +
+                '<td class="data-table__td" data-col-index="69">' + esc(row.passenger_doc_expire) + '</td>' +
                 '</tr>';
         }
 
         function loadData(supplier, offset, append) {
             var url = 'api.php?action=data_rows&supplier=' + encodeURIComponent(supplier) + '&offset=' + offset + '&limit=' + PAGE_SIZE + '&sort=' + sortBy + '&dir=' + sortDir;
-            if (!append) tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Загрузка...</td></tr>';
+            if (!append) tbody.innerHTML = '<tr><td colspan="70" class="data-table__td data-table__td--empty">Загрузка...</td></tr>';
             fetch(url)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.status !== 'ok' || !data.rows) {
-                        tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Ошибка загрузки</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="70" class="data-table__td data-table__td--empty">Ошибка загрузки</td></tr>';
                         panelCount.textContent = 'Ошибка';
                         btnLoadMore.style.display = 'none';
                         return;
@@ -322,7 +342,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                     loadedData[supplier].has_more = data.has_more;
                     var rows = loadedData[supplier].rows;
                     if (rows.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="70" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
                     } else {
                         var html = '';
                         for (var i = 0; i < rows.length; i++) html += renderRow(rows[i], i);
@@ -335,7 +355,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                     }
                 })
                 .catch(function() {
-                    tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Ошибка сети</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="70" class="data-table__td data-table__td--empty">Ошибка сети</td></tr>';
                     panelCount.textContent = 'Ошибка';
                     btnLoadMore.style.display = 'none';
                 });
@@ -349,7 +369,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
             if (loadedData[folder]) {
                 var rows = loadedData[folder].rows;
                 if (rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="70" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
                 } else {
                     var html = '';
                     for (var i = 0; i < rows.length; i++) html += renderRow(rows[i], i);
@@ -405,7 +425,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
             var rows = tbody.querySelectorAll('tr');
             var visible = 0;
             rows.forEach(function(tr) {
-                if (tr.querySelector('td[colspan="60"]')) return;
+                if (tr.querySelector('td[colspan="70"]')) return;
                 var text = tr.textContent.toLowerCase();
                 var show = !q || text.indexOf(q) !== -1;
                 tr.style.display = show ? '' : 'none';

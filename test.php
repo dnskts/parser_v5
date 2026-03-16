@@ -47,12 +47,22 @@ $expectations = array(
         'products_count'     => 1,
         'invoice_number'     => '125358843227',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'corp@rstls.ru',
+        'cont_phone'         => '+79152636393',
+        'cont_name'          => 'ILIPUROVA',
         'ticket_number'      => '5552379893379',
-        'traveller'          => 'SMIRNOV ALEKSEI',
+        'traveller'          => 'SMIRNOV ALEKSEI NIKOLAEVICH',
+        'passenger_middle_name' => 'NIKOLAEVICH',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '05.02.2046',
         'carrier'            => 'SU',
         'coupons_count'      => 2,
         'currency'           => 'RUB',
         'fare'               => 6650.0,
+        'discount'           => 0.0,
+        'supplier_code'      => '555_EC',
+        'seg_carriers'       => 'SU',
+        'bag_allowance'      => '0PC',
         'has_refund'         => false,
         // V5: новые проверки
         'supplier'           => 'МА авиа',
@@ -82,12 +92,22 @@ $expectations = array(
         'products_count'     => 3,
         'invoice_number'     => '125358829987',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
         'ticket_number'      => '5552379660767',
         'traveller'          => 'MUSTAFINA ULIANA',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '07.12.2031',
         'carrier'            => 'SU',
         'coupons_count'      => 2,
         'currency'           => 'RUB',
         'fare'               => 70640.0,
+        'discount'           => 0.0,
+        'supplier_code'      => '555_EC',
+        'seg_carriers'       => 'SU',
+        'bag_allowance'      => '1P23K',
         'has_refund'         => false,
         // V5
         'supplier'           => 'МА авиа',
@@ -118,12 +138,22 @@ $expectations = array(
         'products_count'     => 2,
         'invoice_number'     => '125358832021',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
         'ticket_number'      => '0572675175754',
         'traveller'          => 'PETROVA EVGENIYA',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '21.08.2033',
         'carrier'            => 'AF',
         'coupons_count'      => 1,
         'currency'           => 'RUB',
         'fare'               => 28497.0,
+        'discount'           => 0.0,
+        'supplier_code'      => 'АЦКГ_BSP_DE',
+        'seg_carriers'       => 'AF',
+        'bag_allowance'      => '1P23K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
         'reservation_number' => 'FV2R0F',
@@ -144,12 +174,22 @@ $expectations = array(
         'products_count'     => 1,
         'invoice_number'     => '125358832769',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
         'ticket_number'      => '5552379788609',
-        'traveller'          => 'SHKULEV VIKTOR',
+        'traveller'          => 'SHKULEV VIKTOR MIKHAILOVICH',
+        'passenger_middle_name' => 'MIKHAILOVICH',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '04.02.2046',
         'carrier'            => 'SU',
         'coupons_count'      => 2,
         'currency'           => 'RUB',
         'fare'               => 138300.0,
+        'discount'           => 0.0,
+        'supplier_code'      => '555_EC',
+        'seg_carriers'       => 'SU',
+        'bag_allowance'      => '2P32K',
         'has_refund'         => true,
         'penalty'            => 3500.0,
         // V5
@@ -170,12 +210,22 @@ $expectations = array(
         'products_count'     => 5,
         'invoice_number'     => '125359005865',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
         'ticket_number'      => '6076506222015',
         'traveller'          => 'MAKAROV KONSTANTIN',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '07.04.2027',
         'carrier'            => 'EY',
         'coupons_count'      => 2,
         'currency'           => 'RUB',
         'fare'               => 787970.0,
+        'discount'           => 22089.71,
+        'supplier_code'      => '607',
+        'seg_carriers'       => 'EY',
+        'bag_allowance'      => '1P40K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
         'reservation_number' => 'G1ZXKP',
@@ -216,12 +266,22 @@ $expectations = array(
         'products_count'     => 3,
         'invoice_number'     => '125358954718',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
         'ticket_number'      => '5552381291066',
         'traveller'          => 'AMIRKHANYAN ASYA',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'AM',
+        'passenger_doc_expire'  => '01.03.2032',
         'carrier'            => 'SU',
         'coupons_count'      => 2,
         'currency'           => 'RUB',
         'fare'               => 39190.0,
+        'discount'           => 0.0,
+        'supplier_code'      => '555',
+        'seg_carriers'       => 'SU',
+        'bag_allowance'      => '1P23K',
         'has_refund'         => true,
         'penalty'            => 5060.0,
         'refund_amount'      => 16526.0,
@@ -248,12 +308,22 @@ $expectations = array(
         'products_count'     => 1,
         'invoice_number'     => '125359052102',
         'client'             => 'MA1PA6',
+        'cont_email'         => 'inna.dmitrieva@rstls.ru',
+        'cont_phone'         => '+79039631103',
+        'cont_name'          => 'ISAIKINA',
         'ticket_number'      => '2352294341454',
         'traveller'          => 'ISAIKINA OLGA',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '29.09.2031',
         'carrier'            => 'TK',
         'coupons_count'      => 4,
         'currency'           => 'RUB',
         'fare'               => 30125.0,
+        'discount'           => 1455.08,
+        'supplier_code'      => '235',
+        'seg_carriers'       => 'TK',
+        'bag_allowance'      => '1P30K',
         'has_refund'         => false,
         // V6: скрытая конъюнкция — 2 air_ticket_prod → 1 PRODUCT
         'supplier'           => 'МА авиа',
@@ -377,6 +447,23 @@ foreach ($fixtureFiles as $fileName) {
     addCheck($fileResult, $totalTests, $passedTests, $failedTests,
         'CLIENT', ($actual === $expected['client']), $expected['client'], $actual);
 
+    // 4.1. Контакты (уровень ORDER)
+    if (isset($expected['cont_email'])) {
+        $actual = isset($data['CONT_EMAIL']) ? $data['CONT_EMAIL'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'CONT_EMAIL', ($actual === $expected['cont_email']), $expected['cont_email'], $actual);
+    }
+    if (isset($expected['cont_phone'])) {
+        $actual = isset($data['CONT_PHONE']) ? $data['CONT_PHONE'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'CONT_PHONE', ($actual === $expected['cont_phone']), $expected['cont_phone'], $actual);
+    }
+    if (isset($expected['cont_name'])) {
+        $actual = isset($data['CONT_NAME']) ? $data['CONT_NAME'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'CONT_NAME', ($actual === $expected['cont_name']), $expected['cont_name'], $actual);
+    }
+
     // 5. Количество продуктов
     $actual = isset($data['PRODUCTS']) ? count($data['PRODUCTS']) : 0;
     addCheck($fileResult, $totalTests, $passedTests, $failedTests,
@@ -403,10 +490,39 @@ foreach ($fixtureFiles as $fileName) {
     addCheck($fileResult, $totalTests, $passedTests, $failedTests,
         'Пассажир', ($actual === $expected['traveller']), $expected['traveller'], $actual);
 
+    // 8.1. Доп. поля пассажира
+    if (isset($expected['passenger_middle_name'])) {
+        $actual = isset($p['PASSENGER_MIDDLE_NAME']) ? $p['PASSENGER_MIDDLE_NAME'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Отчество', ($actual === $expected['passenger_middle_name']), $expected['passenger_middle_name'], $actual);
+    }
+    if (isset($expected['passenger_doc_country'])) {
+        $actual = isset($p['PASSENGER_DOC_COUNTRY']) ? $p['PASSENGER_DOC_COUNTRY'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Страна документа', ($actual === $expected['passenger_doc_country']), $expected['passenger_doc_country'], $actual);
+    }
+    if (isset($expected['passenger_doc_expire'])) {
+        $actual = isset($p['PASSENGER_DOC_EXPIRE']) ? $p['PASSENGER_DOC_EXPIRE'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Срок действия документа', ($actual === $expected['passenger_doc_expire']), $expected['passenger_doc_expire'], $actual);
+    }
+
     // 9. Перевозчик
     $actual = isset($p['CARRIER']) ? $p['CARRIER'] : '';
     addCheck($fileResult, $totalTests, $passedTests, $failedTests,
         'Перевозчик', ($actual === $expected['carrier']), $expected['carrier'], $actual);
+
+    // 9.1. Сегменты: перевозчики/багаж
+    if (isset($expected['seg_carriers'])) {
+        $actual = isset($p['SEG_CARRIERS']) ? $p['SEG_CARRIERS'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Перевозчики (сегм.)', ($actual === $expected['seg_carriers']), $expected['seg_carriers'], $actual);
+    }
+    if (isset($expected['bag_allowance'])) {
+        $actual = isset($p['BAG_ALLOWANCE']) ? $p['BAG_ALLOWANCE'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Багаж', ($actual === $expected['bag_allowance']), $expected['bag_allowance'], $actual);
+    }
 
     // 10. Купоны
     $actual = isset($p['COUPONS']) ? count($p['COUPONS']) : 0;
@@ -442,6 +558,17 @@ foreach ($fixtureFiles as $fileName) {
         $actual = isset($p['SUPPLIER']) ? $p['SUPPLIER'] : '';
         addCheck($fileResult, $totalTests, $passedTests, $failedTests,
             'SUPPLIER', ($actual === $expected['supplier']), $expected['supplier'], $actual);
+    }
+
+    if (isset($expected['supplier_code'])) {
+        $actual = isset($p['SUPPLIER_CODE']) ? $p['SUPPLIER_CODE'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'SUPPLIER_CODE', ($actual === $expected['supplier_code']), $expected['supplier_code'], $actual);
+    }
+    if (isset($expected['discount'])) {
+        $actual = isset($p['DISCOUNT']) ? (float)$p['DISCOUNT'] : 0.0;
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'DISCOUNT', (abs($actual - $expected['discount']) < 0.01), $expected['discount'], $actual);
     }
 
     // =============================================

@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-03-16 — MoyAgent: контакты клиента, отчество и документ, discount/supplier_code, багаж/перевозчики сегментов + колонки data.php + тесты
+
+**Запрос пользователя:** Добавить в JSON и таблицу: контакты клиента (с префиксом Cont), ФИО с отчеством в TRAVELLER, поля пассажира middle_name/doc_country/doc_expire, поля билета discount/supplier_code, а также bag_allowance и carrier сегментов. Протянуть до `data.php` через `core/DataTableHelpers.php` и обновить `test.php`.
+
+### Что было сделано
+- **parsers/MoyAgentParser.php**
+  - `TRAVELLER` теперь собирается как «Фамилия Имя Отчество» (если отчество есть).
+  - В продукт добавлены поля: `PASSENGER_MIDDLE_NAME`, `PASSENGER_DOC_COUNTRY`, `PASSENGER_DOC_EXPIRE`.
+  - На уровень заказа добавлены: `CONT_EMAIL`, `CONT_PHONE`, `CONT_NAME`.
+  - В продукт добавлены: `DISCOUNT`, `SUPPLIER_CODE`, `BAG_ALLOWANCE`, `SEG_CARRIERS` (агрегаты по сегментам).
+- **core/DataTableHelpers.php** — новые поля прокинуты в строки таблицы (`cont_*`, `supplier_code`, `discount`, `bag_allowance`, `seg_carriers`, `passenger_*`).
+- **data.php** — добавлено 10 колонок (итого 70), обновлён `renderRow()` и `colspan`-заглушки.
+- **test.php** — расширены ожидания и добавлены проверки новых полей (контакты, отчество/документ, supplier_code/discount, багаж/перевозчики сегментов).
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`
+- `core/DataTableHelpers.php`
+- `data.php`
+- `test.php`
+- `CURRENT_STAGE.md`
+- `CHANGELOG_AI.md`
+
+---
+
 ## 2026-03-16 — Реализация плана nextstep: retry 1С, SFTP статус, вкладки data.php, DataTableHelpers, тесты, Processor
 
 **Запрос пользователя:** Реализовать план из nextstep: retry при отправке в 1С (с опцией 0), статус SFTP в панели, «Загрузить ещё» и вкладки по парсерам на data.php, динамический список фикстур в test.php, логирование времени парсинга, обновить SKILL и nextstep, документацию.

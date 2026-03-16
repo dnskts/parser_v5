@@ -78,6 +78,9 @@ class MoyAgentParser implements ParserInterface
 
         $customer = $xml->customer;
         $clientCode = $customer ? (string)$customer['client_code'] : '';
+        $contEmail = $customer ? (string)$customer['email'] : '';
+        $contPhone = $customer ? (string)$customer['phone'] : '';
+        $contName  = $customer ? (string)$customer['name'] : '';
 
         // ШАГ 3: Вспомогательные данные
         $passengersMap = $this->buildPassengersMap($xml);
@@ -133,7 +136,7 @@ class MoyAgentParser implements ParserInterface
             $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
             $psgId = $refundDoc ? $refundDoc['psgr_id'] : '';
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
-            $traveller = $passenger ? $passenger['name'] . ' ' . $passenger['first_name'] : '';
+            $traveller = $this->buildTravellerName($passenger);
             $ticketNumber = $refundDoc ? $refundDoc['tkt_number'] : '';
             $refundDate = $refundDoc ? $this->formatDateTime($refundDoc['tkt_date']) : '';
             $origDoc = isset($travelDocsMap[$origProdId]) ? $travelDocsMap[$origProdId] : null;
@@ -171,6 +174,10 @@ class MoyAgentParser implements ParserInterface
             $gdsId = $mainReservation && isset($mainReservation['crs']) ? $mainReservation['crs'] : '';
             $flightTypeRaw = $origDoc && isset($origDoc['flight_type_raw']) ? $origDoc['flight_type_raw'] : 'regular';
 
+            $segmentMeta = $this->extractSegmentCarriersAndBaggageFromGroup($relatedProdIds, $airTicketsByProdId);
+            $discount = (string)$origAirTicket['discount'];
+            $supplierCode = (string)$origAirTicket['supplier'];
+
             $products[] = array(
                 'UID' => Utils::generateUUID(),
                 'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
@@ -186,10 +193,17 @@ class MoyAgentParser implements ParserInterface
                 'PASSENGER_GENDER' => $passengerDocInfo['gender'],
                 'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
                 'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
+                'PASSENGER_MIDDLE_NAME' => $passengerDocInfo['middle_name'],
+                'PASSENGER_DOC_COUNTRY' => $passengerDocInfo['doc_country'],
+                'PASSENGER_DOC_EXPIRE' => $passengerDocInfo['doc_expire'],
                 'CONJ_COUNT' => 0,
                 'PENALTY' => $penalty,
                 'CARRIER' => (string)$origAirTicket['validating_carrier'],
                 'SUPPLIER' => $this->getSupplierName(),
+                'SUPPLIER_CODE' => $supplierCode,
+                'DISCOUNT' => $discount,
+                'BAG_ALLOWANCE' => $segmentMeta['bag_allowance'],
+                'SEG_CARRIERS' => $segmentMeta['seg_carriers'],
                 'FLIGHT_TYPE' => $this->mapFlightType($flightTypeRaw),
                 'GDS_ID' => $gdsId,
                 'GDS_NAME' => $this->mapGdsId($gdsId),
@@ -308,13 +322,14 @@ class MoyAgentParser implements ParserInterface
                 $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
                 $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
                 $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
-                $traveller = $passenger ? $passenger['name'] . ' ' . $passenger['first_name'] : '';
+                $traveller = $this->buildTravellerName($passenger);
                 $passengerAge = $this->mapPassengerAge((string)$airTicket['psg_type']);
                 $ticketNumber = $travelDoc ? $travelDoc['tkt_number'] : '';
                 $issueDate = $travelDoc ? $this->formatDateTime($travelDoc['tkt_date']) : '';
 
                 $coupons = $this->buildCouponsFromGroup($prodIds, $airTicketsByProdId);
                 $taxes = $this->buildTaxesFromGroup($prodIds, $airTicketsByProdId);
+                $segmentMeta = $this->extractSegmentCarriersAndBaggageFromGroup($prodIds, $airTicketsByProdId);
                 $fare = (float)(string)$airTicket['fare'];
                 $taxesAmount = (float)(string)$airTicket['taxes'];
                 $totalAmount = $fare + $taxesAmount;
@@ -326,6 +341,9 @@ class MoyAgentParser implements ParserInterface
 
                 $gdsId = $mainReservation && isset($mainReservation['crs']) ? $mainReservation['crs'] : '';
                 $flightTypeRaw = $travelDoc && isset($travelDoc['flight_type_raw']) ? $travelDoc['flight_type_raw'] : 'regular';
+
+                $discount = (string)$airTicket['discount'];
+                $supplierCode = (string)$airTicket['supplier'];
 
                 $products[] = array(
                     'UID' => Utils::generateUUID(),
@@ -342,10 +360,17 @@ class MoyAgentParser implements ParserInterface
                     'PASSENGER_GENDER' => $passengerDocInfo['gender'],
                     'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
                     'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
+                    'PASSENGER_MIDDLE_NAME' => $passengerDocInfo['middle_name'],
+                    'PASSENGER_DOC_COUNTRY' => $passengerDocInfo['doc_country'],
+                    'PASSENGER_DOC_EXPIRE' => $passengerDocInfo['doc_expire'],
                     'CONJ_COUNT' => count($prodIds),
                     'PENALTY' => 0,
                     'CARRIER' => (string)$airTicket['validating_carrier'],
                     'SUPPLIER' => $this->getSupplierName(),
+                    'SUPPLIER_CODE' => $supplierCode,
+                    'DISCOUNT' => $discount,
+                    'BAG_ALLOWANCE' => $segmentMeta['bag_allowance'],
+                    'SEG_CARRIERS' => $segmentMeta['seg_carriers'],
                     'FLIGHT_TYPE' => $this->mapFlightType($flightTypeRaw),
                     'GDS_ID' => $gdsId,
                     'GDS_NAME' => $this->mapGdsId($gdsId),
@@ -378,6 +403,9 @@ class MoyAgentParser implements ParserInterface
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA' => $this->formatDateTime($orderTime),
             'CLIENT' => $clientCode,
+            'CONT_EMAIL' => $contEmail,
+            'CONT_PHONE' => $contPhone,
+            'CONT_NAME' => $contName,
             'SOURCE_FILE' => basename($xmlFilePath),
             'PARSED_AT' => date('Y-m-d H:i:s'),
             'PRODUCTS' => $products
@@ -533,7 +561,7 @@ class MoyAgentParser implements ParserInterface
 
             $psgId = $emdDoc['psgr_id'];
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
-            $traveller = $passenger ? $passenger['name'] . ' ' . $passenger['first_name'] : '';
+            $traveller = $this->buildTravellerName($passenger);
             $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
 
             $psgType = '';
@@ -617,6 +645,10 @@ class MoyAgentParser implements ParserInterface
             $gdsId = $mainReservation && isset($mainReservation['crs']) ? $mainReservation['crs'] : '';
             $flightTypeRaw = $mainDoc && isset($mainDoc['flight_type_raw']) ? $mainDoc['flight_type_raw'] : 'regular';
 
+            $emdSegmentMeta = $this->extractSegmentCarriersAndBaggageFromAirTicket($emdAirTicket);
+            $discount = $emdAirTicket ? (string)$emdAirTicket['discount'] : '';
+            $supplierCode = $emdAirTicket ? (string)$emdAirTicket['supplier'] : '';
+
             $products[] = array(
                 'UID' => Utils::generateUUID(),
                 'PRODUCT_TYPE' => array('NAME' => 'EMD', 'CODE' => '000000002'),
@@ -632,10 +664,17 @@ class MoyAgentParser implements ParserInterface
                 'PASSENGER_GENDER' => $passengerDocInfo['gender'],
                 'PASSENGER_DOC_TYPE' => $passengerDocInfo['doc_type'],
                 'PASSENGER_DOC_NUMBER' => $passengerDocInfo['doc_number'],
+                'PASSENGER_MIDDLE_NAME' => $passengerDocInfo['middle_name'],
+                'PASSENGER_DOC_COUNTRY' => $passengerDocInfo['doc_country'],
+                'PASSENGER_DOC_EXPIRE' => $passengerDocInfo['doc_expire'],
                 'CONJ_COUNT' => 0,
                 'PENALTY' => 0,
                 'CARRIER' => $carrier,
                 'SUPPLIER' => $this->getSupplierName(),
+                'SUPPLIER_CODE' => $supplierCode,
+                'DISCOUNT' => $discount,
+                'BAG_ALLOWANCE' => $emdSegmentMeta['bag_allowance'],
+                'SEG_CARRIERS' => $emdSegmentMeta['seg_carriers'],
                 'FLIGHT_TYPE' => $this->mapFlightType($flightTypeRaw),
                 'GDS_ID' => $gdsId,
                 'GDS_NAME' => $this->mapGdsId($gdsId),
@@ -689,7 +728,7 @@ class MoyAgentParser implements ParserInterface
 
             $psgId = $emdDoc['psgr_id'];
             $psg = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
-            $traveller = $psg ? $psg['name'] . ' ' . $psg['first_name'] : '';
+            $traveller = $this->buildTravellerName($psg);
             $passengerDocInfo = $this->buildPassengerDocInfo($psg);
 
             $psgType = '';
@@ -777,6 +816,10 @@ class MoyAgentParser implements ParserInterface
             $gdsId = $mainReservation && isset($mainReservation['crs']) ? $mainReservation['crs'] : '';
             $flightTypeRaw = $mainDoc && isset($mainDoc['flight_type_raw']) ? $mainDoc['flight_type_raw'] : 'regular';
 
+            $emdSegmentMeta = $this->extractSegmentCarriersAndBaggageFromAirTicket($emdAT);
+            $discount = $emdAT ? (string)$emdAT['discount'] : '';
+            $supplierCode = $emdAT ? (string)$emdAT['supplier'] : '';
+
             $products[] = array(
                 'UID'=>Utils::generateUUID(),
                 'PRODUCT_TYPE'=>array('NAME'=>'EMD','CODE'=>'000000002'),
@@ -792,6 +835,9 @@ class MoyAgentParser implements ParserInterface
                 'PASSENGER_GENDER'=>$passengerDocInfo['gender'],
                 'PASSENGER_DOC_TYPE'=>$passengerDocInfo['doc_type'],
                 'PASSENGER_DOC_NUMBER'=>$passengerDocInfo['doc_number'],
+                'PASSENGER_MIDDLE_NAME' => $passengerDocInfo['middle_name'],
+                'PASSENGER_DOC_COUNTRY' => $passengerDocInfo['doc_country'],
+                'PASSENGER_DOC_EXPIRE' => $passengerDocInfo['doc_expire'],
                 'CONJ_COUNT'=>0,
                 'FLIGHT_TYPE'=>$this->mapFlightType($flightTypeRaw),
                 'GDS_ID'=>$gdsId,
@@ -799,6 +845,10 @@ class MoyAgentParser implements ParserInterface
                 'PENALTY'=>$emdPen,
                 'CARRIER'=>$carrier,
                 'SUPPLIER'=>$this->getSupplierName(),
+                'SUPPLIER_CODE' => $supplierCode,
+                'DISCOUNT' => $discount,
+                'BAG_ALLOWANCE' => $emdSegmentMeta['bag_allowance'],
+                'SEG_CARRIERS' => $emdSegmentMeta['seg_carriers'],
                 'RELATED_TICKET_NUMBER'=>$relatedTkt,
                 'EMD_NAME'=>$emdName,
                 'COUPONS'=>$coupons,
@@ -828,6 +878,7 @@ class MoyAgentParser implements ParserInterface
                 $id = (string)$p['psgr_id'];
                 $map[$id] = array('psgr_id'=>$id,'psgr_type'=>(string)$p['psgr_type'],
                     'first_name'=>(string)$p['first_name'],'name'=>(string)$p['name'],
+                    'middle_name'=>(string)$p['middle_name'],
                     'gender'=>(string)$p['gender'],'birth_date'=>(string)$p['birth_date'],
                     'doc_type'=>(string)$p['doc_type'],'doc_number'=>(string)$p['doc_number'],
                     'doc_country'=>(string)$p['doc_country'],'doc_expire'=>(string)$p['doc_expire']);
@@ -1256,7 +1307,15 @@ class MoyAgentParser implements ParserInterface
     private function buildPassengerDocInfo($passenger)
     {
         if ($passenger === null) {
-            return array('birth_date' => '', 'gender' => '', 'doc_type' => '', 'doc_number' => '');
+            return array(
+                'birth_date' => '',
+                'gender' => '',
+                'doc_type' => '',
+                'doc_number' => '',
+                'middle_name' => '',
+                'doc_country' => '',
+                'doc_expire' => ''
+            );
         }
 
         $birthDate = '';
@@ -1267,11 +1326,76 @@ class MoyAgentParser implements ParserInterface
             }
         }
 
+        $docExpire = '';
+        if (isset($passenger['doc_expire']) && $passenger['doc_expire'] !== '') {
+            $ts = strtotime($passenger['doc_expire']);
+            if ($ts !== false) {
+                $docExpire = date('d.m.Y', $ts);
+            }
+        }
+
         return array(
             'birth_date' => $birthDate,
             'gender'     => $this->mapGender(isset($passenger['gender']) ? $passenger['gender'] : ''),
             'doc_type'   => $this->mapDocType(isset($passenger['doc_type']) ? $passenger['doc_type'] : ''),
-            'doc_number' => isset($passenger['doc_number']) ? $passenger['doc_number'] : ''
+            'doc_number' => isset($passenger['doc_number']) ? $passenger['doc_number'] : '',
+            'middle_name' => isset($passenger['middle_name']) ? $passenger['middle_name'] : '',
+            'doc_country' => isset($passenger['doc_country']) ? $passenger['doc_country'] : '',
+            'doc_expire' => $docExpire
+        );
+    }
+
+    private function buildTravellerName($passenger)
+    {
+        if ($passenger === null) {
+            return '';
+        }
+        $parts = array();
+        $ln = isset($passenger['name']) ? trim($passenger['name']) : '';
+        $fn = isset($passenger['first_name']) ? trim($passenger['first_name']) : '';
+        $mn = isset($passenger['middle_name']) ? trim($passenger['middle_name']) : '';
+        if ($ln !== '') { $parts[] = $ln; }
+        if ($fn !== '') { $parts[] = $fn; }
+        if ($mn !== '') { $parts[] = $mn; }
+        return trim(implode(' ', $parts));
+    }
+
+    private function extractSegmentCarriersAndBaggageFromAirTicket($airTicket)
+    {
+        $carriers = array();
+        $baggage = array();
+        if ($airTicket && isset($airTicket->air_seg)) {
+            foreach ($airTicket->air_seg as $seg) {
+                $c = isset($seg['carrier']) ? trim((string)$seg['carrier']) : '';
+                if ($c !== '') { $carriers[$c] = true; }
+                $b = isset($seg['bag_allowance']) ? trim((string)$seg['bag_allowance']) : '';
+                if ($b !== '') { $baggage[$b] = true; }
+            }
+        }
+        return array(
+            'seg_carriers' => implode(', ', array_keys($carriers)),
+            'bag_allowance' => implode(', ', array_keys($baggage))
+        );
+    }
+
+    private function extractSegmentCarriersAndBaggageFromGroup($prodIds, $airTicketsByProdId)
+    {
+        $carriers = array();
+        $baggage = array();
+        foreach ($prodIds as $pid) {
+            if (!isset($airTicketsByProdId[$pid])) { continue; }
+            $at = $airTicketsByProdId[$pid];
+            if (!isset($at->air_seg)) { continue; }
+            foreach ($at->air_seg as $seg) {
+                $c = isset($seg['carrier']) ? trim((string)$seg['carrier']) : '';
+                if ($c !== '') { $carriers[$c] = true; }
+                $b = isset($seg['bag_allowance']) ? trim((string)$seg['bag_allowance']) : '';
+                if ($b !== '') { $baggage[$b] = true; }
+            }
+        }
+        return array(
+            'seg_carriers' => implode(', ', array_keys($carriers)),
+            'bag_allowance' => implode(', ', array_keys($baggage))
         );
     }
 }

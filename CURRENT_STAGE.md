@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-16
-**Обновлено после:** Настройка порядка вкладок через config/settings.json.tab_order и переименование поставщика «Мой агент» в «МА авиа» (MoyAgentParser, data.php)
+**Обновлено после:** Расширение JSON для MoyAgent: контакты клиента, отчество/страна/срок документа, discount/supplier_code, багаж и перевозчики сегментов + новые колонки в data.php и тесты
 
 ---
 
@@ -24,7 +24,8 @@
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
 - **SFTP-синхронизация встроена в обработку:** загрузка XML с сервера поставщика при каждом запуске (кнопка «Запустить» и автообработка)
-- Данные документов пассажиров: дата рождения, пол, тип документа, номер документа
+- Данные документов пассажиров: дата рождения, пол, тип документа, номер документа, **страна и срок действия**, отчество
+- Контакты клиента на уровне заказа: **CONT_EMAIL/CONT_PHONE/CONT_NAME**
 - Справочник констант (parsers/constants/): типы пассажиров, пол, классы, type_id, GDS, типы перелёта, статусы сегментов
 - Веб-панель управления с логами в реальном времени
 
@@ -66,7 +67,7 @@ parser_v5/
 ├── logs/                     — app.log + api_send.log + sftp_sync.log
 ├── tests/fixtures/           — 5 XML-фикстур для MoyAgentParser
 ├── index.php                 — панель управления (app.js, AJAX)
-├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 60 колонок
+├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
 ├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php)
@@ -212,7 +213,7 @@ updateLastRunTime() → settings.json.last_run = time()
           "CLASS": "D"
         }
       ],
-      "TRAVELLER": "MAKAROV KONSTANTIN",
+  "TRAVELLER": "MAKAROV KONSTANTIN",
       "TAXES": [
         { "CODE": "", "AMOUNT": 787970, "EQUIVALENT_AMOUNT": 787970, "VAT_RATE": 0, "VAT_AMOUNT": 0 },
         { "CODE": "RI", "AMOUNT": 3182, "EQUIVALENT_AMOUNT": 3182, "VAT_RATE": 0, "VAT_AMOUNT": 0 }
@@ -285,7 +286,7 @@ BOOKING_AGENT	reservation[@bookingAgent]
 AGENT	air_ticket_doc[@issuingAgent]
 CARRIER	air_ticket_prod[@validating_carrier]
 NUMBER	air_ticket_doc[@tkt_number]
-TRAVELLER	passenger[@name] + [@first_name]
+TRAVELLER	passenger[@name] + [@first_name] + [@middle_name?]
 Конъюнкции (V4+):
 
 XML-структура: один билет = несколько air_ticket_prod:
@@ -304,7 +305,7 @@ buildCouponsFromGroup() / buildTaxesFromGroup() с дедупликацией
 
 Метод	Версия	Описание
 parse()	V1	Главный метод парсинга
-buildPassengersMap()	V1	Карта psgr_id → данные (+ doc_type, doc_number, doc_country, doc_expire)
+buildPassengersMap()	V1	Карта psgr_id → данные (+ middle_name, doc_type, doc_number, doc_country, doc_expire)
 buildTravelDocsMap()	V5	Карта prod_id → данные (+ issuingAgent, flight_type_raw)
 buildReservationsMap()	V5	Карта supplier → данные (+ bookingAgent)
 buildConjLinksMap()	V4	Карта child_prod_id → main_prod_id
@@ -324,7 +325,7 @@ mapTypeId()	V6	1–6 → Эконом, Бизнес, Первый и т.д.
 mapFlightType()	V6	regular, charter, lowcost и т.д. → русские названия
 mapGdsId()	V6	crs (число) → название GDS
 mapSegmentStatus()	V6	Код статуса сегмента → название
-buildPassengerDocInfo()	V6	Извлечение 4 полей документа пассажира (birth_date, gender, doc_type, doc_number)
+buildPassengerDocInfo()	V6	Извлечение полей документа пассажира (birth_date, gender, doc_type, doc_number, middle_name, doc_country, doc_expire)
 mapTicketStatus()	V1	TKT→продажа, REF→возврат
 
 Конъюнкции V6: скрытые конъюнкции
@@ -506,7 +507,7 @@ Resizable-столбцы (drag-resize)
 formatRstlsDate() — "20251013121600" → "13.10.2025 12:16"
 formatAgent() — антидубль (V5): CODE===NAME → одно значение
 Даты вылета/прилёта: все сегменты через запятую (V5)
-60 колонок:
+70 колонок:
 
 #	Колонка	Источник
 1	🔄	UI
@@ -567,6 +568,8 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 56	Сбор пост. возвр.	REFUND.FEE_VENDOR
 57	Штраф пост.	REFUND.PENALTY_VENDOR
 58	Штраф РСТЛС	REFUND.PENALTY_CLIENT
+
+Доп. колонки (добавлены, выведены в конце таблицы): CONT_EMAIL, CONT_PHONE, CONT_NAME, SUPPLIER_CODE, SEG_CARRIERS, BAG_ALLOWANCE, DISCOUNT, PASSENGER_MIDDLE_NAME, PASSENGER_DOC_COUNTRY, PASSENGER_DOC_EXPIRE
 9.3. api_logs.php — Логи API
 Двухрежимная: HTML-страница + AJAX к самой себе
 Читает logs/api_send.log (JSON Lines)
