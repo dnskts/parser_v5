@@ -27,7 +27,7 @@ class MoyAgentParser implements ParserInterface
 
     public function getSupplierName()
     {
-        return 'Мой агент';
+        return 'МА авиа';
     }
 
     /**

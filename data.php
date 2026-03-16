@@ -7,6 +7,19 @@
  */
 
 $suppliers = array();
+$settings = array();
+
+// Читаем настройки из config/settings.json (tab_order и др.)
+$configFile = __DIR__ . '/config/settings.json';
+if (file_exists($configFile) && is_readable($configFile)) {
+    $settingsJson = file_get_contents($configFile);
+    if ($settingsJson !== false) {
+        $decoded = json_decode($settingsJson, true);
+        if (is_array($decoded)) {
+            $settings = $decoded;
+        }
+    }
+}
 require_once __DIR__ . '/core/Logger.php';
 require_once __DIR__ . '/core/ParserManager.php';
 $logger = new Logger(__DIR__ . '/logs/app.log');
@@ -16,6 +29,23 @@ foreach ($parserManager->getRegisteredFolders() as $folder) {
     if ($parser) {
         $suppliers[] = array('folder' => $folder, 'name' => $parser->getSupplierName());
     }
+}
+
+// Переупорядочиваем список вкладок согласно настройке tab_order (если задана)
+if (!empty($suppliers) && isset($settings['tab_order']) && is_array($settings['tab_order'])) {
+    $tabOrder = $settings['tab_order'];
+    $orderMap = array();
+    foreach ($tabOrder as $index => $folderName) {
+        $orderMap[$folderName] = $index;
+    }
+    usort($suppliers, function ($a, $b) use ($orderMap) {
+        $aKey = isset($orderMap[$a['folder']]) ? $orderMap[$a['folder']] : PHP_INT_MAX;
+        $bKey = isset($orderMap[$b['folder']]) ? $orderMap[$b['folder']] : PHP_INT_MAX;
+        if ($aKey === $bKey) {
+            return strcmp($a['folder'], $b['folder']);
+        }
+        return ($aKey < $bKey) ? -1 : 1;
+    });
 }
 $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
 ?>
@@ -76,9 +106,10 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                     <p>Добавьте парсер в папку parsers/ и создайте папку в input/.</p>
                 </div>
             <?php else: ?>
+                <?php $defaultFolder = $suppliers[0]['folder']; ?>
                 <div class="data-tabs">
                     <?php foreach ($suppliers as $s): ?>
-                        <button type="button" class="data-tab<?php echo $s === $suppliers[0] ? ' data-tab--active' : ''; ?>" data-supplier="<?php echo htmlspecialchars($s['folder']); ?>"><?php echo htmlspecialchars($s['name']); ?></button>
+                        <button type="button" class="data-tab<?php echo $s['folder'] === $defaultFolder ? ' data-tab--active' : ''; ?>" data-supplier="<?php echo htmlspecialchars($s['folder']); ?>"><?php echo htmlspecialchars($s['name']); ?></button>
                     <?php endforeach; ?>
                 </div>
                 <div class="data-table-wrapper">

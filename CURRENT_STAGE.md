@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-16
-**Обновлено после:** Реализация плана nextstep: retry 1С (api.retry_attempts/retry_delay_sec), sftp_status в панели, data.php вкладки по парсерам + «Загрузить ещё» (api data_rows), DataTableHelpers, тесты по glob фикстур + «нет ожиданий», время парсинга в Processor
+**Обновлено после:** Настройка порядка вкладок через config/settings.json.tab_order и переименование поставщика «Мой агент» в «МА авиа» (MoyAgentParser, data.php)
 
 ---
 
@@ -45,7 +45,7 @@
 ## 3. Структура проекта
 parser_v5/
 ├── config/
-│   ├── settings.json         — интервал, last_run, api, sftp (все настройки)
+│   ├── settings.json         — интервал, last_run, api, sftp, tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
 ├── core/
 │   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
@@ -59,7 +59,7 @@ parser_v5/
 ├── parsers/
 │   ├── constants/
 │   │   └── MoyAgentConstants.php — справочник констант и маппингов
-│   ├── MoyAgentParser.php    — «Мой агент» авиа V5 (TKT/REF/RFND/CANX + конъюнкции)
+│   ├── MoyAgentParser.php    — «МА авиа» (Мой агент) авиа V5 (TKT/REF/RFND/CANX + конъюнкции)
 │   └── DemoHotelParser.php   — шаблон отелей
 ├── input/{supplier}/         — XML (подпапки Processed/, Error/)
 ├── json/                     — результаты ({folder}{xmlName}{Ymd_His}.json)
