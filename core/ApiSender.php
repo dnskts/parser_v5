@@ -123,41 +123,86 @@ class ApiSender
         $this->writeLog('SEND', $jsonFileName, $sourceXml, null, null,
             "Отправка заказа #{$invoiceNumber} на {$url} (" . strlen($jsonBody) . " байт)");
 
-        $result = $this->httpPost($url, $jsonBody, $login, $password);
+        $retryAttempts = isset($this->config['retry_attempts']) ? (int)$this->config['retry_attempts'] : 0;
+        $retryDelaySec = isset($this->config['retry_delay_sec']) ? (int)$this->config['retry_delay_sec'] : 2;
+        $maxTries = ($retryAttempts > 0) ? ($retryAttempts + 1) : 1;
 
-        $httpCode = $result['http_code'];
-        $response = $result['response'];
-        $error = $result['error'];
-        $errno = $result['errno'];
+        $lastResult = null;
+        $lastExplanation = '';
 
-        if ($errno !== 0) {
-            $explanation = $this->explainCurlError($errno, $error, $url);
-            $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
-            return array('success' => false, 'message' => $explanation, 'http_code' => $httpCode);
+        for ($try = 1; $try <= $maxTries; $try++) {
+            if ($try > 1) {
+                $this->writeLog('SEND', $jsonFileName, $sourceXml, null, null,
+                    "Попытка {$try} из {$maxTries}");
+                sleep($retryDelaySec);
+            }
+
+            $result = $this->httpPost($url, $jsonBody, $login, $password);
+            $lastResult = $result;
+
+            $httpCode = $result['http_code'];
+            $response = $result['response'];
+            $error = $result['error'];
+            $errno = $result['errno'];
+
+            if ($errno !== 0) {
+                $lastExplanation = $this->explainCurlError($errno, $error, $url);
+                $isRetryable = ($errno === 28);
+                if (!$isRetryable || $try >= $maxTries) {
+                    $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $lastExplanation);
+                    return array('success' => false, 'message' => $lastExplanation, 'http_code' => $httpCode);
+                }
+                continue;
+            }
+
+            if ($httpCode >= 200 && $httpCode < 300) {
+                $explanation = "Успешно отправлено (HTTP {$httpCode}). Ответ: " . $this->truncate($response, 500);
+                $this->writeLog('OK', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
+                return array('success' => true, 'message' => $explanation, 'http_code' => $httpCode);
+            }
+
+            if ($httpCode >= 400 && $httpCode < 500) {
+                $explanation = $this->explanationForHttpCode($httpCode, $url, $response);
+                $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
+                return array('success' => false, 'message' => $explanation, 'http_code' => $httpCode);
+            }
+
+            $lastExplanation = $this->explanationForHttpCode($httpCode, $url, $response);
+            $isRetryable = ($httpCode >= 500 || $httpCode === 0);
+            if (!$isRetryable || $try >= $maxTries) {
+                $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $lastExplanation);
+                return array('success' => false, 'message' => $lastExplanation, 'http_code' => $httpCode);
+            }
         }
 
-        if ($httpCode >= 200 && $httpCode < 300) {
-            $explanation = "Успешно отправлено (HTTP {$httpCode}). Ответ: " . $this->truncate($response, 500);
-            $this->writeLog('OK', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
-            return array('success' => true, 'message' => $explanation, 'http_code' => $httpCode);
-        }
+        $this->writeLog('ERROR', $jsonFileName, $sourceXml,
+            isset($lastResult['http_code']) ? $lastResult['http_code'] : null,
+            isset($lastResult['response']) ? $lastResult['response'] : null,
+            $lastExplanation);
+        return array('success' => false, 'message' => $lastExplanation, 'http_code' => isset($lastResult['http_code']) ? $lastResult['http_code'] : null);
+    }
 
+    /**
+     * Формирует пояснение по HTTP-коду ответа (4xx, 5xx).
+     */
+    private function explanationForHttpCode($httpCode, $url, $response)
+    {
         if ($httpCode === 401) {
-            $explanation = "Ошибка аутентификации (HTTP 401). Неверный логин/пароль. Проверьте api.login и api.password в config/settings.json.";
-        } elseif ($httpCode === 403) {
-            $explanation = "Доступ запрещён (HTTP 403). У пользователя нет прав на операцию ORDER. Обратитесь к администратору 1С.";
-        } elseif ($httpCode === 404) {
-            $explanation = "Эндпоинт не найден (HTTP 404). URL {$url} не существует. Проверьте api.url — возможно неверный путь или сервис не опубликован.";
-        } elseif ($httpCode === 500) {
-            $explanation = "Внутренняя ошибка 1С (HTTP 500). Ответ: " . $this->truncate($response, 500) . ". Обратитесь к разработчику 1С.";
-        } elseif ($httpCode === 502 || $httpCode === 503) {
-            $explanation = "Сервер 1С временно недоступен (HTTP {$httpCode}). Повторите позже.";
-        } else {
-            $explanation = "Неожиданный HTTP-код: {$httpCode}. Ответ: " . $this->truncate($response, 500);
+            return "Ошибка аутентификации (HTTP 401). Неверный логин/пароль. Проверьте api.login и api.password в config/settings.json.";
         }
-
-        $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
-        return array('success' => false, 'message' => $explanation, 'http_code' => $httpCode);
+        if ($httpCode === 403) {
+            return "Доступ запрещён (HTTP 403). У пользователя нет прав на операцию ORDER. Обратитесь к администратору 1С.";
+        }
+        if ($httpCode === 404) {
+            return "Эндпоинт не найден (HTTP 404). URL {$url} не существует. Проверьте api.url — возможно неверный путь или сервис не опубликован.";
+        }
+        if ($httpCode === 500) {
+            return "Внутренняя ошибка 1С (HTTP 500). Ответ: " . $this->truncate($response, 500) . ". Обратитесь к разработчику 1С.";
+        }
+        if ($httpCode === 502 || $httpCode === 503) {
+            return "Сервер 1С временно недоступен (HTTP {$httpCode}). Повторите позже.";
+        }
+        return "Неожиданный HTTP-код: {$httpCode}. Ответ: " . $this->truncate($response, 500);
     }
 
     /**

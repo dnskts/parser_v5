@@ -136,10 +136,18 @@ function runProcessing($force = false)
     $result = $processor->run($force);
 
     // 3. Добавляем данные SFTP в результат
-    $result['sftp_downloaded'] = $sftpResult['downloaded'];
-    $result['sftp_errors'] = $sftpResult['errors'];
+        $result['sftp_downloaded'] = $sftpResult['downloaded'];
+        $result['sftp_errors'] = $sftpResult['errors'];
+        $result['sftp_skipped'] = isset($sftpResult['skipped']) ? $sftpResult['skipped'] : false;
+        if (!empty($result['sftp_skipped'])) {
+            $result['sftp_status'] = 'пропущено (интервал)';
+        } elseif (!empty($result['sftp_errors'])) {
+            $result['sftp_status'] = 'ошибки: ' . $result['sftp_errors'];
+        } else {
+            $result['sftp_status'] = 'скачано: ' . $result['sftp_downloaded'];
+        }
 
-    return $result;
+        return $result;
 }
 
 // Если скрипт запущен напрямую из командной строки (не подключён из другого файла)

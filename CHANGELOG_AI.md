@@ -2,6 +2,44 @@
 
 ---
 
+## 2026-03-16 — Реализация плана nextstep: retry 1С, SFTP статус, вкладки data.php, DataTableHelpers, тесты, Processor
+
+**Запрос пользователя:** Реализовать план из nextstep: retry при отправке в 1С (с опцией 0), статус SFTP в панели, «Загрузить ещё» и вкладки по парсерам на data.php, динамический список фикстур в test.php, логирование времени парсинга, обновить SKILL и nextstep, документацию.
+
+### Что было сделано
+- **ApiSender:** В send() добавлен цикл retry при HTTP 5xx и таймауте cURL (errno 28). Параметры api.retry_attempts (0 = текущее поведение, одна попытка) и api.retry_delay_sec в settings.json. При 0 повторных попыток нет. Вынесена explanationForHttpCode() для 4xx/5xx.
+- **process.php:** В результат runProcessing() добавлены sftp_skipped и sftp_status (пропущено/ошибки: N/скачано: N). **app.js:** сообщение после run отображает data.sftp_status.
+- **core/DataTableHelpers.php:** Новый файл с formatRstlsDate(), formatAgent(), buildRowsFromJsonFile($filePath). Используется в api data_rows и вынесена общая логика строк таблицы.
+- **api.php:** Добавлен action=data_rows (GET: supplier, offset, limit, sort, dir). glob по supplier_*.json, сортировка по filemtime, срез файлов, для каждого buildRowsFromJsonFile, объединение строк, сортировка по sort/dir, ответ rows, total_files, has_more.
+- **data.php:** Переработан: список поставщиков из ParserManager (вкладки), данные через AJAX (data_rows). Первая загрузка — первый поставщик, offset 0, limit 50; переключение вкладок — кеш в памяти или запрос; кнопка «Загрузить ещё» — следующий fileOffset. Рендер строк в JS (renderRow), фильтр, сортировка, XLSX, resend, очистка таблицы сохранены. Добавлены стили .data-tabs, .data-tab, .data-load-more, .data-table__td--empty.
+- **Processor:** Перед и после parser->parse() замер microtime(true), запись в app.log: «Время парсинга {fileName}: X с».
+- **test.php:** Список тестов формируется из glob(tests/fixtures/*.xml). Для каждого файла: если нет в expectations — запись в results с no_expectations=true, описание «Нет ожиданий», без провала. В HTML и CLI выводится предупреждение. Добавлены стили test-file__header--warn, test-file__badge--warn.
+- **SKILL update-structure:** В раздел When to trigger добавлено правило: после изменений обновлять CURRENT_STAGE.md, CHANGELOG_AI.md, structure.md; SisPrompt.md — при изменении ключевых правил или структуры.
+- **nextstep.md:** Удалены выполненные пункты (1.1 retry+SFTP, 1.2 производительность, 1.4 фикстуры+время парсинга). Добавлены 10 новых шагов в раздел 2 (защита паролей, доступ api.php, несколько SFTP, мониторинг логов, алерты SFTP, тесты retry, документация cache_index и др.).
+- **CURRENT_STAGE.md, structure.md, SisPrompt.md:** Обновлены под новую структуру (DataTableHelpers, data_rows, вкладки, retry, sftp_status, тесты, время парсинга).
+
+### Изменённые/созданные файлы
+- config/settings.json — api.retry_attempts, api.retry_delay_sec
+- core/ApiSender.php — retry в send(), explanationForHttpCode()
+- core/Processor.php — лог времени парсинга
+- core/DataTableHelpers.php — новый
+- process.php — sftp_skipped, sftp_status
+- assets/app.js — вывод sftp_status
+- api.php — action=data_rows
+- data.php — полная переработка (вкладки, data_rows, «Загрузить ещё»)
+- assets/style.css — .data-tabs, .data-tab, .data-load-more, .data-table__td--empty
+- test.php — динамический список фикстур, no_expectations
+- .cursor/skills/update-structure/SKILL.md — правило обновления доков
+- nextstep.md — удалены сделанные пункты, 10 новых шагов
+- CURRENT_STAGE.md, structure.md, SisPrompt.md, CHANGELOG_AI.md
+
+### Принятые решения
+- retry_attempts=0 сохраняет прежнее поведение (одна попытка в send()). isAvailable() не менялся.
+- Вкладки data.php получают список из ParserManager; данные по вкладке кешируются в JS (loadedData[supplier]).
+- «Загрузить ещё» передаёт fileOffset (смещение по файлам), а не по строкам; limit=50 файлов за запрос.
+
+---
+
 ## 2026-03-16 — Аудит проекта: документация, комментарии, nextstep.md
 
 **Запрос пользователя:** Проанализировать проект, найти лишний код и ошибки, обновить документацию, описать все файлы в structure.md, проверить комментарии на русском, обновить системный промпт при необходимости, создать nextstep.md с планом улучшений и подробной инструкцией по подключению поставщиков через API.

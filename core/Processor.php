@@ -161,8 +161,11 @@ class Processor
                 try {
                     $this->logger->info("Обработка файла: {$fileName}");
 
+                    $t0 = microtime(true);
                     // Вызываем парсер — он читает XML и возвращает данные в формате ORDER
                     $orderData = $parser->parse($xmlFile);
+                    $t1 = microtime(true);
+                    $this->logger->info("Время парсинга {$fileName}: " . round($t1 - $t0, 2) . " с");
 
                     // Сохраняем результат в JSON-файл
                     $jsonFileName = $this->saveJson($orderData, $fileName, $folder);

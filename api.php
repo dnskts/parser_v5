@@ -16,6 +16,7 @@
  * - action=clear_logs   — очистить файл логов (POST)
  * - action=clear_json   — удалить все JSON-файлы из json/ (POST)
  * - action=resend       — повторная отправка JSON в API 1С (POST)
+ * - action=data_rows    — порция строк таблицы по поставщику (GET: supplier, offset, limit, sort, dir)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -285,6 +286,69 @@ switch ($action) {
             'status' => $sendResult['success'] ? 'ok' : 'error',
             'message' => $sendResult['message'],
             'http_code' => $sendResult['http_code']
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * ПОРЦИЯ СТРОК ТАБЛИЦЫ ДАННЫХ (для вкладок и «Загрузить ещё»)
+     * GET: supplier (обязательно), offset (0), limit (50), sort (parsed_at|issue_date), dir (asc|desc)
+     */
+    case 'data_rows':
+        $supplier = isset($_GET['supplier']) ? trim($_GET['supplier']) : '';
+        if ($supplier === '' || !preg_match('/^[a-z0-9_]+$/i', $supplier)) {
+            http_response_code(400);
+            echo json_encode(array('status' => 'error', 'message' => 'Некорректный параметр supplier'), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+        $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
+        $limit = max(1, min(100, $limit));
+        $sortBy = isset($_GET['sort']) ? $_GET['sort'] : 'parsed_at';
+        $sortDir = isset($_GET['dir']) && $_GET['dir'] === 'asc' ? 'asc' : 'desc';
+        if (!in_array($sortBy, array('parsed_at', 'issue_date'))) {
+            $sortBy = 'parsed_at';
+        }
+
+        $jsonDir = BASE_DIR . '/json';
+        $allFiles = array();
+        if (is_dir($jsonDir)) {
+            $allFiles = glob($jsonDir . '/' . $supplier . '_*.json');
+            if ($allFiles === false) {
+                $allFiles = array();
+            }
+            usort($allFiles, function ($a, $b) use ($sortDir) {
+                $cmp = filemtime($b) - filemtime($a);
+                return ($sortDir === 'asc') ? -$cmp : $cmp;
+            });
+        }
+        $totalFiles = count($allFiles);
+        $filesSlice = array_slice($allFiles, $offset, $limit);
+        $rows = array();
+        require_once BASE_DIR . '/core/DataTableHelpers.php';
+        foreach ($filesSlice as $filePath) {
+            $rows = array_merge($rows, buildRowsFromJsonFile($filePath));
+        }
+        if ($sortBy === 'issue_date') {
+            usort($rows, function ($a, $b) use ($sortDir) {
+                $va = isset($a['issue_date_raw']) ? $a['issue_date_raw'] : '00000000000000';
+                $vb = isset($b['issue_date_raw']) ? $b['issue_date_raw'] : '00000000000000';
+                $cmp = strcmp($va, $vb);
+                return ($sortDir === 'asc') ? $cmp : -$cmp;
+            });
+        } else {
+            usort($rows, function ($a, $b) use ($sortDir) {
+                $va = isset($a['parsed_at']) ? $a['parsed_at'] : '0000-00-00 00:00:00';
+                $vb = isset($b['parsed_at']) ? $b['parsed_at'] : '0000-00-00 00:00:00';
+                $cmp = strcmp($va, $vb);
+                return ($sortDir === 'asc') ? $cmp : -$cmp;
+            });
+        }
+        $hasMore = ($offset + $limit) < $totalFiles;
+        echo json_encode(array(
+            'status' => 'ok',
+            'rows' => $rows,
+            'total_files' => $totalFiles,
+            'has_more' => $hasMore,
         ), JSON_UNESCAPED_UNICODE);
         break;
 

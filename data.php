@@ -3,269 +3,21 @@
  * ============================================================
  * СТРАНИЦА ПРОСМОТРА ОБРАБОТАННЫХ ЗАКАЗОВ
  * ============================================================
+ * Вкладки по парсерам (поставщикам), данные подгружаются через API (data_rows) и «Загрузить ещё».
  */
 
-$jsonDir = __DIR__ . '/json';
-$rows = array();
-$filesTotal = 0;
-
-if (is_dir($jsonDir)) {
-    $files = glob($jsonDir . '/*.json');
-    $filesTotal = count($files);
-    usort($files, function ($a, $b) { return filemtime($b) - filemtime($a); });
-    $files = array_slice($files, 0, 100);
-
-    foreach ($files as $file) {
-        $fileName = basename($file);
-        $content = file_get_contents($file);
-        $order = json_decode($content, true);
-
-        if (!is_array($order) || !isset($order['PRODUCTS'])) {
-            continue;
-        }
-
-        foreach ($order['PRODUCTS'] as $product) {
-            $route = '';
-            if (!empty($product['COUPONS'])) {
-                $points = array();
-                foreach ($product['COUPONS'] as $coupon) {
-                    if (empty($points)) {
-                        $points[] = isset($coupon['DEPARTURE_AIRPORT']) ? $coupon['DEPARTURE_AIRPORT'] : '';
-                    }
-                    $points[] = isset($coupon['ARRIVAL_AIRPORT']) ? $coupon['ARRIVAL_AIRPORT'] : '';
-                }
-                $route = implode(' → ', array_filter($points));
-            } elseif (!empty($product['SEGMENTS'])) {
-                $points = array();
-                foreach ($product['SEGMENTS'] as $seg) {
-                    if (empty($points)) {
-                        $points[] = isset($seg['DEPARTURE_RAILWAY_STATION']) ? $seg['DEPARTURE_RAILWAY_STATION'] : '';
-                    }
-                    $points[] = isset($seg['ARRIVAL_RAILWAY_STATION']) ? $seg['ARRIVAL_RAILWAY_STATION'] : '';
-                }
-                $route = implode(' → ', array_filter($points));
-            } elseif (!empty($product['HOTEL'])) {
-                $route = $product['HOTEL'];
-            }
-
-            $amountInvoice = 0;
-            $amountTicket = 0;
-            if (!empty($product['PAYMENTS'])) {
-                foreach ($product['PAYMENTS'] as $payment) {
-                    $payAmount = isset($payment['EQUIVALENT_AMOUNT'])
-                        ? (float)$payment['EQUIVALENT_AMOUNT']
-                        : (float)(isset($payment['AMOUNT']) ? $payment['AMOUNT'] : 0);
-                    if (isset($payment['TYPE']) && $payment['TYPE'] === 'TICKET') {
-                        $amountTicket += $payAmount;
-                    } else {
-                        $amountInvoice += $payAmount;
-                    }
-                }
-            }
-
-            $orderDate = isset($order['INVOICE_DATA']) ? formatRstlsDate($order['INVOICE_DATA']) : '';
-            $issueDate = isset($product['ISSUE_DATE']) ? formatRstlsDate($product['ISSUE_DATE']) : '';
-            $sourceXmlFile = isset($order['SOURCE_FILE']) ? $order['SOURCE_FILE'] : '';
-            $parsedAt = isset($order['PARSED_AT']) ? $order['PARSED_AT'] : '';
-            $orderUid = isset($order['UID']) ? $order['UID'] : '';
-            $productUid = isset($product['UID']) ? $product['UID'] : '';
-            $reservationNumber = isset($product['RESERVATION_NUMBER']) ? $product['RESERVATION_NUMBER'] : '';
-            $bookingAgent = isset($product['BOOKING_AGENT']) ? formatAgent($product['BOOKING_AGENT']) : '';
-            $agent = isset($product['AGENT']) ? formatAgent($product['AGENT']) : '';
-            $ticketType = isset($product['TICKET_TYPE']) ? $product['TICKET_TYPE'] : '';
-            $passengerAge = isset($product['PASSENGER_AGE']) ? $product['PASSENGER_AGE'] : '';
-            $conjCount = isset($product['CONJ_COUNT']) ? $product['CONJ_COUNT'] : '';
-            $penalty = isset($product['PENALTY']) ? (float)$product['PENALTY'] : 0;
-
-            $flightNumbers = '';
-            $fareBasis = '';
-            $classes = '';
-            $classesName = '';
-            $typeId = '';
-            $typeIdName = '';
-            $departureDate = '';
-            $arrivalDate = '';
-            if (!empty($product['COUPONS'])) {
-                $fn = array(); $fb = array(); $cl = array(); $clName = array(); $tid = array(); $tidName = array();
-                $depDates = array(); $arrDates = array();
-                foreach ($product['COUPONS'] as $coupon) {
-                    if (isset($coupon['FLIGHT_NUMBER'])) $fn[] = $coupon['FLIGHT_NUMBER'];
-                    if (isset($coupon['FARE_BASIS'])) $fb[] = $coupon['FARE_BASIS'];
-                    if (isset($coupon['CLASS'])) $cl[] = $coupon['CLASS'];
-                    if (isset($coupon['CLASS_NAME']) && $coupon['CLASS_NAME'] !== '') $clName[] = $coupon['CLASS_NAME'];
-                    if (isset($coupon['TYPE_ID']) && $coupon['TYPE_ID'] !== '') $tid[] = $coupon['TYPE_ID'];
-                    if (isset($coupon['TYPE_ID_NAME']) && $coupon['TYPE_ID_NAME'] !== '') $tidName[] = $coupon['TYPE_ID_NAME'];
-                    if (isset($coupon['DEPARTURE_DATETIME']) && $coupon['DEPARTURE_DATETIME'] !== '') {
-                        $depDates[] = formatRstlsDate($coupon['DEPARTURE_DATETIME']);
-                    }
-                    if (isset($coupon['ARRIVAL_DATETIME']) && $coupon['ARRIVAL_DATETIME'] !== '') {
-                        $arrDates[] = formatRstlsDate($coupon['ARRIVAL_DATETIME']);
-                    }
-                }
-                $flightNumbers = implode(', ', $fn);
-                $fareBasis = implode(', ', $fb);
-                $classes = implode(', ', $cl);
-                $classesName = implode(', ', array_unique($clName));
-                $typeId = implode(', ', array_unique($tid));
-                $typeIdName = implode(', ', array_unique($tidName));
-                $departureDate = implode(', ', $depDates);
-                $arrivalDate = implode(', ', $arrDates);
-            }
-
-            $tariffRub = 0; $taxesRub = 0; $vatTotal = 0;
-            if (!empty($product['TAXES'])) {
-                foreach ($product['TAXES'] as $tax) {
-                    $eqAmt = isset($tax['EQUIVALENT_AMOUNT']) ? (float)$tax['EQUIVALENT_AMOUNT'] : 0;
-                    $code = isset($tax['CODE']) ? $tax['CODE'] : '';
-                    if ($code === '') { $tariffRub += $eqAmt; } else { $taxesRub += $eqAmt; }
-                    if (isset($tax['VAT_AMOUNT']) && $tax['VAT_AMOUNT'] !== null) {
-                        $vatTotal += (float)$tax['VAT_AMOUNT'];
-                    }
-                }
-            }
-
-            $paymentTypes = array(); $relatedTicket = '';
-            if (!empty($product['PAYMENTS'])) {
-                foreach ($product['PAYMENTS'] as $payment) {
-                    if (isset($payment['TYPE'])) $paymentTypes[] = $payment['TYPE'];
-                    if (isset($payment['TYPE']) && $payment['TYPE'] === 'TICKET'
-                        && isset($payment['RELATED_TICKET_NUMBER']) && $payment['RELATED_TICKET_NUMBER'] !== null) {
-                        $relatedTicket = $payment['RELATED_TICKET_NUMBER'];
-                    }
-                }
-            }
-            $paymentTypesStr = implode(', ', $paymentTypes);
-
-            $commissionTkp = ''; $commissionRate = ''; $serviceFee = ''; $supplierFee = '';
-            if (!empty($product['COMMISSIONS'])) {
-                foreach ($product['COMMISSIONS'] as $comm) {
-                    $type = isset($comm['TYPE']) ? $comm['TYPE'] : '';
-                    $name = isset($comm['NAME']) ? $comm['NAME'] : '';
-                    $eqAmt = isset($comm['EQUIVALENT_AMOUNT']) ? $comm['EQUIVALENT_AMOUNT'] : '';
-                    $rate = isset($comm['RATE']) ? $comm['RATE'] : '';
-                    if ($type === 'VENDOR') {
-                        $commissionTkp = $eqAmt;
-                        $commissionRate = ($rate !== null && $rate !== '') ? $rate : '';
-                    } elseif ($type === 'CLIENT') {
-                        $nameLower = mb_strtolower($name, 'UTF-8');
-                        if (mb_strpos($nameLower, 'сервисный сбор') !== false || mb_strpos($nameLower, 'ервисный сбор') !== false) {
-                            $serviceFee = $eqAmt;
-                        } elseif (mb_strpos($nameLower, 'сбор поставщика') !== false) {
-                            $supplierFee = $eqAmt;
-                        }
-                    }
-                }
-            }
-
-            $refundDate = ''; $refundAmount = ''; $refundFeeClient = '';
-            $refundFeeVendor = ''; $refundPenaltyVendor = ''; $refundPenaltyClient = '';
-            if (!empty($product['REFUND'])) {
-                $r = $product['REFUND'];
-                $refundDate = isset($r['DATA']) ? formatRstlsDate($r['DATA']) : '';
-                $refundAmount = isset($r['EQUIVALENT_AMOUNT']) ? $r['EQUIVALENT_AMOUNT'] : '';
-                $refundFeeClient = isset($r['FEE_CLIENT']) ? $r['FEE_CLIENT'] : '';
-                $refundFeeVendor = isset($r['FEE_VENDOR']) ? $r['FEE_VENDOR'] : '';
-                $refundPenaltyVendor = isset($r['PENALTY_VENDOR']) ? $r['PENALTY_VENDOR'] : '';
-                $refundPenaltyClient = (isset($r['PENALTY_CLIENT']) && $r['PENALTY_CLIENT'] !== null) ? $r['PENALTY_CLIENT'] : '';
-            }
-
-            $rows[] = array(
-                'file' => $fileName,
-                'invoice_num' => isset($order['INVOICE_NUMBER']) ? $order['INVOICE_NUMBER'] : '',
-                'invoice_date' => $orderDate,
-                'client' => isset($order['CLIENT']) ? $order['CLIENT'] : '',
-                'product_type' => isset($product['PRODUCT_TYPE']['NAME']) ? $product['PRODUCT_TYPE']['NAME'] : '',
-                'number' => isset($product['NUMBER']) ? $product['NUMBER'] : '',
-                'issue_date' => $issueDate,
-                'issue_date_raw' => isset($product['ISSUE_DATE']) ? $product['ISSUE_DATE'] : '',
-                'status' => isset($product['STATUS']) ? $product['STATUS'] : '',
-                'traveller' => isset($product['TRAVELLER']) ? $product['TRAVELLER'] : '',
-                'supplier' => isset($product['SUPPLIER']) ? $product['SUPPLIER'] : '',
-                'carrier' => isset($product['CARRIER']) ? $product['CARRIER'] : '',
-                'route' => $route,
-                'amount' => $amountInvoice,
-                'currency' => isset($product['CURRENCY']) ? $product['CURRENCY'] : '',
-                'source_xml' => $sourceXmlFile,
-                'parsed_at' => $parsedAt,
-                'order_uid' => $orderUid,
-                'product_uid' => $productUid,
-                'reservation_num' => $reservationNumber,
-                'booking_agent' => $bookingAgent,
-                'agent' => $agent,
-                'ticket_type' => $ticketType,
-                'passenger_age' => $passengerAge,
-                'passenger_birth_date' => isset($product['PASSENGER_BIRTH_DATE']) ? $product['PASSENGER_BIRTH_DATE'] : '',
-                'passenger_gender' => isset($product['PASSENGER_GENDER']) ? $product['PASSENGER_GENDER'] : '',
-                'passenger_doc_type' => isset($product['PASSENGER_DOC_TYPE']) ? $product['PASSENGER_DOC_TYPE'] : '',
-                'passenger_doc_number' => isset($product['PASSENGER_DOC_NUMBER']) ? $product['PASSENGER_DOC_NUMBER'] : '',
-                'conj_count' => $conjCount,
-                'penalty' => $penalty,
-                'flight_numbers' => $flightNumbers,
-                'fare_basis' => $fareBasis,
-                'classes' => $classes,
-                'classes_name' => $classesName,
-                'type_id' => $typeId,
-                'type_id_name' => $typeIdName,
-                'flight_type' => isset($product['FLIGHT_TYPE']) ? $product['FLIGHT_TYPE'] : '',
-                'gds_id' => isset($product['GDS_ID']) ? $product['GDS_ID'] : '',
-                'gds_name' => isset($product['GDS_NAME']) ? $product['GDS_NAME'] : '',
-                'departure_date' => $departureDate,
-                'arrival_date' => $arrivalDate,
-                'tariff_rub' => $tariffRub,
-                'taxes_rub' => $taxesRub,
-                'vat_total' => $vatTotal,
-                'payment_types' => $paymentTypesStr,
-                'payment_amount' => $amountInvoice,
-                'ticket_amount' => $amountTicket,
-                'related_ticket' => $relatedTicket,
-                'emd_name' => isset($product['EMD_NAME']) ? $product['EMD_NAME'] : '',
-                'related_ticket_emd' => isset($product['RELATED_TICKET_NUMBER']) ? $product['RELATED_TICKET_NUMBER'] : '',
-                'commission_tkp' => $commissionTkp,
-                'commission_rate' => $commissionRate,
-                'service_fee' => $serviceFee,
-                'supplier_fee' => $supplierFee,
-                'refund_date' => $refundDate,
-                'refund_amount' => $refundAmount,
-                'refund_fee_client' => $refundFeeClient,
-                'refund_fee_vendor' => $refundFeeVendor,
-                'refund_penalty_vendor' => $refundPenaltyVendor,
-                'refund_penalty_client' => $refundPenaltyClient,
-            );
-        }
+$suppliers = array();
+require_once __DIR__ . '/core/Logger.php';
+require_once __DIR__ . '/core/ParserManager.php';
+$logger = new Logger(__DIR__ . '/logs/app.log');
+$parserManager = new ParserManager(__DIR__ . '/parsers', $logger);
+foreach ($parserManager->getRegisteredFolders() as $folder) {
+    $parser = $parserManager->getParser($folder);
+    if ($parser) {
+        $suppliers[] = array('folder' => $folder, 'name' => $parser->getSupplierName());
     }
 }
-
-$sortBy = isset($_GET['sort']) ? $_GET['sort'] : 'parsed_at';
-$sortDir = isset($_GET['dir']) && $_GET['dir'] === 'asc' ? 'asc' : 'desc';
-$allowedSort = array('parsed_at', 'issue_date');
-if (!in_array($sortBy, $allowedSort)) { $sortBy = 'parsed_at'; }
-
-usort($rows, function ($a, $b) use ($sortBy, $sortDir) {
-    $key = ($sortBy === 'issue_date') ? 'issue_date_raw' : 'parsed_at';
-    $va = $a[$key] ?: ($sortBy === 'parsed_at' ? '0000-00-00 00:00:00' : '00000000000000');
-    $vb = $b[$key] ?: ($sortBy === 'parsed_at' ? '0000-00-00 00:00:00' : '00000000000000');
-    $cmp = strcmp($va, $vb);
-    return ($sortDir === 'asc') ? $cmp : -$cmp;
-});
-
-function formatRstlsDate($date)
-{
-    if (strlen($date) < 12) { return $date; }
-    return substr($date,6,2).'.'.substr($date,4,2).'.'.substr($date,0,4).' '.substr($date,8,2).':'.substr($date,10,2);
-}
-
-function formatAgent($agent)
-{
-    if (is_array($agent) && isset($agent['CODE'])) {
-        $code = trim(isset($agent['CODE']) ? $agent['CODE'] : '');
-        $name = trim(isset($agent['NAME']) ? $agent['NAME'] : '');
-        if ($code !== '' && $code === $name) { return $code; }
-        if ($code !== '' && $name !== '') { return $code . ' ' . $name; }
-        return ($code !== '') ? $code : $name;
-    }
-    if (is_string($agent)) { return $agent; }
-    return '';
-}
+$suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -298,37 +50,37 @@ function formatAgent($agent)
                 <div class="panel__title-group">
                     <div class="panel__title-text">
                         <h2 class="panel__title panel__title--inline">Данные из JSON-файлов</h2>
-                        <span class="panel__count">Найдено записей: <?php echo count($rows); ?><?php if ($filesTotal > 100): ?> (последние 100 из <?php echo $filesTotal; ?> файлов)<?php endif; ?></span>
+                        <span id="panelCount" class="panel__count">Загрузка...</span>
                     </div>
-                    <?php if (!empty($rows)): ?>
                     <div class="panel__toolbar-filter">
-                        
                         <input type="text" id="filterInput" class="panel__toolbar-input" placeholder="Поиск по всем колонкам...">
                         <span id="filterCount" class="panel__toolbar-count"></span>
                     </div>
-                    <?php endif; ?>
                 </div>
-                <?php if (!empty($rows)): ?>
                 <div class="panel__title-actions">
                     <div class="panel__toolbar panel__toolbar--inline">
                         <div class="panel__toolbar-sort">
                             <span>Сортировка:</span>
-                            <a href="?sort=issue_date&dir=<?php echo ($sortBy==='issue_date'&&$sortDir==='asc')?'desc':'asc'; ?>" class="panel__toolbar-sort-link<?php echo $sortBy==='issue_date'?' panel__toolbar-sort-link--active':''; ?>">Дата выписки <?php echo $sortBy==='issue_date'?($sortDir==='asc'?'↑':'↓'):''; ?></a>
-                            <a href="?sort=parsed_at&dir=<?php echo ($sortBy==='parsed_at'&&$sortDir==='asc')?'desc':'asc'; ?>" class="panel__toolbar-sort-link<?php echo $sortBy==='parsed_at'?' panel__toolbar-sort-link--active':''; ?>">Дата загрузки <?php echo $sortBy==='parsed_at'?($sortDir==='asc'?'↑':'↓'):''; ?></a>
+                            <a href="#" id="sortIssueDate" class="panel__toolbar-sort-link">Дата выписки</a>
+                            <a href="#" id="sortParsedAt" class="panel__toolbar-sort-link panel__toolbar-sort-link--active">Дата загрузки</a>
                         </div>
                         <button id="btnExportXlsx" class="panel__toolbar-export">Выгрузить в XLSX</button>
                     </div>
                     <button id="btnClearTable" class="panel__toolbar-clear btn btn--secondary">Очистить таблицу</button>
                 </div>
-                <?php endif; ?>
             </div>
 
-            <?php if (empty($rows)): ?>
+            <?php if (empty($suppliers)): ?>
                 <div class="data-empty">
-                    <p>Нет обработанных файлов.</p>
-                    <p>Положите XML-файлы в папку input/ и запустите обработку на <a href="index.php">панели управления</a>.</p>
+                    <p>Нет зарегистрированных парсеров.</p>
+                    <p>Добавьте парсер в папку parsers/ и создайте папку в input/.</p>
                 </div>
             <?php else: ?>
+                <div class="data-tabs">
+                    <?php foreach ($suppliers as $s): ?>
+                        <button type="button" class="data-tab<?php echo $s === $suppliers[0] ? ' data-tab--active' : ''; ?>" data-supplier="<?php echo htmlspecialchars($s['folder']); ?>"><?php echo htmlspecialchars($s['name']); ?></button>
+                    <?php endforeach; ?>
+                </div>
                 <div class="data-table-wrapper">
                     <table class="data-table">
                         <thead>
@@ -395,84 +147,13 @@ function formatAgent($agent)
                                 <th class="data-table__th data-table__th--right" data-col-index="59" draggable="true">Штраф РСТЛС</th>
                             </tr>
                         </thead>
-                        <tbody>
-
-                        <?php foreach ($rows as $i => $row): ?>
-                                <tr class="data-table__row">
-                                    <td class="data-table__td" data-col-index="0" style="text-align:center">
-                                        <button class="btn-resend" title="Отправить повторно в API 1С" onclick="resendJson('<?php echo htmlspecialchars($row['file'], ENT_QUOTES); ?>', this)">🔄</button>
-                                    </td>
-                                    <td class="data-table__td data-table__td--num" data-col-index="1"><?php echo $i + 1; ?></td>
-                                    <td class="data-table__td data-table__td--file" data-col-index="2" title="<?php echo htmlspecialchars($row['file']); ?>"><?php echo htmlspecialchars($row['file']); ?></td>
-                                    <td class="data-table__td" data-col-index="3"><?php echo htmlspecialchars($row['invoice_num']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="4"><?php echo htmlspecialchars($row['invoice_date']); ?></td>
-                                    <td class="data-table__td" data-col-index="5"><?php echo htmlspecialchars($row['client']); ?></td>
-                                    <td class="data-table__td" data-col-index="6"><?php echo htmlspecialchars($row['product_type']); ?></td>
-                                    <td class="data-table__td" data-col-index="7"><?php echo htmlspecialchars($row['emd_name']); ?></td>
-                                    <td class="data-table__td" data-col-index="8"><?php echo htmlspecialchars($row['related_ticket_emd']); ?></td>
-                                    <td class="data-table__td" data-col-index="9"><?php echo htmlspecialchars($row['number']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="10"><?php echo htmlspecialchars($row['issue_date']); ?></td>
-                                    <td class="data-table__td" data-col-index="11">
-                                        <?php
-                                            $statusClass = 'data-status--sale';
-                                            $statusLower = mb_strtolower($row['status'], 'UTF-8');
-                                            if ($statusLower === 'возврат') { $statusClass = 'data-status--refund'; }
-                                            elseif ($statusLower === 'обмен') { $statusClass = 'data-status--exchange'; }
-                                        ?>
-                                        <span class="data-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($row['status']); ?></span>
-                                    </td>
-                                    <td class="data-table__td" data-col-index="12"><?php echo htmlspecialchars($row['traveller']); ?></td>
-                                    <td class="data-table__td" data-col-index="13"><?php echo htmlspecialchars($row['supplier']); ?></td>
-                                    <td class="data-table__td" data-col-index="14"><?php echo htmlspecialchars($row['carrier']); ?></td>
-                                    <td class="data-table__td data-table__td--route" data-col-index="15"><?php echo htmlspecialchars($row['route']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="16"><?php echo number_format($row['amount'], 2, '.', ' '); ?></td>
-                                    <td class="data-table__td" data-col-index="17"><?php echo htmlspecialchars($row['currency']); ?></td>
-                                    <td class="data-table__td data-table__td--file" data-col-index="18"><?php echo htmlspecialchars($row['source_xml']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="19"><?php echo htmlspecialchars($row['parsed_at']); ?></td>
-                                    <td class="data-table__td data-table__td--file" data-col-index="20" title="<?php echo htmlspecialchars($row['order_uid']); ?>"><?php echo htmlspecialchars($row['order_uid'] ? substr($row['order_uid'], 0, 8) . '...' : ''); ?></td>
-                                    <td class="data-table__td data-table__td--file" data-col-index="21" title="<?php echo htmlspecialchars($row['product_uid']); ?>"><?php echo htmlspecialchars($row['product_uid'] ? substr($row['product_uid'], 0, 8) . '...' : ''); ?></td>
-                                    <td class="data-table__td" data-col-index="22"><?php echo htmlspecialchars($row['reservation_num']); ?></td>
-                                    <td class="data-table__td" data-col-index="23"><?php echo htmlspecialchars($row['booking_agent']); ?></td>
-                                    <td class="data-table__td" data-col-index="24"><?php echo htmlspecialchars($row['agent']); ?></td>
-                                    <td class="data-table__td" data-col-index="25"><?php echo htmlspecialchars($row['ticket_type']); ?></td>
-                                    <td class="data-table__td" data-col-index="26"><?php echo htmlspecialchars($row['passenger_age']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="27"><?php echo htmlspecialchars($row['passenger_birth_date']); ?></td>
-                                    <td class="data-table__td" data-col-index="28"><?php echo htmlspecialchars($row['passenger_gender']); ?></td>
-                                    <td class="data-table__td" data-col-index="29"><?php echo htmlspecialchars($row['passenger_doc_type']); ?></td>
-                                    <td class="data-table__td" data-col-index="30"><?php echo htmlspecialchars($row['passenger_doc_number']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="31"><?php echo $row['conj_count'] !== '' ? htmlspecialchars($row['conj_count']) : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="32"><?php echo $row['penalty'] > 0 ? number_format($row['penalty'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="33"><?php echo htmlspecialchars($row['flight_numbers']); ?></td>
-                                    <td class="data-table__td" data-col-index="34"><?php echo htmlspecialchars($row['fare_basis']); ?></td>
-                                    <td class="data-table__td" data-col-index="35"><?php echo htmlspecialchars($row['classes']); ?></td>
-                                    <td class="data-table__td" data-col-index="36"><?php echo htmlspecialchars($row['classes_name']); ?></td>
-                                    <td class="data-table__td" data-col-index="37"><?php echo htmlspecialchars($row['type_id_name']); ?></td>
-                                    <td class="data-table__td" data-col-index="38"><?php echo htmlspecialchars($row['flight_type']); ?></td>
-                                    <td class="data-table__td" data-col-index="39"><?php echo htmlspecialchars($row['gds_id']); ?></td>
-                                    <td class="data-table__td" data-col-index="40"><?php echo htmlspecialchars($row['gds_name']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="41"><?php echo htmlspecialchars($row['departure_date']); ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="42"><?php echo htmlspecialchars($row['arrival_date']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="43"><?php echo $row['tariff_rub'] > 0 ? number_format($row['tariff_rub'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="44"><?php echo $row['taxes_rub'] > 0 ? number_format($row['taxes_rub'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="45"><?php echo $row['vat_total'] > 0 ? number_format($row['vat_total'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="46"><?php echo htmlspecialchars($row['payment_types']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="47"><?php echo number_format($row['payment_amount'], 2, '.', ' '); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="48"><?php echo $row['ticket_amount'] > 0 ? number_format($row['ticket_amount'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="49"><?php echo htmlspecialchars($row['related_ticket']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="50"><?php echo is_numeric($row['commission_tkp']) ? number_format((float)$row['commission_tkp'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td" data-col-index="51"><?php echo $row['commission_rate'] !== '' ? htmlspecialchars($row['commission_rate']) . '%' : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="52"><?php echo is_numeric($row['service_fee']) ? number_format((float)$row['service_fee'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="53"><?php echo is_numeric($row['supplier_fee']) ? number_format((float)$row['supplier_fee'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--nowrap" data-col-index="54"><?php echo htmlspecialchars($row['refund_date']); ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="55"><?php echo is_numeric($row['refund_amount']) ? number_format((float)$row['refund_amount'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="56"><?php echo is_numeric($row['refund_fee_client']) ? number_format((float)$row['refund_fee_client'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="57"><?php echo is_numeric($row['refund_fee_vendor']) ? number_format((float)$row['refund_fee_vendor'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="58"><?php echo is_numeric($row['refund_penalty_vendor']) ? number_format((float)$row['refund_penalty_vendor'], 2, '.', ' ') : ''; ?></td>
-                                    <td class="data-table__td data-table__td--right" data-col-index="59"><?php echo ($row['refund_penalty_client'] !== '') ? number_format((float)$row['refund_penalty_client'], 2, '.', ' ') : ''; ?></td>
-                                </tr>
-                            <?php endforeach; ?>
+                        <tbody id="dataTableBody">
+                            <tr><td colspan="60" class="data-table__td data-table__td--empty">Загрузка...</td></tr>
                         </tbody>
                     </table>
+                </div>
+                <div class="data-load-more">
+                    <button type="button" id="btnLoadMore" class="btn btn--outline" style="display:none">Загрузить ещё</button>
                 </div>
             <?php endif; ?>
         </section>
@@ -482,6 +163,233 @@ function formatAgent($agent)
         <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
     </footer>
 
+    <script>
+    (function() {
+        var suppliers = <?php echo $suppliersJson; ?>;
+        if (suppliers.length === 0) return;
+
+        var tbody = document.getElementById('dataTableBody');
+        var panelCount = document.getElementById('panelCount');
+        var btnLoadMore = document.getElementById('btnLoadMore');
+        var currentSupplier = suppliers[0].folder;
+        var currentOffset = 0;
+        var sortBy = 'parsed_at';
+        var sortDir = 'desc';
+        var loadedData = {};
+        var PAGE_SIZE = 50;
+
+        function esc(s) {
+            if (s === undefined || s === null) return '';
+            s = String(s);
+            var div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+        function statusClass(status) {
+            if (!status) return 'data-status--sale';
+            var lower = status.toLowerCase();
+            if (lower === 'возврат') return 'data-status--refund';
+            if (lower === 'обмен') return 'data-status--exchange';
+            return 'data-status--sale';
+        }
+        function numFmt(v) {
+            if (v === undefined || v === null || v === '') return '';
+            var n = parseFloat(v);
+            if (isNaN(n)) return esc(v);
+            return n.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+        function renderRow(row, index) {
+            var statusCls = statusClass(row.status);
+            var orderUidShort = row.order_uid ? row.order_uid.substring(0, 8) + '...' : '';
+            var productUidShort = row.product_uid ? row.product_uid.substring(0, 8) + '...' : '';
+            var penaltyVal = parseFloat(row.penalty) || 0;
+            var refundPc = (row.refund_penalty_client !== '' && row.refund_penalty_client !== undefined) ? parseFloat(row.refund_penalty_client) : NaN;
+            return '<tr class="data-table__row">' +
+                '<td class="data-table__td" data-col-index="0" style="text-align:center"><button class="btn-resend" title="Отправить повторно в API 1С" data-file="' + esc(row.file) + '" onclick="resendJson(this.getAttribute(\'data-file\'), this)">🔄</button></td>' +
+                '<td class="data-table__td data-table__td--num" data-col-index="1">' + (index + 1) + '</td>' +
+                '<td class="data-table__td data-table__td--file" data-col-index="2" title="' + esc(row.file) + '">' + esc(row.file) + '</td>' +
+                '<td class="data-table__td" data-col-index="3">' + esc(row.invoice_num) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="4">' + esc(row.invoice_date) + '</td>' +
+                '<td class="data-table__td" data-col-index="5">' + esc(row.client) + '</td>' +
+                '<td class="data-table__td" data-col-index="6">' + esc(row.product_type) + '</td>' +
+                '<td class="data-table__td" data-col-index="7">' + esc(row.emd_name) + '</td>' +
+                '<td class="data-table__td" data-col-index="8">' + esc(row.related_ticket_emd) + '</td>' +
+                '<td class="data-table__td" data-col-index="9">' + esc(row.number) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="10">' + esc(row.issue_date) + '</td>' +
+                '<td class="data-table__td" data-col-index="11"><span class="data-status ' + statusCls + '">' + esc(row.status) + '</span></td>' +
+                '<td class="data-table__td" data-col-index="12">' + esc(row.traveller) + '</td>' +
+                '<td class="data-table__td" data-col-index="13">' + esc(row.supplier) + '</td>' +
+                '<td class="data-table__td" data-col-index="14">' + esc(row.carrier) + '</td>' +
+                '<td class="data-table__td data-table__td--route" data-col-index="15">' + esc(row.route) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="16">' + numFmt(row.amount) + '</td>' +
+                '<td class="data-table__td" data-col-index="17">' + esc(row.currency) + '</td>' +
+                '<td class="data-table__td data-table__td--file" data-col-index="18">' + esc(row.source_xml) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="19">' + esc(row.parsed_at) + '</td>' +
+                '<td class="data-table__td data-table__td--file" data-col-index="20" title="' + esc(row.order_uid) + '">' + esc(orderUidShort) + '</td>' +
+                '<td class="data-table__td data-table__td--file" data-col-index="21" title="' + esc(row.product_uid) + '">' + esc(productUidShort) + '</td>' +
+                '<td class="data-table__td" data-col-index="22">' + esc(row.reservation_num) + '</td>' +
+                '<td class="data-table__td" data-col-index="23">' + esc(row.booking_agent) + '</td>' +
+                '<td class="data-table__td" data-col-index="24">' + esc(row.agent) + '</td>' +
+                '<td class="data-table__td" data-col-index="25">' + esc(row.ticket_type) + '</td>' +
+                '<td class="data-table__td" data-col-index="26">' + esc(row.passenger_age) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="27">' + esc(row.passenger_birth_date) + '</td>' +
+                '<td class="data-table__td" data-col-index="28">' + esc(row.passenger_gender) + '</td>' +
+                '<td class="data-table__td" data-col-index="29">' + esc(row.passenger_doc_type) + '</td>' +
+                '<td class="data-table__td" data-col-index="30">' + esc(row.passenger_doc_number) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="31">' + (row.conj_count !== '' ? esc(row.conj_count) : '') + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="32">' + (penaltyVal > 0 ? numFmt(row.penalty) : '') + '</td>' +
+                '<td class="data-table__td" data-col-index="33">' + esc(row.flight_numbers) + '</td>' +
+                '<td class="data-table__td" data-col-index="34">' + esc(row.fare_basis) + '</td>' +
+                '<td class="data-table__td" data-col-index="35">' + esc(row.classes) + '</td>' +
+                '<td class="data-table__td" data-col-index="36">' + esc(row.classes_name) + '</td>' +
+                '<td class="data-table__td" data-col-index="37">' + esc(row.type_id_name) + '</td>' +
+                '<td class="data-table__td" data-col-index="38">' + esc(row.flight_type) + '</td>' +
+                '<td class="data-table__td" data-col-index="39">' + esc(row.gds_id) + '</td>' +
+                '<td class="data-table__td" data-col-index="40">' + esc(row.gds_name) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="41">' + esc(row.departure_date) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="42">' + esc(row.arrival_date) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="43">' + (parseFloat(row.tariff_rub) > 0 ? numFmt(row.tariff_rub) : '') + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="44">' + (parseFloat(row.taxes_rub) > 0 ? numFmt(row.taxes_rub) : '') + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="45">' + (parseFloat(row.vat_total) > 0 ? numFmt(row.vat_total) : '') + '</td>' +
+                '<td class="data-table__td" data-col-index="46">' + esc(row.payment_types) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="47">' + numFmt(row.payment_amount) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="48">' + (parseFloat(row.ticket_amount) > 0 ? numFmt(row.ticket_amount) : '') + '</td>' +
+                '<td class="data-table__td" data-col-index="49">' + esc(row.related_ticket) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="50">' + (isNaN(parseFloat(row.commission_tkp)) ? '' : numFmt(row.commission_tkp)) + '</td>' +
+                '<td class="data-table__td" data-col-index="51">' + (row.commission_rate !== '' ? esc(row.commission_rate) + '%' : '') + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="52">' + (isNaN(parseFloat(row.service_fee)) ? '' : numFmt(row.service_fee)) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="53">' + (isNaN(parseFloat(row.supplier_fee)) ? '' : numFmt(row.supplier_fee)) + '</td>' +
+                '<td class="data-table__td data-table__td--nowrap" data-col-index="54">' + esc(row.refund_date) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="55">' + (isNaN(parseFloat(row.refund_amount)) ? '' : numFmt(row.refund_amount)) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="56">' + (isNaN(parseFloat(row.refund_fee_client)) ? '' : numFmt(row.refund_fee_client)) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="57">' + (isNaN(parseFloat(row.refund_fee_vendor)) ? '' : numFmt(row.refund_fee_vendor)) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="58">' + (isNaN(parseFloat(row.refund_penalty_vendor)) ? '' : numFmt(row.refund_penalty_vendor)) + '</td>' +
+                '<td class="data-table__td data-table__td--right" data-col-index="59">' + (isNaN(refundPc) ? '' : numFmt(row.refund_penalty_client)) + '</td>' +
+                '</tr>';
+        }
+
+        function loadData(supplier, offset, append) {
+            var url = 'api.php?action=data_rows&supplier=' + encodeURIComponent(supplier) + '&offset=' + offset + '&limit=' + PAGE_SIZE + '&sort=' + sortBy + '&dir=' + sortDir;
+            if (!append) tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Загрузка...</td></tr>';
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.status !== 'ok' || !data.rows) {
+                        tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Ошибка загрузки</td></tr>';
+                        panelCount.textContent = 'Ошибка';
+                        btnLoadMore.style.display = 'none';
+                        return;
+                    }
+                    if (!loadedData[supplier]) loadedData[supplier] = { rows: [], fileOffset: 0, total_files: 0, has_more: false };
+                    if (append) {
+                        loadedData[supplier].rows = loadedData[supplier].rows.concat(data.rows);
+                    } else {
+                        loadedData[supplier].rows = data.rows;
+                    }
+                    loadedData[supplier].fileOffset = offset + PAGE_SIZE;
+                    loadedData[supplier].total_files = data.total_files;
+                    loadedData[supplier].has_more = data.has_more;
+                    var rows = loadedData[supplier].rows;
+                    if (rows.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
+                    } else {
+                        var html = '';
+                        for (var i = 0; i < rows.length; i++) html += renderRow(rows[i], i);
+                        tbody.innerHTML = html;
+                    }
+                    panelCount.textContent = 'Записей: ' + rows.length + (data.total_files > 0 ? ' (файлов: ' + data.total_files + ')' : '');
+                    btnLoadMore.style.display = data.has_more ? 'inline-block' : 'none';
+                    if (document.getElementById('filterInput').value.trim()) {
+                        document.getElementById('filterInput').dispatchEvent(new Event('input'));
+                    }
+                })
+                .catch(function() {
+                    tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Ошибка сети</td></tr>';
+                    panelCount.textContent = 'Ошибка';
+                    btnLoadMore.style.display = 'none';
+                });
+        }
+
+        function switchTab(folder) {
+            currentSupplier = folder;
+            document.querySelectorAll('.data-tab').forEach(function(btn) {
+                btn.classList.toggle('data-tab--active', btn.getAttribute('data-supplier') === folder);
+            });
+            if (loadedData[folder]) {
+                var rows = loadedData[folder].rows;
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="60" class="data-table__td data-table__td--empty">Нет записей</td></tr>';
+                } else {
+                    var html = '';
+                    for (var i = 0; i < rows.length; i++) html += renderRow(rows[i], i);
+                    tbody.innerHTML = html;
+                }
+                panelCount.textContent = 'Записей: ' + rows.length + (loadedData[folder].total_files > 0 ? ' (файлов: ' + loadedData[folder].total_files + ')' : '');
+                btnLoadMore.style.display = loadedData[folder].has_more ? 'inline-block' : 'none';
+            } else {
+                loadData(folder, 0, false);
+            }
+        }
+
+        document.querySelectorAll('.data-tab').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                switchTab(this.getAttribute('data-supplier'));
+            });
+        });
+        btnLoadMore.addEventListener('click', function() {
+            var nextFileOffset = loadedData[currentSupplier] ? loadedData[currentSupplier].fileOffset : 0;
+            loadData(currentSupplier, nextFileOffset, true);
+        });
+
+        var sortIssue = document.getElementById('sortIssueDate');
+        var sortParsed = document.getElementById('sortParsedAt');
+        function updateSortLinks() {
+            sortIssue.textContent = 'Дата выписки' + (sortBy === 'issue_date' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+            sortParsed.textContent = 'Дата загрузки' + (sortBy === 'parsed_at' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+            sortIssue.classList.toggle('panel__toolbar-sort-link--active', sortBy === 'issue_date');
+            sortParsed.classList.toggle('panel__toolbar-sort-link--active', sortBy === 'parsed_at');
+        }
+        sortIssue.addEventListener('click', function(e) {
+            e.preventDefault();
+            sortBy = 'issue_date';
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            updateSortLinks();
+            loadedData[currentSupplier] = null;
+            loadData(currentSupplier, 0, false);
+        });
+        sortParsed.addEventListener('click', function(e) {
+            e.preventDefault();
+            sortBy = 'parsed_at';
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            updateSortLinks();
+            loadedData[currentSupplier] = null;
+            loadData(currentSupplier, 0, false);
+        });
+        updateSortLinks();
+
+        loadData(currentSupplier, 0, false);
+
+        document.getElementById('filterInput').addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            var rows = tbody.querySelectorAll('tr');
+            var visible = 0;
+            rows.forEach(function(tr) {
+                if (tr.querySelector('td[colspan="60"]')) return;
+                var text = tr.textContent.toLowerCase();
+                var show = !q || text.indexOf(q) !== -1;
+                tr.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            document.getElementById('filterCount').textContent = 'Показано: ' + visible + ' из ' + rows.length;
+        });
+
+        tbody.addEventListener('click', function(e) {
+            var tr = e.target.closest('tr');
+            if (!tr || e.target.closest('.btn-resend')) return;
+            tr.classList.toggle('data-table__row--selected');
+        });
+    })();
+    </script>
     <script>
 function resendJson(fileName, btn) {
     if (!confirm('Отправить ' + fileName + ' повторно в API 1С?')) return;
@@ -514,7 +422,6 @@ function resendJson(fileName, btn) {
     });
 }
     </script>
-
     <script>
 document.addEventListener('DOMContentLoaded', function() {
     var btnClearTable = document.getElementById('btnClearTable');
@@ -542,82 +449,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    var filterInput = document.getElementById('filterInput');
-    var filterCount = document.getElementById('filterCount');
-    var tbody = document.querySelector('.data-table tbody');
-    if (filterInput && tbody) {
-        filterInput.addEventListener('input', function() {
-            var q = this.value.trim().toLowerCase();
-            var rows = tbody.querySelectorAll('tr');
-            var visible = 0;
-            rows.forEach(function(tr) {
-                var text = tr.textContent.toLowerCase();
-                var show = !q || text.indexOf(q) !== -1;
-                tr.style.display = show ? '' : 'none';
-                if (show) visible++;
-            });
-            filterCount.textContent = 'Показано: ' + visible + ' из ' + rows.length;
-        });
-    }
-// Фиксация выделения строки по клику
-if (tbody) {
-    tbody.addEventListener('click', function(e) {
-        var tr = e.target.closest('tr');
-        if (!tr || e.target.closest('.btn-resend')) return;
-        tr.classList.toggle('data-table__row--selected');
-    });
-}
-
-    var btnExport = document.getElementById('btnExportXlsx');
-    if (btnExport) {
-        btnExport.addEventListener('click', function() {
-            function doExport() {
-                if (typeof XLSX === 'undefined') { alert('Библиотека XLSX не загружена'); return; }
-                var table = document.querySelector('.data-table');
-                if (!table) return;
-                var clone = table.cloneNode(true);
-                var cloneBody = clone.querySelector('tbody');
-                if (cloneBody) {
-                    var rows = cloneBody.querySelectorAll('tr');
-                    rows.forEach(function(tr) {
-                        if (tr.style.display === 'none') tr.remove();
-                    });
-                }
-                var wb = XLSX.utils.table_to_book(clone, {sheet: 'Заказы', raw: true});
-                XLSX.writeFile(wb, 'orders_' + new Date().toISOString().slice(0, 10) + '.xlsx');
-            }
-            if (typeof XLSX !== 'undefined') {
-                doExport();
-            } else {
-                btnExport.disabled = true;
-                btnExport.textContent = 'Загрузка...';
-                var localUrl = new URL('assets/xlsx.full.min.js', window.location.href).href;
-                var urls = [
-                    localUrl,
-                    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-                    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
-                ];
-                function tryLoad(i) {
-                    if (i >= urls.length) {
-                        btnExport.disabled = false;
-                        btnExport.textContent = 'Выгрузить в XLSX';
-                        alert('Не удалось загрузить библиотеку XLSX. Проверьте подключение к интернету.');
-                        return;
-                    }
-                    var s = document.createElement('script');
-                    s.src = urls[i];
-                    s.onload = function() { btnExport.disabled = false; btnExport.textContent = 'Выгрузить в XLSX'; doExport(); };
-                    s.onerror = function() { tryLoad(i + 1); };
-                    document.head.appendChild(s);
-                }
-                tryLoad(0);
-            }
-        });
-    }
-
     var table = document.querySelector('.data-table');
     if (!table) return;
-
+    var thead = table.querySelector('thead');
     function getColumnOrder() {
         var ths = table.querySelectorAll('thead th');
         var order = [];
@@ -651,7 +485,6 @@ if (tbody) {
             body: JSON.stringify({data_column_order: getColumnOrder()})
         }).catch(function() {});
     }
-
     fetch('api.php?action=settings')
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -663,8 +496,6 @@ if (tbody) {
             }
         })
         .catch(function() {});
-
-    var thead = table.querySelector('thead');
     if (thead) {
         thead.addEventListener('dragstart', function(e) {
             var th = e.target.closest('th');
@@ -710,44 +541,85 @@ if (tbody) {
             saveColumnOrder();
         });
     }
-
     setTimeout(function() {
-    var headers = table.querySelectorAll('th');
-    var widths = [];
-    headers.forEach(function(th, i) {
-        var idx = parseInt(th.getAttribute('data-col-index'), 10);
-        widths[i] = (idx === 0) ? 40 : 50;
-    });
-    headers.forEach(function(th, i) { th.style.width = widths[i] + 'px'; });
-    table.style.tableLayout = 'fixed';
-    headers.forEach(function(th) {
-        var resizer = document.createElement('div');
-        resizer.style.cssText = 'position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;z-index:1;';
-        th.style.position = 'sticky';
-        th.style.overflow = 'hidden';
-        th.style.textOverflow = 'ellipsis';
-        th.style.whiteSpace = 'nowrap';
-        th.appendChild(resizer);
-        var minWidth = (parseInt(th.getAttribute('data-col-index'), 10) === 0) ? 40 : 50;
-        resizer.addEventListener('mousedown', function(e) {
-            var startX = e.pageX;
-            var startWidth = th.offsetWidth;
-            resizer.style.borderRight = '2px solid #4a90d9';
-            function onMouseMove(e) {
-                var newWidth = startWidth + (e.pageX - startX);
-                if (newWidth >= minWidth) { th.style.width = newWidth + 'px'; }
-            }
-            function onMouseUp() {
-                resizer.style.borderRight = '';
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-            }
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-            e.preventDefault();
+        var headers = table.querySelectorAll('th');
+        var widths = [];
+        headers.forEach(function(th, i) {
+            var idx = parseInt(th.getAttribute('data-col-index'), 10);
+            widths[i] = (idx === 0) ? 40 : 50;
         });
-    });
+        headers.forEach(function(th, i) { th.style.width = widths[i] + 'px'; });
+        table.style.tableLayout = 'fixed';
+        headers.forEach(function(th) {
+            var resizer = document.createElement('div');
+            resizer.style.cssText = 'position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;z-index:1;';
+            th.style.position = 'sticky';
+            th.style.overflow = 'hidden';
+            th.style.textOverflow = 'ellipsis';
+            th.style.whiteSpace = 'nowrap';
+            th.appendChild(resizer);
+            var minWidth = (parseInt(th.getAttribute('data-col-index'), 10) === 0) ? 40 : 50;
+            resizer.addEventListener('mousedown', function(e) {
+                var startX = e.pageX;
+                var startWidth = th.offsetWidth;
+                resizer.style.borderRight = '2px solid #4a90d9';
+                function onMouseMove(e) {
+                    var newWidth = startWidth + (e.pageX - startX);
+                    if (newWidth >= minWidth) { th.style.width = newWidth + 'px'; }
+                }
+                function onMouseUp() {
+                    resizer.style.borderRight = '';
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                e.preventDefault();
+            });
+        });
     }, 0);
+
+    var btnExport = document.getElementById('btnExportXlsx');
+    if (btnExport) {
+        btnExport.addEventListener('click', function() {
+            function doExport() {
+                if (typeof XLSX === 'undefined') { alert('Библиотека XLSX не загружена'); return; }
+                var tableEl = document.querySelector('.data-table');
+                if (!tableEl) return;
+                var clone = tableEl.cloneNode(true);
+                var cloneBody = clone.querySelector('tbody');
+                if (cloneBody) {
+                    var rows = cloneBody.querySelectorAll('tr');
+                    rows.forEach(function(tr) {
+                        if (tr.style.display === 'none') tr.remove();
+                    });
+                }
+                var wb = XLSX.utils.table_to_book(clone, {sheet: 'Заказы', raw: true});
+                XLSX.writeFile(wb, 'orders_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+            }
+            if (typeof XLSX !== 'undefined') {
+                doExport();
+            } else {
+                btnExport.disabled = true;
+                btnExport.textContent = 'Загрузка...';
+                var urls = ['assets/xlsx.full.min.js', 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'];
+                function tryLoad(i) {
+                    if (i >= urls.length) {
+                        btnExport.disabled = false;
+                        btnExport.textContent = 'Выгрузить в XLSX';
+                        alert('Не удалось загрузить библиотеку XLSX.');
+                        return;
+                    }
+                    var s = document.createElement('script');
+                    s.src = urls[i];
+                    s.onload = function() { btnExport.disabled = false; btnExport.textContent = 'Выгрузить в XLSX'; doExport(); };
+                    s.onerror = function() { tryLoad(i + 1); };
+                    document.head.appendChild(s);
+                }
+                tryLoad(0);
+            }
+        });
+    }
 });
     </script>
 </body>

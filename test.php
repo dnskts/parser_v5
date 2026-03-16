@@ -302,13 +302,39 @@ function addCheck(&$fileResult, &$totalTests, &$passedTests, &$failedTests, $nam
     );
 }
 
-foreach ($expectations as $fileName => $expected) {
+// Список всех XML-фикстур в папке (динамически)
+$fixtureFiles = array();
+if (is_dir($testDir)) {
+    $glob = glob($testDir . '/*.xml');
+    if ($glob !== false) {
+        foreach ($glob as $path) {
+            $fixtureFiles[] = basename($path);
+        }
+    }
+}
+
+foreach ($fixtureFiles as $fileName) {
     $filePath = $testDir . '/' . $fileName;
+    $expected = isset($expectations[$fileName]) ? $expectations[$fileName] : null;
+
+    // Файл есть в папке, но нет в expectations — помечаем как «нет ожиданий», не считаем провалом
+    if ($expected === null) {
+        $results[] = array(
+            'file'        => $fileName,
+            'description' => 'Нет ожиданий',
+            'checks'      => array(),
+            'error'       => null,
+            'no_expectations' => true,
+        );
+        continue;
+    }
+
     $fileResult = array(
         'file'        => $fileName,
         'description' => $expected['description'],
         'checks'      => array(),
         'error'       => null,
+        'no_expectations' => false,
     );
 
     // Проверяем что тестовый файл существует
@@ -616,6 +642,10 @@ if ($isCli) {
         echo "--- {$r['file']} ---\n";
         echo "    {$r['description']}\n";
 
+        if (!empty($r['no_expectations'])) {
+            echo "    \xE2\x9A\xA0 Нет ожиданий (добавьте в \$expectations)\n\n";
+            continue;
+        }
         if ($r['error']) {
             echo "    \xE2\x9D\x8C {$r['error']}\n\n";
             continue;
@@ -746,6 +776,11 @@ if ($isCli) {
             border-left: 4px solid #ff9800;
         }
 
+        .test-file__header--warn {
+            background: #fff8e1;
+            border-left: 4px solid #f57c00;
+        }
+
         .test-file__icon {
             font-size: 16px;
             flex-shrink: 0;
@@ -779,6 +814,11 @@ if ($isCli) {
         }
 
         .test-file__badge--error {
+            background: #ffe0b2;
+            color: #e65100;
+        }
+
+        .test-file__badge--warn {
             background: #ffe0b2;
             color: #e65100;
         }
@@ -891,7 +931,11 @@ if ($isCli) {
 
             <?php foreach ($results as $r): ?>
                 <?php
-                    if ($r['error']) {
+                    if (!empty($r['no_expectations'])) {
+                        $fileStatus = 'warn';
+                        $fileIcon = '⚠️';
+                        $badgeText = 'Нет ожиданий';
+                    } elseif ($r['error']) {
                         $fileStatus = 'error';
                         $fileIcon = '⚠️';
                         $badgeText = 'ОШИБКА';
@@ -925,7 +969,11 @@ if ($isCli) {
                         </span>
                     </div>
 
-                    <?php if ($r['error']): ?>
+                    <?php if (!empty($r['no_expectations'])): ?>
+                        <div class="test-file__body" style="display:none">
+                            <p class="test-file__error" style="color:#f57c00">Добавьте ожидания в массив $expectations в test.php для этого файла.</p>
+                        </div>
+                    <?php elseif ($r['error']): ?>
                         <div class="test-file__error">
                             <?php echo htmlspecialchars($r['error']); ?>
                         </div>

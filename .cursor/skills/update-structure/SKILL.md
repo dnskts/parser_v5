@@ -13,6 +13,8 @@ Apply this skill **every time** you:
 - Add, remove, or update a dependency (library, package, external service).
 - Change the role or responsibility of an existing module.
 
+**После внесения изменений в проект** (по правилам проекта): обновлять `CURRENT_STAGE.md`, `CHANGELOG_AI.md` и при необходимости `structure.md`. Файл `SisPrompt.md` (системный промпт для веб-нейросетей) обновлять, если изменились ключевые правила или структура (например, число фикстур, новые эндпоинты API).
+
 ## Where to write
 
 Update the file `structure.md` in the **project root**.
