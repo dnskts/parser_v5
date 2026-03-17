@@ -41,6 +41,7 @@ require_once BASE_DIR . '/core/Logger.php';
 require_once BASE_DIR . '/core/ParserManager.php';
 require_once BASE_DIR . '/core/Processor.php';
 require_once BASE_DIR . '/core/SftpSync.php';
+require_once BASE_DIR . '/core/PullSync.php';
 
 /**
  * SFTP-синхронизация: загрузка XML с сервера поставщика в input/.
@@ -104,6 +105,75 @@ function runSftpSync($force = false)
 }
 
 /**
+ * PULL-синхронизация SmartTravel: запрос данных с API.
+ * Вызывается перед обработкой, если mode=pull в настройках.
+ *
+ * @param bool $force — при true игнорировать интервал
+ * @return array — downloaded (int), errors (int), files (array), skipped (bool)
+ */
+function runPullSync($force = false)
+{
+    $configFile = BASE_DIR . '/config/settings.json';
+    $logFile = BASE_DIR . '/logs/pull_sync.log';
+    $default = array('downloaded' => 0, 'errors' => 0, 'files' => array(), 'skipped' => false);
+
+    if (!file_exists($configFile)) {
+        return array_merge($default, array('skipped' => true));
+    }
+
+    $allSettings = json_decode(file_get_contents($configFile), true);
+    if (!is_array($allSettings) || !isset($allSettings['smarttravel'])) {
+        return array_merge($default, array('skipped' => true));
+    }
+
+    $stConfig = $allSettings['smarttravel'];
+    if (isset($stConfig['enabled']) && $stConfig['enabled'] === false) {
+        return array_merge($default, array('skipped' => true));
+    }
+
+    $mode = isset($stConfig['mode']) ? $stConfig['mode'] : 'pull';
+    if ($mode !== 'pull') {
+        return array_merge($default, array('skipped' => true));
+    }
+
+    $pull = isset($stConfig['pull']) ? $stConfig['pull'] : array();
+
+    // Проверка интервала
+    if (!$force) {
+        $lastRun = isset($pull['last_run']) ? $pull['last_run'] : '';
+        $intervalMin = isset($pull['interval_min']) ? (int)$pull['interval_min'] : 10;
+        if (!empty($lastRun)) {
+            $lastTs = (int)$lastRun;
+            if (time() < $lastTs + ($intervalMin * 60)) {
+                return array_merge($default, array('skipped' => true));
+            }
+        }
+    }
+
+    $localPath = BASE_DIR . '/input/smarttravel';
+    if (!is_dir($localPath)) {
+        @mkdir($localPath, 0755, true);
+    }
+
+    $sync = new PullSync($stConfig, $logFile, $localPath);
+    $result = $sync->sync();
+
+    // Обновляем last_run в settings.json
+    $allSettings['smarttravel']['pull']['last_run'] = (string)time();
+    file_put_contents($configFile,
+        json_encode($allSettings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+        LOCK_EX
+    );
+
+    return array(
+        'downloaded' => $result['downloaded'],
+        'errors' => $result['errors'],
+        'files' => isset($result['files']) ? $result['files'] : array(),
+        'skipped' => false
+    );
+}
+
+/**
  * Функция запуска обработки.
  * 
  * Создаёт все необходимые объекты (логгер, менеджер парсеров, обработчик)
@@ -117,37 +187,52 @@ function runProcessing($force = false)
     // 1. SFTP-синхронизация (если включена в настройках)
     $sftpResult = runSftpSync($force);
 
-    // Создаём логгер — он будет записывать события в файл logs/app.log
+    // 2. PULL-синхронизация SmartTravel (если mode=pull)
+    $pullResult = runPullSync($force);
+
+    // Создаём логгер
     $logger = new Logger(BASE_DIR . '/logs/app.log');
 
-    // Создаём менеджер парсеров — он автоматически найдёт все парсеры в папке parsers/
+    // Создаём менеджер парсеров
     $parserManager = new ParserManager(BASE_DIR . '/parsers', $logger);
 
-    // Создаём обработчик — он обходит папки поставщиков и вызывает парсеры
+    // Создаём обработчик
     $processor = new Processor(
-        BASE_DIR . '/input',              // Папка с входными XML-файлами
-        BASE_DIR . '/json',               // Папка для выходных JSON-файлов
-        BASE_DIR . '/config/settings.json', // Файл настроек
+        BASE_DIR . '/input',
+        BASE_DIR . '/json',
+        BASE_DIR . '/config/settings.json',
         $logger,
         $parserManager
     );
 
-    // 2. Обработка XML
+    // 3. Обработка файлов (XML + JSON)
     $result = $processor->run($force);
 
-    // 3. Добавляем данные SFTP в результат
-        $result['sftp_downloaded'] = $sftpResult['downloaded'];
-        $result['sftp_errors'] = $sftpResult['errors'];
-        $result['sftp_skipped'] = isset($sftpResult['skipped']) ? $sftpResult['skipped'] : false;
-        if (!empty($result['sftp_skipped'])) {
-            $result['sftp_status'] = 'пропущено (интервал)';
-        } elseif (!empty($result['sftp_errors'])) {
-            $result['sftp_status'] = 'ошибки: ' . $result['sftp_errors'];
-        } else {
-            $result['sftp_status'] = 'скачано: ' . $result['sftp_downloaded'];
-        }
+    // 4. Добавляем данные SFTP в результат
+    $result['sftp_downloaded'] = $sftpResult['downloaded'];
+    $result['sftp_errors'] = $sftpResult['errors'];
+    $result['sftp_skipped'] = isset($sftpResult['skipped']) ? $sftpResult['skipped'] : false;
+    if (!empty($result['sftp_skipped'])) {
+        $result['sftp_status'] = 'пропущено (интервал)';
+    } elseif (!empty($result['sftp_errors'])) {
+        $result['sftp_status'] = 'ошибки: ' . $result['sftp_errors'];
+    } else {
+        $result['sftp_status'] = 'скачано: ' . $result['sftp_downloaded'];
+    }
 
-        return $result;
+    // 5. Добавляем данные PULL в результат
+    $result['pull_downloaded'] = $pullResult['downloaded'];
+    $result['pull_errors'] = $pullResult['errors'];
+    $result['pull_skipped'] = isset($pullResult['skipped']) ? $pullResult['skipped'] : false;
+    if (!empty($result['pull_skipped'])) {
+        $result['pull_status'] = 'пропущено';
+    } elseif (!empty($result['pull_errors'])) {
+        $result['pull_status'] = 'ошибки: ' . $result['pull_errors'];
+    } else {
+        $result['pull_status'] = 'скачано: ' . $result['pull_downloaded'];
+    }
+
+    return $result;
 }
 
 // Если скрипт запущен напрямую из командной строки (не подключён из другого файла)

@@ -1,6 +1,6 @@
 {
     "interval": 10,
-    "last_run": 1773655872,
+    "last_run": 1773749340,
     "api": {
         "enabled": true,
         "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
@@ -20,8 +20,31 @@
         "local_path": "input\/moyagent",
         "interval": 60
     },
+    "smarttravel": {
+        "enabled": true,
+        "mode": "pull",
+        "receive_format": "json",
+        "pull": {
+            "url": "https:\/\/platform.smarttravel.ru\/b2b\/Operations\/RailwayBlanks\/GetOrderItemBlanks",
+            "test_url": "https:\/\/test.onelya.ru\/b2b\/Operations\/RailwayBlanks\/GetOrderItemBlanks",
+            "login": "",
+            "password": "",
+            "proxy": "http:\/\/proxy.bank.ru:8080",
+            "proxy_login": "",
+            "proxy_pass": "",
+            "interval_min": 10,
+            "last_run": "1773749339"
+        },
+        "webhook": {
+            "basic_auth_enabled": false,
+            "basic_login": "",
+            "basic_pass": "",
+            "path": "\/webhook"
+        }
+    },
     "tab_order": [
         "moyagent",
+        "smarttravel",
         "demo_hotel"
     ],
     "data_column_order": [

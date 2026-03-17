@@ -22,6 +22,7 @@
 require_once __DIR__ . '/core/ParserInterface.php';
 require_once __DIR__ . '/core/Utils.php';
 require_once __DIR__ . '/parsers/MoyAgentParser.php';
+require_once __DIR__ . '/parsers/SmartTravelParser.php';
 
 // =====================================================
 // НАСТРОЙКИ ТЕСТОВ
@@ -748,6 +749,239 @@ foreach ($fixtureFiles as $fileName) {
         addCheck($fileResult, $totalTests, $passedTests, $failedTests,
             'Все номера билетов', $ok, $expected['all_tickets'], $actualTickets);
     }
+
+    $results[] = $fileResult;
+}
+
+// =====================================================
+// ТЕСТЫ SmartTravelParser (JSON-фикстуры)
+// =====================================================
+
+$stParser = new SmartTravelParser();
+$stExpectations = array(
+
+    // Тест 8: SmartTravel PUSH — ЖД покупка (из PDF, пример section 2.4)
+    'smarttravel_push_railway.json' => array(
+        'description'        => 'SmartTravel PUSH: ЖД покупка, 1 бланк, Москва→С-Петербург',
+        'invoice_number'     => '51978',
+        'client'             => 'ThePos',
+        'status'             => 'продажа',
+        'products_count'     => 1,
+        'ticket_number'      => '71234567890000',
+        'traveller'          => 'ИВАНОВ ИВАН',
+        'carrier'            => 'ЗАО ТК "ГСЭ"',
+        'coupons_count'      => 1,
+        'currency'           => 'RUB',
+        'fare'               => 9481.7,
+        'supplier'           => 'SmartTravel',
+        'reservation_number' => '71234567890000',
+        'passenger_middle_name' => 'ИВАНОВИЧ',
+        'passenger_doc_number'  => '4601123450',
+        'passenger_doc_type'    => 'Паспорт РФ',
+        'passenger_gender'      => 'Мужчина',
+        'has_refund'         => false,
+        'has_client_commission'  => true,
+        'client_commission_amount' => 100.0,
+        'has_vendor_commission'  => true,
+        'vendor_commission_amount' => 100.0,
+    ),
+);
+
+// Список JSON-фикстур для SmartTravel
+$stFixtureFiles = array();
+if (is_dir($testDir)) {
+    $glob = glob($testDir . '/smarttravel_*.json');
+    if ($glob !== false) {
+        foreach ($glob as $path) {
+            $stFixtureFiles[] = basename($path);
+        }
+    }
+}
+
+foreach ($stFixtureFiles as $fileName) {
+    $filePath = $testDir . '/' . $fileName;
+    $expected = isset($stExpectations[$fileName]) ? $stExpectations[$fileName] : null;
+
+    if ($expected === null) {
+        $results[] = array(
+            'file'        => $fileName,
+            'description' => 'Нет ожиданий (SmartTravel)',
+            'checks'      => array(),
+            'error'       => null,
+            'no_expectations' => true,
+        );
+        continue;
+    }
+
+    $fileResult = array(
+        'file'        => $fileName,
+        'description' => $expected['description'],
+        'checks'      => array(),
+        'error'       => null,
+        'no_expectations' => false,
+    );
+
+    if (!file_exists($filePath)) {
+        $fileResult['error'] = "Файл не найден: {$filePath}";
+        $results[] = $fileResult;
+        continue;
+    }
+
+    $data = null;
+    try {
+        $data = $stParser->parse($filePath);
+    } catch (Exception $e) {
+        $fileResult['error'] = "Ошибка парсинга: " . $e->getMessage();
+        $results[] = $fileResult;
+        continue;
+    }
+
+    // SmartTravel PUSH возвращает один ORDER (ассоциативный массив с UID)
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Парсинг', ($data !== null), 'без ошибок', $data !== null ? 'OK' : 'FAIL');
+
+    $uid = isset($data['UID']) ? $data['UID'] : '';
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'UID заказа', (!empty($uid) && strlen($uid) === 36), 'UUID (36 символов)', $uid);
+
+    $actual = isset($data['INVOICE_NUMBER']) ? $data['INVOICE_NUMBER'] : '';
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'INVOICE_NUMBER', ($actual === $expected['invoice_number']), $expected['invoice_number'], $actual);
+
+    $actual = isset($data['CLIENT']) ? $data['CLIENT'] : '';
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'CLIENT', ($actual === $expected['client']), $expected['client'], $actual);
+
+    // Продукты
+    $pc = isset($data['PRODUCTS']) ? count($data['PRODUCTS']) : 0;
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'Кол-во продуктов', ($pc === $expected['products_count']), $expected['products_count'], $pc);
+
+    if ($pc > 0) {
+        $p = $data['PRODUCTS'][0];
+
+        $actual = isset($p['STATUS']) ? $p['STATUS'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Статус', ($actual === $expected['status']), $expected['status'], $actual);
+
+        $actual = isset($p['NUMBER']) ? $p['NUMBER'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Номер бланка', ($actual === $expected['ticket_number']), $expected['ticket_number'], $actual);
+
+        $actual = isset($p['TRAVELLER']) ? $p['TRAVELLER'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Пассажир', ($actual === $expected['traveller']), $expected['traveller'], $actual);
+
+        $actual = isset($p['CARRIER']) ? $p['CARRIER'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Перевозчик', ($actual === $expected['carrier']), $expected['carrier'], $actual);
+
+        $actual = isset($p['COUPONS']) ? count($p['COUPONS']) : 0;
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Купонов', ($actual === $expected['coupons_count']), $expected['coupons_count'], $actual);
+
+        $actual = isset($p['CURRENCY']) ? $p['CURRENCY'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Валюта', ($actual === $expected['currency']), $expected['currency'], $actual);
+
+        $actual = (isset($p['TAXES'][0]['AMOUNT'])) ? (float)$p['TAXES'][0]['AMOUNT'] : 0;
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'Тариф (fare)', (abs($actual - $expected['fare']) < 0.01), $expected['fare'], $actual);
+
+        $puid = isset($p['UID']) ? $p['UID'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'UID продукта', (strlen($puid) === 36), 'UUID (36 символов)', $puid);
+
+        if (isset($expected['supplier'])) {
+            $actual = isset($p['SUPPLIER']) ? $p['SUPPLIER'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'SUPPLIER', ($actual === $expected['supplier']), $expected['supplier'], $actual);
+        }
+
+        if (isset($expected['reservation_number'])) {
+            $actual = isset($p['RESERVATION_NUMBER']) ? $p['RESERVATION_NUMBER'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'RESERVATION_NUMBER', ($actual === $expected['reservation_number']), $expected['reservation_number'], $actual);
+        }
+
+        if (isset($expected['passenger_middle_name'])) {
+            $actual = isset($p['PASSENGER_MIDDLE_NAME']) ? $p['PASSENGER_MIDDLE_NAME'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Отчество', ($actual === $expected['passenger_middle_name']), $expected['passenger_middle_name'], $actual);
+        }
+
+        if (isset($expected['passenger_doc_number'])) {
+            $actual = isset($p['PASSENGER_DOC_NUMBER']) ? $p['PASSENGER_DOC_NUMBER'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Номер документа', ($actual === $expected['passenger_doc_number']), $expected['passenger_doc_number'], $actual);
+        }
+
+        if (isset($expected['passenger_doc_type'])) {
+            $actual = isset($p['PASSENGER_DOC_TYPE']) ? $p['PASSENGER_DOC_TYPE'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Тип документа', ($actual === $expected['passenger_doc_type']), $expected['passenger_doc_type'], $actual);
+        }
+
+        if (isset($expected['passenger_gender'])) {
+            $actual = isset($p['PASSENGER_GENDER']) ? $p['PASSENGER_GENDER'] : '';
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Пол', ($actual === $expected['passenger_gender']), $expected['passenger_gender'], $actual);
+        }
+
+        // Комиссии
+        if (isset($expected['has_client_commission']) && $expected['has_client_commission']) {
+            $foundClient = false;
+            $clientAmount = 0;
+            if (!empty($p['COMMISSIONS'])) {
+                foreach ($p['COMMISSIONS'] as $comm) {
+                    if (isset($comm['TYPE']) && $comm['TYPE'] === 'CLIENT') {
+                        $foundClient = true;
+                        $clientAmount = isset($comm['AMOUNT']) ? (float)$comm['AMOUNT'] : 0;
+                        break;
+                    }
+                }
+            }
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Комиссия CLIENT', $foundClient, 'присутствует', $foundClient ? 'есть' : 'нет');
+            if (isset($expected['client_commission_amount'])) {
+                addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                    'CLIENT сумма', (abs($clientAmount - $expected['client_commission_amount']) < 0.01),
+                    $expected['client_commission_amount'], $clientAmount);
+            }
+        }
+
+        if (isset($expected['has_vendor_commission']) && $expected['has_vendor_commission']) {
+            $foundVendor = false;
+            $vendorAmount = 0;
+            if (!empty($p['COMMISSIONS'])) {
+                foreach ($p['COMMISSIONS'] as $comm) {
+                    if (isset($comm['TYPE']) && $comm['TYPE'] === 'VENDOR') {
+                        $foundVendor = true;
+                        $vendorAmount = isset($comm['AMOUNT']) ? (float)$comm['AMOUNT'] : 0;
+                        break;
+                    }
+                }
+            }
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Комиссия VENDOR', $foundVendor, 'присутствует', $foundVendor ? 'есть' : 'нет');
+            if (isset($expected['vendor_commission_amount'])) {
+                addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                    'VENDOR сумма', (abs($vendorAmount - $expected['vendor_commission_amount']) < 0.01),
+                    $expected['vendor_commission_amount'], $vendorAmount);
+            }
+        }
+
+        if (isset($expected['has_refund']) && $expected['has_refund']) {
+            $hasRefund = isset($p['REFUND']);
+            addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+                'Блок REFUND', $hasRefund, 'присутствует', $hasRefund ? 'есть' : 'нет');
+        }
+    }
+
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $jsonOk = ($json !== false && json_last_error() === JSON_ERROR_NONE);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'JSON сериализация', $jsonOk, 'валидный JSON', $jsonOk ? strlen($json) . ' байт' : json_last_error_msg());
 
     $results[] = $fileResult;
 }

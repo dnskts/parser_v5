@@ -140,21 +140,26 @@ class Processor
                 continue;
             }
 
-            // Ищем все XML-файлы в папке поставщика (только в корне, не в подпапках)
+            // Ищем все файлы в папке поставщика (XML + JSON, только в корне)
             $xmlFiles = glob($supplierDir . DIRECTORY_SEPARATOR . '*.xml');
+            $jsonInputFiles = glob($supplierDir . DIRECTORY_SEPARATOR . '*.json');
+            $allInputFiles = array_merge(
+                is_array($xmlFiles) ? $xmlFiles : array(),
+                is_array($jsonInputFiles) ? $jsonInputFiles : array()
+            );
 
-            if (empty($xmlFiles)) {
-                $this->logger->info("Поставщик \"{$parser->getSupplierName()}\": нет новых XML-файлов");
+            if (empty($allInputFiles)) {
+                $this->logger->info("Поставщик \"{$parser->getSupplierName()}\": нет новых файлов");
                 continue;
             }
 
             $this->logger->info(
                 "Поставщик \"{$parser->getSupplierName()}\": найдено " 
-                . count($xmlFiles) . " XML-файл(ов)"
+                . count($allInputFiles) . " файл(ов)"
             );
 
-            // Обрабатываем каждый XML-файл
-            foreach ($xmlFiles as $xmlFile) {
+            // Обрабатываем каждый файл
+            foreach ($allInputFiles as $xmlFile) {
                 $totalFiles++;
                 $fileName = basename($xmlFile);
 
@@ -162,41 +167,48 @@ class Processor
                     $this->logger->info("Обработка файла: {$fileName}");
 
                     $t0 = microtime(true);
-                    // Вызываем парсер — он читает XML и возвращает данные в формате ORDER
                     $orderData = $parser->parse($xmlFile);
                     $t1 = microtime(true);
                     $this->logger->info("Время парсинга {$fileName}: " . round($t1 - $t0, 2) . " с");
 
-                    // Сохраняем результат в JSON-файл
-                    $jsonFileName = $this->saveJson($orderData, $fileName, $folder);
+                    // Один ORDER (есть UID) или массив ORDER-ов (PULL-режим SmartTravel)
+                    if (isset($orderData['UID'])) {
+                        $ordersList = array($orderData);
+                    } else {
+                        $ordersList = array_values($orderData);
+                    }
 
-                    // Перемещаем XML-файл в папку Processed (обработано успешно)
+                    $savedJsonFiles = array();
+                    foreach ($ordersList as $singleOrder) {
+                        $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
+                        $savedJsonFiles[] = $jsonFileName;
+
+                        if ($apiAvailable) {
+                            try {
+                                $apiResult = $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
+                                if ($apiResult['success']) {
+                                    $this->logger->info("API 1С: {$apiResult['message']}");
+                                } else {
+                                    $this->logger->warning("API 1С: {$apiResult['message']}");
+                                }
+                            } catch (Exception $apiEx) {
+                                $this->logger->warning(
+                                    "API 1С: исключение при отправке {$jsonFileName}: " . $apiEx->getMessage()
+                                );
+                            }
+                        }
+                    }
+
                     $this->moveFile(
                         $xmlFile,
                         $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
                     );
 
+                    $jsonList = implode(', ', $savedJsonFiles);
                     $this->logger->success(
-                        "Файл {$fileName} успешно обработан -> JSON: {$jsonFileName}"
+                        "Файл {$fileName} успешно обработан -> JSON: {$jsonList}"
                     );
                     $totalProcessed++;
-
-                    // Отправляем заказ в API 1С (ПОСЛЕ сохранения JSON и перемещения XML)
-                    // Ошибка отправки НЕ влияет на обработку файла
-                    if ($apiAvailable) {
-                    try {
-                        $apiResult = $this->apiSender->send($orderData, $jsonFileName, $fileName);
-                        if ($apiResult['success']) {
-                            $this->logger->info("API 1С: {$apiResult['message']}");
-                        } else {
-                            $this->logger->warning("API 1С: {$apiResult['message']}");
-                        }
-                    } catch (Exception $apiEx) {
-                        $this->logger->warning(
-                            "API 1С: исключение при отправке {$jsonFileName}: " . $apiEx->getMessage()
-                        );
-                    }
-                }
                 } catch (Exception $e) {
                     // Если произошла ошибка — перемещаем файл в папку Error
                     $this->logger->error(
@@ -227,6 +239,73 @@ class Processor
             'errors' => $totalErrors,
             'total' => $totalFiles
         );
+    }
+
+    /**
+     * Обработка одного файла (для webhook и PullSync).
+     *
+     * @param string $filePath — полный путь к файлу
+     * @param string $folder   — имя папки поставщика (e.g. 'smarttravel')
+     * @return array — processed (int), errors (int), json_files (array)
+     */
+    public function processSingleFile($filePath, $folder)
+    {
+        $result = array('processed' => 0, 'errors' => 0, 'json_files' => array());
+        $fileName = basename($filePath);
+        $supplierDir = $this->inputDir . DIRECTORY_SEPARATOR . $folder;
+
+        $this->ensureSubfolders($supplierDir);
+
+        $parser = $this->parserManager->getParser($folder);
+        if ($parser === null) {
+            $this->logger->error("processSingleFile: парсер для '{$folder}' не найден");
+            $result['errors'] = 1;
+            return $result;
+        }
+
+        $apiAvailable = $this->apiSender->isAvailable();
+
+        try {
+            $this->logger->info("Обработка файла (single): {$fileName}");
+            $orderData = $parser->parse($filePath);
+
+            if (isset($orderData['UID'])) {
+                $ordersList = array($orderData);
+            } else {
+                $ordersList = array_values($orderData);
+            }
+
+            foreach ($ordersList as $singleOrder) {
+                $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
+                $result['json_files'][] = $jsonFileName;
+
+                if ($apiAvailable) {
+                    try {
+                        $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
+                    } catch (Exception $apiEx) {
+                        $this->logger->warning("API 1С (single): " . $apiEx->getMessage());
+                    }
+                }
+            }
+
+            $this->moveFile(
+                $filePath,
+                $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
+            );
+
+            $result['processed'] = count($ordersList);
+            $this->logger->success("processSingleFile: {$fileName} -> " . count($ordersList) . " заказ(ов)");
+
+        } catch (Exception $e) {
+            $this->logger->error("processSingleFile: ошибка {$fileName}: " . $e->getMessage());
+            $this->moveFile(
+                $filePath,
+                $supplierDir . DIRECTORY_SEPARATOR . 'Error' . DIRECTORY_SEPARATOR . $fileName
+            );
+            $result['errors'] = 1;
+        }
+
+        return $result;
     }
 
     /**

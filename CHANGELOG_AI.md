@@ -2,6 +2,54 @@
 
 ---
 
+## 2026-03-17 — SmartTravel PUSH+PULL интеграция (ЖД-билеты)
+
+**Запрос пользователя:** Добавить поддержку SmartTravel (РЖД-Цифровые пассажирские решения) с одновременной работой PUSH (webhook) и PULL (API polling) режимов, единым парсером для обоих, минимальными правками в существующий pipeline.
+
+### Что было сделано
+
+**Новые файлы (5):**
+- **`core/PullSync.php`** — PULL-синхронизатор SmartTravel. GET-запрос к API с Basic Auth + HTTP-прокси (закрытый контур банка). Сохраняет ответ в `input/smarttravel/pull_*.json`. Аналог SftpSync для REST API.
+- **`webhook.php`** — Универсальный приёмник PUSH-уведомлений. Принимает POST с JSON, проверяет Basic Auth (если включено), сохраняет в `input/{supplier}/webhook_*.json`, вызывает `Processor->processSingleFile()`.
+- **`parsers/SmartTravelParser.php`** — Единый парсер для PUSH и PULL. Определяет режим по ключам JSON (`Orders` → PULL, `OrderItem` → PUSH). PUSH → один ORDER, PULL → массив ORDER-ов. Маппинг: бланки, маршруты, пассажиры, комиссии, возвраты.
+- **`parsers/constants/SmartTravelConstants.php`** — Справочник констант: OperationType, Sex, DocumentType, CarType, BlankStatus, ServiceType, PassengerCategory (таблицы 5-12, 21 из PDF). Таблицы транслитерации из `transliteration-tables.docx` (не используются по умолчанию).
+- **`tests/fixtures/smarttravel_push_railway.json`** — Фикстура: ЖД покупка, 1 бланк, Москва→С-Петербург (из PDF section 2.4).
+
+**Изменённые файлы (5):**
+- **`core/Utils.php`** — Добавлен метод `curlWithProxy($url, $options)`: универсальный cURL-запрос с Basic Auth и HTTP-прокси.
+- **`core/Processor.php`** — 3 изменения: glob расширен на `*.json`; поддержка multi-order (массив ORDER-ов из одного файла); добавлен публичный метод `processSingleFile($filePath, $folder)`.
+- **`process.php`** — Добавлена функция `runPullSync($force)` с проверкой интервала и обновлением `last_run`. Вызов в pipeline: SFTP → PULL → Processor.
+- **`config/settings.json`** — Новая секция `smarttravel` (enabled, mode, pull, webhook) + добавление в `tab_order`.
+- **`test.php`** — Подключение SmartTravelParser, отдельный блок тестов для JSON-фикстур SmartTravel (23 проверки).
+
+### Принятые решения
+- **Один парсер для двух режимов** — SmartTravelParser определяет режим по структуре JSON (ключи `Orders` vs `OrderItem`), а не по конфигурации.
+- **Переключение PUSH↔PULL** — одно поле `"mode"` в settings.json; перезапуск process.php.
+- **Транслитерация** — таблицы из transliteration-tables.docx включены в SmartTravelConstants, но по умолчанию не применяются. Имена хранятся на кириллице. Доступно для будущего использования.
+- **PRODUCT_TYPE** — `000000001` (ЖД-билет), аналогично авиа.
+- **Прокси обязателен для PULL** — закрытый контур банка.
+- **Webhook URL** — `webhook.php?supplier=smarttravel` (универсальный, поддерживает любых поставщиков).
+
+### Тесты
+- Все 247 тестов проходят (224 MoyAgent + 23 SmartTravel).
+
+### Изменённые файлы (полный список)
+- `core/Utils.php`
+- `core/PullSync.php` (новый)
+- `core/Processor.php`
+- `webhook.php` (новый)
+- `parsers/SmartTravelParser.php` (новый)
+- `parsers/constants/SmartTravelConstants.php` (новый)
+- `process.php`
+- `config/settings.json`
+- `test.php`
+- `tests/fixtures/smarttravel_push_railway.json` (новый)
+- `CURRENT_STAGE.md`
+- `CHANGELOG_AI.md`
+- `structure.md`
+
+---
+
 ## 2026-03-16 — MoyAgent: контакты клиента, отчество и документ, discount/supplier_code, багаж/перевозчики сегментов + колонки data.php + тесты
 
 **Запрос пользователя:** Добавить в JSON и таблицу: контакты клиента (с префиксом Cont), ФИО с отчеством в TRAVELLER, поля пассажира middle_name/doc_country/doc_expire, поля билета discount/supplier_code, а также bag_allowance и carrier сегментов. Протянуть до `data.php` через `core/DataTableHelpers.php` и обновить `test.php`.
