@@ -150,14 +150,13 @@ switch ($action) {
 
             // Сохраняем настройки в файл
             $configDir = dirname($configFile);
-            if (!is_dir($configDir)) {
-                mkdir($configDir, 0755, true);
-            }
+            Utils::ensureDirectory($configDir);
             file_put_contents(
                 $configFile,
                 json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
                 LOCK_EX
             );
+            Utils::ensureOwnership($configFile);
 
             $logger->info("Настройки обновлены: интервал = {$settings['interval']} сек.");
 

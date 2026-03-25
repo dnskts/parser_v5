@@ -37,6 +37,7 @@ if (!defined('BASE_DIR')) {
 }
 
 // Подключаем необходимые компоненты системы
+require_once BASE_DIR . '/core/Utils.php';
 require_once BASE_DIR . '/core/Logger.php';
 require_once BASE_DIR . '/core/ParserManager.php';
 require_once BASE_DIR . '/core/Processor.php';
@@ -91,10 +92,9 @@ function runSftpSync($force = false)
     $result = $sync->sync();
 
     $configDir = dirname($lastRunFile);
-    if (!is_dir($configDir)) {
-        @mkdir($configDir, 0755, true);
-    }
+    Utils::ensureDirectory($configDir);
     file_put_contents($lastRunFile, (string)time(), LOCK_EX);
+    Utils::ensureOwnership($lastRunFile);
 
     return array(
         'downloaded' => $result['downloaded'],
@@ -151,9 +151,7 @@ function runPullSync($force = false)
     }
 
     $localPath = BASE_DIR . '/input/smarttravel';
-    if (!is_dir($localPath)) {
-        @mkdir($localPath, 0755, true);
-    }
+    Utils::ensureDirectory($localPath);
 
     $sync = new PullSync($stConfig, $logFile, $localPath);
     $result = $sync->sync();
@@ -164,6 +162,7 @@ function runPullSync($force = false)
         json_encode($allSettings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
         LOCK_EX
     );
+    Utils::ensureOwnership($configFile);
 
     return array(
         'downloaded' => $result['downloaded'],

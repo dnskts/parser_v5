@@ -24,6 +24,7 @@
 require_once __DIR__ . '/Logger.php';
 require_once __DIR__ . '/ParserManager.php';
 require_once __DIR__ . '/ApiSender.php';
+require_once __DIR__ . '/Utils.php';
 
 class Processor
 {
@@ -63,9 +64,7 @@ class Processor
         $this->parserManager = $parserManager;
 
         // Создаём папку для JSON, если её ещё нет
-        if (!is_dir($this->outputDir)) {
-            mkdir($this->outputDir, 0755, true);
-        }
+        Utils::ensureDirectory($this->outputDir);
 
         // Инициализируем отправщик в API 1С
         $settings = $this->loadSettings();
@@ -345,6 +344,8 @@ class Processor
             throw new Exception("Не удалось сохранить JSON-файл: {$jsonFilePath}");
         }
 
+        Utils::ensureOwnership($jsonFilePath);
+
         return $jsonFileName;
     }
 
@@ -372,6 +373,8 @@ class Processor
             $this->logger->error(
                 "Не удалось переместить файл: {$source} -> {$destination}"
             );
+        } else {
+            Utils::ensureOwnership($destination);
         }
     }
 
@@ -386,12 +389,8 @@ class Processor
         $processed = $supplierDir . DIRECTORY_SEPARATOR . 'Processed';
         $error = $supplierDir . DIRECTORY_SEPARATOR . 'Error';
 
-        if (!is_dir($processed)) {
-            mkdir($processed, 0755, true);
-        }
-        if (!is_dir($error)) {
-            mkdir($error, 0755, true);
-        }
+        Utils::ensureDirectory($processed);
+        Utils::ensureDirectory($error);
     }
 
     /**
@@ -455,14 +454,13 @@ class Processor
     private function saveSettings($settings)
     {
         $dir = dirname($this->configFile);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
+        Utils::ensureDirectory($dir);
 
         file_put_contents(
             $this->configFile,
             json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
             LOCK_EX
         );
+        Utils::ensureOwnership($this->configFile);
     }
 }

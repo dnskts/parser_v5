@@ -34,6 +34,7 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 - app.js только для index.php; data.php/api_logs.php — встроенные скрипты
 - SFTP встроен в runProcessing(); sftp_sync.php — standalone
 - settings.json: секции api и sftp, модифицируется автоматически
+- Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
 - MoyAgent: SUPPLIER — getSupplierName(); AGENT — air_ticket_doc[@issuingAgent]; BOOKING_AGENT — reservation[@bookingAgent]; RESERVATION_NUMBER — reservation[@rloc] через getMainReservation()
 - Конъюнкции: emd_ticket_doc[@main_prod_id] + скрытые (fare=0, seg_count=0, tkt_number ±1..9)
 - data.php formatAgent(): CODE===NAME → одно значение. Даты — все сегменты через запятую

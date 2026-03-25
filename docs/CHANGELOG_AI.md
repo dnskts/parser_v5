@@ -2,6 +2,85 @@
 
 ---
 
+## 2026-03-25 — Права владения ext_kuritsyn:bitrix на создаваемые файлы/папки
+
+**Запрос пользователя:** Все файлы и папки, создаваемые PHP, должны принадлежать пользователю `ext_kuritsyn` и группе `bitrix`.
+
+### Что было сделано
+
+**core/Utils.php** — два новых статических метода:
+- `ensureOwnership($path)` — `@chown($path, 'ext_kuritsyn')` + `@chgrp($path, 'bitrix')`, возвращает bool.
+- `ensureDirectory($dir, $permissions = 0775)` — `mkdir()` если не существует + `ensureOwnership()`.
+
+**core/Processor.php** (6 изменений):
+- `saveJson()`: после `file_put_contents()` → `ensureOwnership($jsonFilePath)`.
+- `moveFile()`: после `rename()` → `ensureOwnership($destination)`.
+- `ensureSubfolders()`: `mkdir()` для Processed/ и Error/ заменён на `ensureDirectory()`.
+- Конструктор: `mkdir()` для json/ заменён на `ensureDirectory()`.
+- `saveSettings()`: `mkdir()` → `ensureDirectory()`, после записи → `ensureOwnership()`.
+
+**core/Logger.php** (3 изменения):
+- Конструктор: `mkdir()` → `ensureDirectory()`.
+- `write()`: при ротации `rename()` → `ensureOwnership()` для `.old`; при создании нового файла → `ensureOwnership()`.
+
+**core/ApiSender.php** (2 изменения):
+- Конструктор: `mkdir()` → `ensureDirectory()`.
+- `writeLog()`: при создании нового файла → `ensureOwnership()`.
+
+**core/SftpSync.php** (3 изменения):
+- `sync()`: `mkdir()` для локальной папки → `ensureDirectory()`.
+- `downloadFile()`: после `fclose()` → `ensureOwnership($localFilePath)`.
+- `log()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+
+**core/PullSync.php** (3 изменения):
+- `sync()`: `mkdir()` → `ensureDirectory()`, после сохранения JSON → `ensureOwnership($filePath)`.
+- `log()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+
+**webhook.php** (3 изменения):
+- `webhookLog()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+- Создание `input/{supplier}/`: `mkdir()` → `ensureDirectory()`.
+- После сохранения webhook JSON → `ensureOwnership($filePath)`.
+
+**sftp_sync.php** (3 изменения):
+- `configDir mkdir()` → `ensureDirectory()`.
+- После `file_put_contents()` для `sftp_last_run.txt` → `ensureOwnership()`.
+- `logAndExit()`: `mkdir()` → `ensureDirectory()`, при создании нового файла → `ensureOwnership()`.
+
+**process.php** (3 изменения):
+- `runSftpSync()`: `mkdir()` → `ensureDirectory()`, после записи `sftp_last_run.txt` → `ensureOwnership()`.
+- `runPullSync()`: `mkdir()` → `ensureDirectory()`, после обновления `settings.json` → `ensureOwnership()`.
+
+**api.php** (1 изменение):
+- `settings` POST: `mkdir()` → `ensureDirectory()`, после записи `settings.json` → `ensureOwnership()`.
+
+**require_once** для `core/Utils.php` добавлен в: Processor.php, Logger.php, ApiSender.php, SftpSync.php, webhook.php, sftp_sync.php, process.php.
+
+**docs/SisPrompt.md** — в «Критические правила» добавлено правило про ext_kuritsyn:bitrix.
+
+### Принятые решения
+- `chown`/`chgrp` с `@` — ошибки подавляются, работа продолжается независимо от прав PHP-процесса.
+- `ensureOwnership()` для логов вызывается **только при создании нового файла** (проверка `!file_exists()` перед записью), а не при каждом `FILE_APPEND`.
+- `ensureDirectory()` по умолчанию создаёт папки с правами 0775 (группа `bitrix` может записывать).
+- PHP 7.0 синтаксис сохранён: `array()`, без type hints.
+
+### Изменённые файлы
+- `core/Utils.php` — два новых метода
+- `core/Processor.php` — 6 точек вызова
+- `core/Logger.php` — конструктор + write()
+- `core/ApiSender.php` — конструктор + writeLog()
+- `core/SftpSync.php` — sync() + downloadFile() + log()
+- `core/PullSync.php` — sync() + log()
+- `webhook.php` — webhookLog() + inputDir + webhook JSON
+- `sftp_sync.php` — sftp_last_run.txt + configDir + logAndExit()
+- `process.php` — runSftpSync() + runPullSync()
+- `api.php` — settings POST
+- `docs/SisPrompt.md` — критическое правило
+- `docs/CURRENT_STAGE.md` — обновлено
+- `docs/CHANGELOG_AI.md` — эта запись
+- `docs/structure.md` — описание Utils.php
+
+---
+
 ## 2026-03-25 — Перенос документации в каталог `docs/`
 
 **Запрос пользователя:** Перенести `CURRENT_STAGE.md`, `CHANGELOG_AI.md`, `structure.md`, `SisPrompt.md` и одноимённые `.txt` из корня проекта в `docs/`; обновить скрипт синхронизации, `.cursorrules`, skills и внутренние ссылки.

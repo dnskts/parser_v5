@@ -19,6 +19,8 @@
  * ============================================================
  */
 
+require_once __DIR__ . '/Utils.php';
+
 class Logger
 {
     /** @var string Путь к файлу логов */
@@ -41,9 +43,7 @@ class Logger
 
         // Создаём папку для логов, если она ещё не существует
         $logDir = dirname($logFile);
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0755, true);
-        }
+        Utils::ensureDirectory($logDir);
     }
 
     /**
@@ -100,6 +100,8 @@ class Logger
      */
     private function write($level, $message)
     {
+        $isNewFile = !file_exists($this->logFile);
+
         // Если файл логов слишком большой — архивируем его
         if (file_exists($this->logFile) && filesize($this->logFile) > $this->maxFileSize) {
             $oldFile = $this->logFile . '.old';
@@ -108,6 +110,8 @@ class Logger
                 unlink($oldFile);
             }
             rename($this->logFile, $oldFile);
+            Utils::ensureOwnership($oldFile);
+            $isNewFile = true;
         }
 
         // Формируем строку лога с текущей датой и временем
@@ -117,6 +121,10 @@ class Logger
         // Записываем в файл (FILE_APPEND — добавляем в конец, не перезаписываем)
         // LOCK_EX — блокируем файл на время записи, чтобы не было конфликтов
         file_put_contents($this->logFile, $logLine, FILE_APPEND | LOCK_EX);
+
+        if ($isNewFile) {
+            Utils::ensureOwnership($this->logFile);
+        }
     }
 
     /**

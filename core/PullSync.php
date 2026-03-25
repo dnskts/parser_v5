@@ -63,9 +63,7 @@ class PullSync
         $this->log('INFO', "Запрос к SmartTravel API: {$requestUrl}");
 
         // Создаём локальную папку, если не существует
-        if (!is_dir($this->localPath)) {
-            @mkdir($this->localPath, 0755, true);
-        }
+        Utils::ensureDirectory($this->localPath);
 
         $curlOptions = array(
             'method'         => 'GET',
@@ -127,6 +125,8 @@ class PullSync
             return $result;
         }
 
+        Utils::ensureOwnership($filePath);
+
         $sizeKb = round($written / 1024, 1);
         $this->log('SUCCESS', "Сохранён {$fileName} ({$sizeKb} KB, заказов: {$ordersCount}), время запроса: {$response['duration']}с");
 
@@ -145,16 +145,22 @@ class PullSync
     private function log($level, $message)
     {
         $dir = dirname($this->logFile);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
-        }
+        Utils::ensureDirectory($dir);
+
+        $isNewFile = !file_exists($this->logFile);
 
         // Ротация: >5 МБ → .old
         if (file_exists($this->logFile) && filesize($this->logFile) > 5 * 1024 * 1024) {
             @rename($this->logFile, $this->logFile . '.old');
+            Utils::ensureOwnership($this->logFile . '.old');
+            $isNewFile = true;
         }
 
         $line = '[' . date('Y-m-d H:i:s') . '] [' . $level . '] ' . $message . PHP_EOL;
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
+
+        if ($isNewFile) {
+            Utils::ensureOwnership($this->logFile);
+        }
     }
 }

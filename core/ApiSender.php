@@ -18,6 +18,8 @@
  * ============================================================
  */
 
+require_once __DIR__ . '/Utils.php';
+
 class ApiSender
 {
     /** @var array Настройки API: url, login, password, timeout, enabled */
@@ -37,9 +39,7 @@ class ApiSender
         $this->config = $apiConfig;
         $this->logFile = $logFile;
         $logDir = dirname($logFile);
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0755, true);
-        }
+        Utils::ensureDirectory($logDir);
     }
 
     /**
@@ -292,6 +292,8 @@ class ApiSender
      */
     private function writeLog($status, $jsonFileName, $sourceXml, $httpCode, $responseBody, $message)
     {
+        $isNewFile = !file_exists($this->logFile);
+
         $entry = array(
             'timestamp'  => date('Y-m-d H:i:s'),
             'status'     => $status,
@@ -303,6 +305,10 @@ class ApiSender
         );
         $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
+
+        if ($isNewFile) {
+            Utils::ensureOwnership($this->logFile);
+        }
     }
 
     /**

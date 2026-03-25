@@ -40,6 +40,38 @@ class Utils
     }
 
     /**
+     * Устанавливает владельца (ext_kuritsyn) и группу (bitrix) для файла/папки.
+     * Ошибки подавляются (@) — PHP может не иметь прав на chown/chgrp.
+     *
+     * @param string $path — путь к файлу или папке
+     * @return bool — true если обе операции успешны
+     */
+    public static function ensureOwnership($path)
+    {
+        $ownerOk = @chown($path, 'ext_kuritsyn');
+        $groupOk = @chgrp($path, 'bitrix');
+        return $ownerOk && $groupOk;
+    }
+
+    /**
+     * Создаёт директорию (если не существует) и устанавливает владельца/группу.
+     *
+     * @param string $dir — путь к директории
+     * @param int $permissions — права доступа (по умолчанию 0775)
+     * @return bool — true если директория существует или создана успешно
+     */
+    public static function ensureDirectory($dir, $permissions = 0775)
+    {
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, $permissions, true)) {
+                return false;
+            }
+        }
+        self::ensureOwnership($dir);
+        return true;
+    }
+
+    /**
      * Универсальный cURL-запрос с поддержкой прокси и Basic Auth.
      *
      * @param string $url — адрес запроса

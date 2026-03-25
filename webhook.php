@@ -24,6 +24,7 @@ if (!defined('BASE_DIR')) {
     define('BASE_DIR', __DIR__);
 }
 
+require_once BASE_DIR . '/core/Utils.php';
 require_once BASE_DIR . '/core/Logger.php';
 require_once BASE_DIR . '/core/ParserManager.php';
 require_once BASE_DIR . '/core/Processor.php';
@@ -40,14 +41,22 @@ function webhookLog($level, $message)
 {
     global $logFile;
     $dir = dirname($logFile);
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
+    Utils::ensureDirectory($dir);
+
+    $isNewFile = !file_exists($logFile);
+
     if (file_exists($logFile) && filesize($logFile) > 5 * 1024 * 1024) {
         @rename($logFile, $logFile . '.old');
+        Utils::ensureOwnership($logFile . '.old');
+        $isNewFile = true;
     }
+
     $line = '[' . date('Y-m-d H:i:s') . '] [' . $level . '] ' . $message . PHP_EOL;
     file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+
+    if ($isNewFile) {
+        Utils::ensureOwnership($logFile);
+    }
 }
 
 // Только POST
@@ -127,9 +136,7 @@ if (!is_array($bodyData)) {
 
 // Сохраняем в input/{supplier}/
 $inputDir = BASE_DIR . '/input/' . $supplier;
-if (!is_dir($inputDir)) {
-    @mkdir($inputDir, 0755, true);
-}
+Utils::ensureDirectory($inputDir);
 
 $timestamp = date('Ymd_His') . '_' . substr(microtime(true) * 1000 % 1000, 0, 3);
 $fileName = "webhook_{$timestamp}.json";
@@ -144,6 +151,8 @@ if ($written === false) {
     echo json_encode(array('status' => 'error', 'message' => 'Ошибка сохранения файла'), JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+Utils::ensureOwnership($filePath);
 
 $sizeKb = round($written / 1024, 1);
 webhookLog('INFO', "Принят webhook: supplier={$supplier}, файл={$fileName} ({$sizeKb} KB)");

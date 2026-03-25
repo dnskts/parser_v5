@@ -24,6 +24,7 @@
 define('BASE_DIR', __DIR__);
 
 // Подключаем класс синхронизации
+require_once BASE_DIR . '/core/Utils.php';
 require_once BASE_DIR . '/core/SftpSync.php';
 
 // -------------------------------------------------------
@@ -103,10 +104,9 @@ $result = $sync->sync();
 
 // Обновляем время последнего запуска
 $configDir = dirname($lastRunFile);
-if (!is_dir($configDir)) {
-    @mkdir($configDir, 0755, true);
-}
+Utils::ensureDirectory($configDir);
 file_put_contents($lastRunFile, (string)time(), LOCK_EX);
+Utils::ensureOwnership($lastRunFile);
 
 // -------------------------------------------------------
 // Вывод результата
@@ -147,10 +147,12 @@ function logAndExit($message, $logFile)
 {
     $line = '[' . date('Y-m-d H:i:s') . '] [ERROR] ' . $message . "\n";
     $logDir = dirname($logFile);
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0755, true);
-    }
+    Utils::ensureDirectory($logDir);
+    $isNewFile = !file_exists($logFile);
     file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+    if ($isNewFile) {
+        Utils::ensureOwnership($logFile);
+    }
 
     if (php_sapi_name() !== 'cli') {
         header('Content-Type: text/plain; charset=utf-8');
