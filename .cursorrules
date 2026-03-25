@@ -7,3 +7,4 @@ After every change:
 1. Update CURRENT_STAGE.md per the context-keeper skill
 2. Update CHANGELOG_AI.md with details
 3. Update structure.md if files were created/deleted
+4. If you edited SisPrompt.md, CURRENT_STAGE.md, CHANGELOG_AI.md, or structure.md, run `php scripts/sync-docs-to-txt.php` from the project root and do not finish until the matching `*.txt` files are updated

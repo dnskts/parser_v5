@@ -15,6 +15,8 @@ Apply this skill **every time** you:
 
 **После внесения изменений в проект** (по правилам проекта): обновлять `CURRENT_STAGE.md`, `CHANGELOG_AI.md` и при необходимости `structure.md`. Файл `SisPrompt.md` (системный промпт для веб-нейросетей) обновлять, если изменились ключевые правила или структура (например, число фикстур, новые эндпоинты API).
 
+**После изменения** `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md` или `structure.md`: выполнить в корне проекта `php scripts/sync-docs-to-txt.php`, чтобы обновить одноимённые файлы `*.txt` (UTF-8 копии содержимого `.md`).
+
 ## Where to write
 
 Update the file `structure.md` in the **project root**.
@@ -99,6 +101,7 @@ Each section has a heading, a brief purpose description, and a list of files wit
 
 ## Checklist (verify before finishing)
 
+- [ ] If any of `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md`, `structure.md` were edited, `php scripts/sync-docs-to-txt.php` was run and `*.txt` mirrors are current
 - [ ] Every new / renamed / deleted file is reflected in `structure.md`
 - [ ] Every added / removed dependency is reflected in the Dependencies section
 - [ ] No stale entries remain
