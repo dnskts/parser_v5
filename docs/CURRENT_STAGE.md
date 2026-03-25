@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-03-25
-**Обновлено после:** зеркала документации `*.txt` для четырёх корневых `.md`, скрипт `scripts/sync-docs-to-txt.php`, правила в `.cursorrules` и skills
+**Обновлено после:** перенос документации в `docs/` (CURRENT_STAGE, CHANGELOG_AI, structure, SisPrompt + зеркала `.txt`), обновление скрипта синхронизации и правил Cursor
 
 ---
 
@@ -46,6 +46,7 @@
 
 ## 3. Структура проекта
 parser_v5/
+├── docs/                     — контекст для людей и AI: CURRENT_STAGE, CHANGELOG_AI, structure, SisPrompt (.md + зеркала .txt)
 ├── config/
 │   ├── settings.json         — интервал, last_run, api, sftp, tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
@@ -664,7 +665,7 @@ resend	POST	Повторная отправка JSON в 1С
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
-2026-03-25	Документация: UTF-8 зеркала SisPrompt/CURRENT_STAGE/CHANGELOG_AI/structure в `*.txt`, скрипт `php scripts/sync-docs-to-txt.php`; обновлены `.cursorrules`, context-keeper, update-structure SKILL	scripts/sync-docs-to-txt.php, SisPrompt.txt, CURRENT_STAGE.txt, CHANGELOG_AI.txt, structure.txt, .cursorrules, .cursor/skills/context-keeper.md, .cursor/skills/update-structure/SKILL.md
+2026-03-25	Документация в `docs/` (четыре `.md` + зеркала `.txt`); `sync-docs-to-txt.php` обновляет `docs/*.txt`; правила Cursor, README и nextstep на пути `docs/*`	docs/, scripts/sync-docs-to-txt.php, .cursorrules, .cursor/skills/context-keeper.md, .cursor/skills/update-structure/SKILL.md, README.md, nextstep.md
 2026-03-17	SmartTravel PUSH+PULL: парсер ЖД, PullSync (API+прокси), webhook.php, SmartTravelConstants, тесты	SmartTravelParser.php, SmartTravelConstants.php, PullSync.php, webhook.php, Processor.php, process.php, Utils.php, settings.json, test.php
 2026-03-13	Зачёт и Связ.билет: buildPaymentsFromXml из xml->payments, tkt_fop ПК/БИЛЕТ→TYPE=TICKET, EXCH в analyzeOrderType	parsers/MoyAgentParser.php, MoyAgentConstants.php
 2026-03-13	SFTP timeout 5→2с (CONNECTTIMEOUT=1), автообработка сохраняется при навигации (localStorage), AbortController для fetch	core/SftpSync.php, assets/app.js
@@ -709,7 +710,7 @@ SSH host key проверка отключена в SftpSync (внутрення
 ext-curl обязателен (с поддержкой SFTP/libssh2 для синхронизации)
 14. Контекст для AI-ассистента
 Критические правила
-Документация: при изменении `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md` или `structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
+Документация: при изменении `docs/SisPrompt.md`, `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md` или `docs/structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `docs/*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
 UUID — только Utils::generateUUID(), require core/Utils.php
 Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
 Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php

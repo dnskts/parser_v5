@@ -2,14 +2,33 @@
 
 ---
 
-## 2026-03-25 — Зеркала документации в `.txt` и скрипт синхронизации
+## 2026-03-25 — Перенос документации в каталог `docs/`
 
-**Запрос пользователя:** Сохранять `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md` и `structure.md` в формате `.txt` при каждом изменении (синхронизация содержимого).
+**Запрос пользователя:** Перенести `CURRENT_STAGE.md`, `CHANGELOG_AI.md`, `structure.md`, `SisPrompt.md` и одноимённые `.txt` из корня проекта в `docs/`; обновить скрипт синхронизации, `.cursorrules`, skills и внутренние ссылки.
 
 ### Что было сделано
 
-- Добавлен **`scripts/sync-docs-to-txt.php`** — копирует четыре корневых `.md` в одноимённые `.txt` (UTF-8).
-- Сгенерированы **`SisPrompt.txt`**, **`CURRENT_STAGE.txt`**, **`CHANGELOG_AI.txt`**, **`structure.txt`** (первичная синхронизация и обновление после правок `structure.md`).
+- Создана папка **`docs/`**, в неё перенесены восемь файлов (четыре `.md` и четыре `.txt`).
+- **`scripts/sync-docs-to-txt.php`** читает и пишет пары в `docs/` (`docs/*.md` → `docs/*.txt`).
+- Обновлены **`.cursorrules`**, **`.cursor/skills/context-keeper.md`**, **`.cursor/skills/update-structure/SKILL.md`**, **`README.md`**, **`docs/CURRENT_STAGE.md`** (дерево в секции 3, таблица изменений, блок AI), **`docs/structure.md`** (секции «Документация (docs/)» и «Корень проекта»), **`docs/SisPrompt.md`**.
+- **`.gitignore`** без изменений (пути к документации не игнорировались).
+
+### Изменённые файлы
+
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`, `docs/SisPrompt.md`, `docs/*.txt` (расположение и синхронизация)
+- `scripts/sync-docs-to-txt.php`, `.cursorrules`, `.cursor/skills/context-keeper.md`, `.cursor/skills/update-structure/SKILL.md`, `README.md` (ссылки на `docs/`, пункт про `docs/` в структуре)
+- `nextstep.md` — пути к документации с префиксом `docs/`
+
+---
+
+## 2026-03-25 — Зеркала документации в `.txt` и скрипт синхронизации
+
+**Запрос пользователя:** Сохранять `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md` и `structure.md` в формате `.txt` при каждом изменении (синхронизация содержимого). *(На 2026-03-25 эти файлы перенесены в `docs/` — см. запись выше.)*
+
+### Что было сделано
+
+- Добавлен **`scripts/sync-docs-to-txt.php`** — копирует четыре `.md` в одноимённые `.txt` (UTF-8); позже пути перенесены в **`docs/`**.
+- Сгенерированы зеркала **`SisPrompt.txt`**, **`CURRENT_STAGE.txt`**, **`CHANGELOG_AI.txt`**, **`structure.txt`** (первично в корне; затем вместе с `.md` — в `docs/`).
 - Обновлены **`.cursorrules`**, **`.cursor/skills/context-keeper.md`**, **`.cursor/skills/update-structure/SKILL.md`** — обязательный запуск скрипта после правок перечисленных `.md`.
 - Обновлены **`structure.md`**, **`CURRENT_STAGE.md`** — описание зеркал и скрипта.
 

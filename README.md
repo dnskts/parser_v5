@@ -16,6 +16,7 @@ php -S localhost:8080        # веб-интерфейс
 php process.php              # обработка из CLI
 
 ## Структура
+- `docs/` — документация и AI-контекст (CURRENT_STAGE, structure, changelog, промпт)
 - `core/` — ядро системы
 - `parsers/` — парсеры поставщиков (plug-and-play)
 - `input/` — входные XML
@@ -27,5 +28,5 @@ php process.php              # обработка из CLI
 3. Готово — парсер обнаружится автоматически
 
 ## Документация
-- Подробная документация: [CURRENT_STAGE.md](CURRENT_STAGE.md)
-- Структура проекта: [structure.md](structure.md)
+- Подробная документация: [docs/CURRENT_STAGE.md](docs/CURRENT_STAGE.md)
+- Структура проекта: [docs/structure.md](docs/structure.md)

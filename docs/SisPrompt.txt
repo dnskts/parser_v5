@@ -26,7 +26,7 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 Корень: UID(v4), INVOICE_NUMBER, INVOICE_DATA(YYYYMMDDHHmmss), CLIENT, PRODUCTS[]. Служебные SOURCE_FILE, PARSED_AT удаляются перед 1С. Product: UID, PRODUCT_TYPE{NAME,CODE}, NUMBER, STATUS(продажа/возврат/обмен), TRAVELLER, COUPONS[], TAXES[](первый CODE=""=тариф), PAYMENTS[], COMMISSIONS[], REFUND(возвраты). PAYMENTS из xml->payments: tkt_fop ПК/БИЛЕТ→TYPE=TICKET, RELATED_TICKET_NUMBER. EXCH в analyzeOrderType. Типы: 000000001=Авиабилет, 000000003=Отельный билет.
 
 Критические правила
-- В начале: читай CURRENT_STAGE.md и structure.md. После изменений: обновляй CURRENT_STAGE.md, CHANGELOG_AI.md, structure.md.
+- В начале: читай docs/CURRENT_STAGE.md и docs/structure.md. После изменений: обновляй docs/CURRENT_STAGE.md, docs/CHANGELOG_AI.md, docs/structure.md; затем `php scripts/sync-docs-to-txt.php`.
 - Новый парсер: parsers/XxxParser.php implements ParserInterface + input/folder/
 - UUID только Utils::generateUUID()
 - Processor привязан к glob(*.xml)
