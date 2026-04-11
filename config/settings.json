@@ -1,6 +1,6 @@
 {
     "interval": 10,
-    "last_run": 1773749340,
+    "last_run": 1775941643,
     "api": {
         "enabled": true,
         "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
@@ -33,13 +33,46 @@
             "proxy_login": "",
             "proxy_pass": "",
             "interval_min": 10,
-            "last_run": "1773749339"
+            "last_run": "1775941639"
         },
         "webhook": {
             "basic_auth_enabled": false,
             "basic_login": "",
             "basic_pass": "",
             "path": "\/webhook"
+        }
+    },
+    "references": {
+        "auto_sync": false,
+        "api_url": "",
+        "api_login": "",
+        "api_password": "",
+        "api_timeout": 30,
+        "types": {
+            "suppliers": {
+                "endpoint": "\/suppliers",
+                "enabled": true
+            },
+            "agents": {
+                "endpoint": "\/agents",
+                "enabled": true
+            },
+            "airports": {
+                "endpoint": "\/airports",
+                "enabled": true
+            },
+            "airlines": {
+                "endpoint": "\/airlines",
+                "enabled": true
+            },
+            "service_classes": {
+                "endpoint": "\/service_classes",
+                "enabled": true
+            },
+            "currencies": {
+                "endpoint": "\/currencies",
+                "enabled": true
+            }
         }
     },
     "tab_order": [

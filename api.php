@@ -352,6 +352,35 @@ switch ($action) {
         break;
 
     /**
+     * СИНХРОНИЗАЦИЯ СПРАВОЧНИКОВ ВРУЧНУЮ
+     *
+     * Запускает syncAll() для всех включённых справочников.
+     * Принимает только POST-запросы.
+     */
+    case 'sync_references':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Требуется POST-запрос'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        require_once BASE_DIR . '/core/ReferenceManager.php';
+        $refSettingsAll = json_decode(file_get_contents($configFile), true);
+        $refConfig = isset($refSettingsAll['references']) ? $refSettingsAll['references'] : array();
+        $refManager = new ReferenceManager(BASE_DIR . '/references', $logger, $refConfig);
+        $syncResult = $refManager->syncAll();
+
+        echo json_encode(array(
+            'status' => 'ok',
+            'message' => 'Синхронизация справочников завершена',
+            'results' => $syncResult
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
      * НЕИЗВЕСТНОЕ ДЕЙСТВИЕ
      */
     default:

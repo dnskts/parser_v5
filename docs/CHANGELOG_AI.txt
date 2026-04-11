@@ -2,6 +2,64 @@
 
 ---
 
+## 2026-04-11 — Убран ошибочный префикс '555' из номеров авиабилетов
+
+**Запрос пользователя:** Номер билета в XML (air_ticket_doc[@tkt_number]) уже содержит код авиакомпании. Добавление '555' удваивало код. Убрать.
+
+### Что было сделано
+- **`parsers/MoyAgentParser.php`** — убран `'555' .` из 4 мест: NUMBER авиа (продажа и возврат), RELATED_TICKET_NUMBER в EMD (продажа и возврат). Номера берутся as-is из XML.
+- **`test.php`** — обновлены ожидания ticket_number и all_tickets (убран ошибочный префикс 555).
+- **`docs/CURRENT_STAGE.md`** — убраны упоминания префикса 555.
+
+---
+
+## 2026-04-11 — Модуль справочников (references) для подстановки UID из 1С
+
+**Запрос пользователя:** Реализовать модуль справочников для подстановки UID из 1С в JSON ORDER. Справочники хранятся в JSON-файлах (references/*.json), заполняются вручную (позже — через API 1С). Подстановку UID выполняет Processor (не парсеры). В парсерах: разделение дат на отдельные поля и добавление префикса 555 к номерам авиабилетов (только MoyAgent).
+
+### Что было сделано
+
+**Новые файлы (7):**
+- **`core/ReferenceManager.php`** — класс менеджера справочников. Загрузка JSON-файлов (loadReference), поиск по коду (findByCode), обогащение ORDER полями UID (enrich), синхронизация через API 1С (syncReference/syncAll — заглушка при пустом api_url), список типов (getAvailableTypes). Кеширование в памяти: файл читается один раз за цикл.
+- **`references/suppliers.json`**, **`agents.json`**, **`airports.json`**, **`airlines.json`**, **`service_classes.json`**, **`currencies.json`** — пустые JSON-файлы `[]` для ручного заполнения.
+
+**Изменённые файлы (8):**
+- **`config/settings.json`** — добавлена секция `references` (auto_sync, api_url, api_login, api_password, api_timeout, types с 6 справочниками).
+- **`core/Processor.php`** — интеграция ReferenceManager: require, создание экземпляра в конструкторе, вызов enrich() после parse() и перед saveJson() в run() и processSingleFile(), перемещение в Error/ при наличии предупреждений справочников.
+- **`parsers/MoyAgentParser.php`** — 7 изменений:
+  - Разделение DEPARTURE_DATETIME/ARRIVAL_DATETIME на DEPARTURE_DATE (8 символов) + DEPARTURE_TIME (6 символов, HHmmss) и ARRIVAL_DATE + ARRIVAL_TIME — в 3 местах: buildCouponsFromGroup(), EMD sale coupons, EMD refund coupons.
+  - NUMBER берётся as-is из XML (air_ticket_doc[@tkt_number]), без дополнительных префиксов.
+- **`core/DataTableHelpers.php`** — обработка новых форматов полей: SUPPLIER/CURRENCY как объекты (извлечение NAME/CODE), аэропорты в маршруте как объекты (извлечение CODE), даты в обоих форматах (DEPARTURE_DATETIME для SmartTravel, DEPARTURE_DATE+DEPARTURE_TIME для MoyAgent).
+- **`process.php`** — функция syncReferences() в pipeline между PULL и Processor (при auto_sync=true и api_url не пуст).
+- **`api.php`** — новый action sync_references (POST): создание ReferenceManager, вызов syncAll().
+- **`test.php`** — обновлены ожидания: префикс 555 ко всем avia ticket_number (7 тестов) и all_tickets (2 теста); обновлён код проверки дат (поддержка DEPARTURE_DATE+DEPARTURE_TIME).
+
+### Принятые решения
+- Парсеры НЕ знают про справочники — обогащение только через Processor.
+- Формат поля-справочника в JSON ORDER: `{"UID": "...", "CODE": "...", "NAME": "..."}`.
+- При ненайденном UID: UID="", NAME дублирует CODE, WARNING в лог, файл перемещается в Error/.
+- Отправка в 1С происходит ВСЕГДА, даже при отсутствии UID.
+- CURRENCY обогащается на уровне PRODUCT (не ORDER root).
+- AIRLINE создаётся в купонах из product-level CARRIER; пропускается если CARRIER пуст (EMD).
+- SERVICE_CLASS создаётся в купонах из CLASS; CLASS остаётся как есть.
+- AGENT и BOOKING_AGENT используют один справочник agents.json.
+- SmartTravel: даты НЕ разделяются, префикс 555 НЕ добавляется.
+- 247 тестов — 0 упало.
+
+### Изменённые файлы
+- `core/ReferenceManager.php` — новый
+- `references/suppliers.json`, `agents.json`, `airports.json`, `airlines.json`, `service_classes.json`, `currencies.json` — новые
+- `config/settings.json` — секция references
+- `core/Processor.php` — интеграция enrich
+- `parsers/MoyAgentParser.php` — даты (split) + NUMBER as-is
+- `core/DataTableHelpers.php` — объектные поля + split dates
+- `process.php` — syncReferences
+- `api.php` — sync_references action
+- `test.php` — обновлённые ожидания
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md` — обновлены
+
+---
+
 ## 2026-03-25 — Права владения ext_kuritsyn:bitrix на создаваемые файлы/папки
 
 **Запрос пользователя:** Все файлы и папки, создаваемые PHP, должны принадлежать пользователю `ext_kuritsyn` и группе `bitrix`.

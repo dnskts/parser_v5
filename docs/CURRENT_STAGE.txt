@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-03-25
-**Обновлено после:** права владения ext_kuritsyn:bitrix на создаваемые файлы/папки (Utils::ensureOwnership, Utils::ensureDirectory)
+**Последнее обновление:** 2026-04-11
+**Обновлено после:** модуль справочников (references) для подстановки UID из 1С, разделение дат в MoyAgent
 
 ---
 
@@ -10,7 +10,7 @@
 **XML Parser v5** — система обработки файлов от поставщиков туристических услуг (авиабилеты, ЖД, отели) с преобразованием в единый JSON-формат **ORDER** по спецификации **RSTLS** и отправкой во внешний API **1С:Предприятие**.
 
 **Статистика проекта:**
-- 21 PHP-файл, ~5 500 строк PHP-кода
+- 22 PHP-файла, ~5 800 строк PHP-кода
 - 2 фронтенд-файла (JS + CSS), ~920 строк
 - Итого: ~6 400 строк кода
 - 3 парсера (MoyAgent — авиа, SmartTravel — ЖД, DemoHotel — шаблон)
@@ -48,14 +48,22 @@
 parser_v5/
 ├── docs/                     — контекст для людей и AI: CURRENT_STAGE, CHANGELOG_AI, structure, SisPrompt (.md + зеркала .txt)
 ├── config/
-│   ├── settings.json         — интервал, last_run, api, sftp, tab_order, data_column_order (все настройки)
+│   ├── settings.json         — интервал, last_run, api, sftp, references, tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
+├── references/               — справочники для подстановки UID (JSON-файлы, заполняются вручную или через API 1С)
+│   ├── suppliers.json        — поставщики
+│   ├── agents.json           — агенты (AGENT + BOOKING_AGENT)
+│   ├── airports.json         — аэропорты (IATA)
+│   ├── airlines.json         — авиакомпании (IATA)
+│   ├── service_classes.json  — классы обслуживания
+│   └── currencies.json       — валюты (ISO)
 ├── core/
 │   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
 │   ├── Logger.php            — app.log (INFO/WARNING/ERROR/SUCCESS), ротация 5МБ→.old
 │   ├── ParserInterface.php   — контракт: getSupplierFolder(), getSupplierName(), parse()
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
-│   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→saveJson→send→move + processSingleFile()
+│   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→enrich→saveJson→send→move + processSingleFile()
+│   ├── ReferenceManager.php  — менеджер справочников: загрузка, поиск, обогащение ORDER полями UID, синхронизация через API 1С
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
 │   ├── PullSync.php          — PULL-синхронизатор SmartTravel: GET + Basic Auth + HTTP-прокси
 │   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership(), ensureDirectory()
@@ -74,8 +82,8 @@ parser_v5/
 ├── index.php                 — панель управления (app.js, AJAX)
 ├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows)
-├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + Processor
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows/sync_references)
+├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
 ├── test.php                  — автотесты парсеров (Web + CLI)
@@ -99,6 +107,9 @@ runProcessing($force)         fetch('api.php?action=run')
 │
 │  2. runPullSync($force)            (если smarttravel.enabled && mode=pull)
 │     PullSync → cURL+BasicAuth+Proxy → SmartTravel API → JSON в input/smarttravel/
+│
+│  2.5. syncReferences()              (если references.auto_sync && api_url не пуст)
+│       ReferenceManager→syncAll() → обновление references/*.json
 │
 │  3. Processor->run($force)
 └──────────┬───────────────────┘
@@ -165,9 +176,12 @@ sftp_sync.php ─── standalone (CLI + браузер) ─── для ру�
 Цикл по папкам → glob("input/$folder/*.xml + *.json") → цикл по файлам:
 try:
 result = $parser->parse(xmlFile)
+refResult = ReferenceManager->enrich(result, $folder, $fileName)
+result = refResult['order']
+if refResult['warnings'] → $hasRefWarnings = true, логи
 saveJson($result, $folder, $xmlFile)
-moveFile($xmlFile, "Processed/")
-if ($apiAvailable): ApiSender->send(…)
+if ($apiAvailable): ApiSender->send(…) — ВСЕГДА, даже без UID
+moveFile($xmlFile, $hasRefWarnings ? "Error/" : "Processed/")
 catch:
 moveFile($xmlFile, "Error/")
 Logger->error(…)
@@ -203,24 +217,28 @@ updateLastRunTime() → settings.json.last_run = time()
       "NUMBER": "6076506222015",
       "ISSUE_DATE": "20260226152252",
       "RESERVATION_NUMBER": "G1ZXKP",
-      "BOOKING_AGENT": { "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
-      "AGENT": { "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
+      "BOOKING_AGENT": { "UID": "...", "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
+      "AGENT": { "UID": "...", "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
       "STATUS": "продажа",
       "TICKET_TYPE": "OWN",
       "PASSENGER_AGE": "ADULT",
       "CONJ_COUNT": 2,
       "PENALTY": 0,
       "CARRIER": "EY",
-      "SUPPLIER": "Мой агент",
+      "SUPPLIER": { "UID": "...", "CODE": "moyagent", "NAME": "МА авиа" },
       "COUPONS": [
         {
           "FLIGHT_NUMBER": "842",
           "FARE_BASIS": "DKN0AC2R",
-          "DEPARTURE_AIRPORT": "SVO",
-          "DEPARTURE_DATETIME": "20260405124000",
-          "ARRIVAL_AIRPORT": "AUH",
-          "ARRIVAL_DATETIME": "20260405191000",
-          "CLASS": "D"
+          "DEPARTURE_AIRPORT": { "UID": "...", "CODE": "SVO", "NAME": "Шереметьево" },
+          "DEPARTURE_DATE": "20260405",
+          "DEPARTURE_TIME": "124000",
+          "ARRIVAL_AIRPORT": { "UID": "...", "CODE": "AUH", "NAME": "Абу-Даби" },
+          "ARRIVAL_DATE": "20260405",
+          "ARRIVAL_TIME": "191000",
+          "CLASS": "D",
+          "AIRLINE": { "UID": "...", "CODE": "EY", "NAME": "Etihad Airways" },
+          "SERVICE_CLASS": { "UID": "...", "CODE": "D", "NAME": "Бизнес" }
         }
       ],
   "TRAVELLER": "MAKAROV KONSTANTIN",
@@ -228,7 +246,7 @@ updateLastRunTime() → settings.json.last_run = time()
         { "CODE": "", "AMOUNT": 787970, "EQUIVALENT_AMOUNT": 787970, "VAT_RATE": 0, "VAT_AMOUNT": 0 },
         { "CODE": "RI", "AMOUNT": 3182, "EQUIVALENT_AMOUNT": 3182, "VAT_RATE": 0, "VAT_AMOUNT": 0 }
       ],
-      "CURRENCY": "RUB",
+      "CURRENCY": { "UID": "...", "CODE": "RUB", "NAME": "Российский рубль" },
       "PAYMENTS": [
         { "TYPE": "INVOICE", "AMOUNT": 834132, "EQUIVALENT_AMOUNT": 834132, "RELATED_TICKET_NUMBER": null }
       ],
@@ -246,13 +264,13 @@ updateLastRunTime() → settings.json.last_run = time()
 Корень	PRODUCTS	array	Массив продуктов (≥1)
 Product	UID	UUID v4	Уникальный ID продукта
 Product	PRODUCT_TYPE	{NAME, CODE}	Тип продукта
-Product	NUMBER	string	Номер билета
+Product	NUMBER	string	Номер билета (as-is из XML)
 Product	STATUS	string	продажа / возврат / обмен
 Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
-Product	SUPPLIER	string	Из getSupplierName()
+Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
 Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
-Product	BOOKING_AGENT	{CODE, NAME}	Из reservation[@bookingAgent]
-Product	AGENT	{CODE, NAME}	Из air_ticket_doc[@issuingAgent]
+Product	BOOKING_AGENT	{UID,CODE,NAME}	Из reservation[@bookingAgent], UID из agents.json
+Product	AGENT	{UID,CODE,NAME}	Из air_ticket_doc[@issuingAgent], UID из agents.json
 Product	TAXES	array	Первый (CODE="") = тариф
 Product	PAYMENTS	array	Платежи
 5.3. Служебные поля (удаляются перед отправкой в 1С)
@@ -295,7 +313,7 @@ RESERVATION_NUMBER	reservation[@rloc] через getMainReservation()
 BOOKING_AGENT	reservation[@bookingAgent]
 AGENT	air_ticket_doc[@issuingAgent]
 CARRIER	air_ticket_prod[@validating_carrier]
-NUMBER	air_ticket_doc[@tkt_number]
+NUMBER	air_ticket_doc[@tkt_number] (as-is)
 TRAVELLER	passenger[@name] + [@first_name] + [@middle_name?]
 Конъюнкции (V4+):
 

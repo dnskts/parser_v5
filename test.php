@@ -628,24 +628,49 @@ foreach ($fixtureFiles as $fileName) {
         $firstCoupon = $p['COUPONS'][0];
         $lastCoupon = end($p['COUPONS']);
 
-        $actual = isset($firstCoupon['DEPARTURE_DATETIME']) ? $firstCoupon['DEPARTURE_DATETIME'] : '';
+        // Поддержка обоих форматов: DEPARTURE_DATETIME (14 символов) или DEPARTURE_DATE+DEPARTURE_TIME
+        if (isset($firstCoupon['DEPARTURE_DATETIME'])) {
+            $actual = $firstCoupon['DEPARTURE_DATETIME'];
+        } elseif (isset($firstCoupon['DEPARTURE_DATE'])) {
+            $actual = $firstCoupon['DEPARTURE_DATE'] . (isset($firstCoupon['DEPARTURE_TIME']) ? $firstCoupon['DEPARTURE_TIME'] : '');
+        } else {
+            $actual = '';
+        }
         addCheck($fileResult, $totalTests, $passedTests, $failedTests,
             'Вылет (1-й сегм.)', ($actual === $expected['first_dep_dt']), $expected['first_dep_dt'], $actual);
 
         if (isset($expected['first_arr_dt'])) {
-            $actual = isset($firstCoupon['ARRIVAL_DATETIME']) ? $firstCoupon['ARRIVAL_DATETIME'] : '';
+            if (isset($firstCoupon['ARRIVAL_DATETIME'])) {
+                $actual = $firstCoupon['ARRIVAL_DATETIME'];
+            } elseif (isset($firstCoupon['ARRIVAL_DATE'])) {
+                $actual = $firstCoupon['ARRIVAL_DATE'] . (isset($firstCoupon['ARRIVAL_TIME']) ? $firstCoupon['ARRIVAL_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Прилёт (1-й сегм.)', ($actual === $expected['first_arr_dt']), $expected['first_arr_dt'], $actual);
         }
 
         if (isset($expected['last_dep_dt'])) {
-            $actual = isset($lastCoupon['DEPARTURE_DATETIME']) ? $lastCoupon['DEPARTURE_DATETIME'] : '';
+            if (isset($lastCoupon['DEPARTURE_DATETIME'])) {
+                $actual = $lastCoupon['DEPARTURE_DATETIME'];
+            } elseif (isset($lastCoupon['DEPARTURE_DATE'])) {
+                $actual = $lastCoupon['DEPARTURE_DATE'] . (isset($lastCoupon['DEPARTURE_TIME']) ? $lastCoupon['DEPARTURE_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Вылет (посл. сегм.)', ($actual === $expected['last_dep_dt']), $expected['last_dep_dt'], $actual);
         }
 
         if (isset($expected['last_arr_dt'])) {
-            $actual = isset($lastCoupon['ARRIVAL_DATETIME']) ? $lastCoupon['ARRIVAL_DATETIME'] : '';
+            if (isset($lastCoupon['ARRIVAL_DATETIME'])) {
+                $actual = $lastCoupon['ARRIVAL_DATETIME'];
+            } elseif (isset($lastCoupon['ARRIVAL_DATE'])) {
+                $actual = $lastCoupon['ARRIVAL_DATE'] . (isset($lastCoupon['ARRIVAL_TIME']) ? $lastCoupon['ARRIVAL_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Прилёт (посл. сегм.)', ($actual === $expected['last_arr_dt']), $expected['last_arr_dt'], $actual);
         }

@@ -25,6 +25,7 @@ require_once __DIR__ . '/Logger.php';
 require_once __DIR__ . '/ParserManager.php';
 require_once __DIR__ . '/ApiSender.php';
 require_once __DIR__ . '/Utils.php';
+require_once __DIR__ . '/ReferenceManager.php';
 
 class Processor
 {
@@ -45,6 +46,9 @@ class Processor
 
     /** @var ApiSender Отправщик заказов в API 1С */
     private $apiSender;
+
+    /** @var ReferenceManager Менеджер справочников */
+    private $referenceManager;
 
     /**
      * Создание обработчика.
@@ -71,6 +75,11 @@ class Processor
         $apiConfig = isset($settings['api']) ? $settings['api'] : array();
         $apiLogFile = dirname($this->configFile) . '/../logs/api_send.log';
         $this->apiSender = new ApiSender($apiConfig, $apiLogFile);
+
+        // Инициализируем менеджер справочников
+        $referencesDir = dirname($this->configFile) . '/../references';
+        $refSettings = isset($settings['references']) ? $settings['references'] : array();
+        $this->referenceManager = new ReferenceManager($referencesDir, $this->logger, $refSettings);
     }
 
     /**
@@ -124,6 +133,9 @@ class Processor
             $supplierDir = $this->inputDir . DIRECTORY_SEPARATOR . $folder;
 
             // Проверяем, существует ли папка поставщика
+            // #region agent log
+            @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'A','location'=>'Processor.php:128','message'=>'Checking supplier dir','data'=>array('folder'=>$folder,'supplierDir'=>$supplierDir,'exists'=>is_dir($supplierDir)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+            // #endregion
             if (!is_dir($supplierDir)) {
                 $this->logger->warning("Папка поставщика не найдена: {$supplierDir}");
                 continue;
@@ -178,10 +190,22 @@ class Processor
                     }
 
                     $savedJsonFiles = array();
+                    $hasRefWarnings = false;
                     foreach ($ordersList as $singleOrder) {
+                        // Обогащение справочниками (подстановка UID)
+                        $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
+                        $singleOrder = $refResult['order'];
+                        if (!empty($refResult['warnings'])) {
+                            $hasRefWarnings = true;
+                            foreach ($refResult['warnings'] as $refWarn) {
+                                $this->logger->warning($refWarn);
+                            }
+                        }
+
                         $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                         $savedJsonFiles[] = $jsonFileName;
 
+                        // Отправка в 1С происходит ВСЕГДА, даже без UID
                         if ($apiAvailable) {
                             try {
                                 $apiResult = $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
@@ -198,9 +222,11 @@ class Processor
                         }
                     }
 
+                    // Если есть предупреждения справочников — в Error/, иначе — в Processed/
+                    $moveSubfolder = $hasRefWarnings ? 'Error' : 'Processed';
                     $this->moveFile(
                         $xmlFile,
-                        $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
+                        $supplierDir . DIRECTORY_SEPARATOR . $moveSubfolder . DIRECTORY_SEPARATOR . $fileName
                     );
 
                     $jsonList = implode(', ', $savedJsonFiles);
@@ -274,7 +300,18 @@ class Processor
                 $ordersList = array_values($orderData);
             }
 
+            $hasRefWarnings = false;
             foreach ($ordersList as $singleOrder) {
+                // Обогащение справочниками (подстановка UID)
+                $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
+                $singleOrder = $refResult['order'];
+                if (!empty($refResult['warnings'])) {
+                    $hasRefWarnings = true;
+                    foreach ($refResult['warnings'] as $refWarn) {
+                        $this->logger->warning($refWarn);
+                    }
+                }
+
                 $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                 $result['json_files'][] = $jsonFileName;
 
@@ -287,9 +324,10 @@ class Processor
                 }
             }
 
+            $moveSubfolder = $hasRefWarnings ? 'Error' : 'Processed';
             $this->moveFile(
                 $filePath,
-                $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
+                $supplierDir . DIRECTORY_SEPARATOR . $moveSubfolder . DIRECTORY_SEPARATOR . $fileName
             );
 
             $result['processed'] = count($ordersList);
@@ -360,6 +398,9 @@ class Processor
      */
     private function moveFile($source, $destination)
     {
+        // #region agent log
+        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'E','location'=>'Processor.php:366','message'=>'moveFile','data'=>array('source'=>$source,'destination'=>$destination,'sourceExists'=>file_exists($source)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+        // #endregion
         // Если файл с таким именем уже существует — добавляем к имени дату
         if (file_exists($destination)) {
             $pathInfo = pathinfo($destination);
@@ -389,6 +430,9 @@ class Processor
         $processed = $supplierDir . DIRECTORY_SEPARATOR . 'Processed';
         $error = $supplierDir . DIRECTORY_SEPARATOR . 'Error';
 
+        // #region agent log
+        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'A','location'=>'Processor.php:392','message'=>'ensureSubfolders','data'=>array('supplierDir'=>$supplierDir,'processed'=>$processed,'error'=>$error),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+        // #endregion
         Utils::ensureDirectory($processed);
         Utils::ensureDirectory($error);
     }

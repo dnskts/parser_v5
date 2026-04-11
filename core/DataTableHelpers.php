@@ -73,9 +73,11 @@ function buildRowsFromJsonFile($filePath)
             $points = array();
             foreach ($product['COUPONS'] as $coupon) {
                 if (empty($points)) {
-                    $points[] = isset($coupon['DEPARTURE_AIRPORT']) ? $coupon['DEPARTURE_AIRPORT'] : '';
+                    $dep = isset($coupon['DEPARTURE_AIRPORT']) ? $coupon['DEPARTURE_AIRPORT'] : '';
+                    $points[] = is_array($dep) && isset($dep['CODE']) ? $dep['CODE'] : $dep;
                 }
-                $points[] = isset($coupon['ARRIVAL_AIRPORT']) ? $coupon['ARRIVAL_AIRPORT'] : '';
+                $arr = isset($coupon['ARRIVAL_AIRPORT']) ? $coupon['ARRIVAL_AIRPORT'] : '';
+                $points[] = is_array($arr) && isset($arr['CODE']) ? $arr['CODE'] : $arr;
             }
             $route = implode(' → ', array_filter($points));
         } elseif (!empty($product['SEGMENTS'])) {
@@ -146,9 +148,15 @@ function buildRowsFromJsonFile($filePath)
                 if (isset($coupon['TYPE_ID_NAME']) && $coupon['TYPE_ID_NAME'] !== '') $tidName[] = $coupon['TYPE_ID_NAME'];
                 if (isset($coupon['DEPARTURE_DATETIME']) && $coupon['DEPARTURE_DATETIME'] !== '') {
                     $depDates[] = formatRstlsDate($coupon['DEPARTURE_DATETIME']);
+                } elseif (isset($coupon['DEPARTURE_DATE']) && $coupon['DEPARTURE_DATE'] !== '') {
+                    $depDt14 = $coupon['DEPARTURE_DATE'] . (isset($coupon['DEPARTURE_TIME']) ? $coupon['DEPARTURE_TIME'] : '');
+                    $depDates[] = formatRstlsDate($depDt14);
                 }
                 if (isset($coupon['ARRIVAL_DATETIME']) && $coupon['ARRIVAL_DATETIME'] !== '') {
                     $arrDates[] = formatRstlsDate($coupon['ARRIVAL_DATETIME']);
+                } elseif (isset($coupon['ARRIVAL_DATE']) && $coupon['ARRIVAL_DATE'] !== '') {
+                    $arrDt14 = $coupon['ARRIVAL_DATE'] . (isset($coupon['ARRIVAL_TIME']) ? $coupon['ARRIVAL_TIME'] : '');
+                    $arrDates[] = formatRstlsDate($arrDt14);
                 }
             }
             $flightNumbers = implode(', ', $fn);
@@ -246,7 +254,7 @@ function buildRowsFromJsonFile($filePath)
             'issue_date_raw' => isset($product['ISSUE_DATE']) ? $product['ISSUE_DATE'] : '',
             'status' => isset($product['STATUS']) ? $product['STATUS'] : '',
             'traveller' => isset($product['TRAVELLER']) ? $product['TRAVELLER'] : '',
-            'supplier' => isset($product['SUPPLIER']) ? $product['SUPPLIER'] : '',
+            'supplier' => isset($product['SUPPLIER']) ? (is_array($product['SUPPLIER']) && isset($product['SUPPLIER']['NAME']) ? $product['SUPPLIER']['NAME'] : $product['SUPPLIER']) : '',
             'supplier_code' => isset($product['SUPPLIER_CODE']) ? $product['SUPPLIER_CODE'] : '',
             'carrier' => isset($product['CARRIER']) ? $product['CARRIER'] : '',
             'seg_carriers' => isset($product['SEG_CARRIERS']) ? $product['SEG_CARRIERS'] : '',
@@ -254,7 +262,7 @@ function buildRowsFromJsonFile($filePath)
             'route' => $route,
             'discount' => isset($product['DISCOUNT']) ? $product['DISCOUNT'] : '',
             'amount' => $amountInvoice,
-            'currency' => isset($product['CURRENCY']) ? $product['CURRENCY'] : '',
+            'currency' => isset($product['CURRENCY']) ? (is_array($product['CURRENCY']) && isset($product['CURRENCY']['CODE']) ? $product['CURRENCY']['CODE'] : $product['CURRENCY']) : '',
             'source_xml' => $sourceXmlFile,
             'parsed_at' => $parsedAt,
             'order_uid' => $orderUid,

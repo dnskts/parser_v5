@@ -50,7 +50,11 @@ class Utils
     {
         $ownerOk = @chown($path, 'ext_kuritsyn');
         $groupOk = @chgrp($path, 'bitrix');
-        return $ownerOk && $groupOk;
+        $result = $ownerOk && $groupOk;
+        // #region agent log
+        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'D','location'=>'Utils.php:51','message'=>'ensureOwnership','data'=>array('path'=>$path,'ownerOk'=>$ownerOk,'groupOk'=>$groupOk,'result'=>$result,'exists'=>file_exists($path)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+        // #endregion
+        return $result;
     }
 
     /**
@@ -62,11 +66,18 @@ class Utils
      */
     public static function ensureDirectory($dir, $permissions = 0775)
     {
-        if (!is_dir($dir)) {
+        $existed = is_dir($dir);
+        if (!$existed) {
             if (!mkdir($dir, $permissions, true)) {
+                // #region agent log
+                @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'C','location'=>'Utils.php:68','message'=>'ensureDirectory FAILED mkdir','data'=>array('dir'=>$dir,'permissions'=>decoct($permissions)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+                // #endregion
                 return false;
             }
         }
+        // #region agent log
+        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'C','location'=>'Utils.php:74','message'=>'ensureDirectory OK','data'=>array('dir'=>$dir,'existed'=>$existed),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
+        // #endregion
         self::ensureOwnership($dir);
         return true;
     }

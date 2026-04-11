@@ -617,13 +617,17 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$seg['class'];
                     $typeIdRaw = isset($seg['type_id']) ? (string)$seg['type_id'] : '';
                     $statusRaw = isset($seg['status']) ? (string)$seg['status'] : (isset($seg['segment_status']) ? (string)$seg['segment_status'] : '');
+                    $emdDepDt = $this->formatDateTime((string)$seg['departure_datetime']);
+                    $emdArrDt = $this->formatDateTime((string)$seg['arrival_datetime']);
                     $coupons[] = array(
                         'FLIGHT_NUMBER'      => (string)$seg['flight_number'],
                         'FARE_BASIS'         => (string)$seg['fare_basis'],
                         'DEPARTURE_AIRPORT'  => (string)$seg['departure_airport'],
-                        'DEPARTURE_DATETIME' => $this->formatDateTime((string)$seg['departure_datetime']),
+                        'DEPARTURE_DATE'     => substr($emdDepDt, 0, 8),
+                        'DEPARTURE_TIME'     => substr($emdDepDt, 8, 6),
                         'ARRIVAL_AIRPORT'    => (string)$seg['arrival_airport'],
-                        'ARRIVAL_DATETIME'   => $this->formatDateTime((string)$seg['arrival_datetime']),
+                        'ARRIVAL_DATE'       => substr($emdArrDt, 0, 8),
+                        'ARRIVAL_TIME'       => substr($emdArrDt, 8, 6),
                         'CLASS'              => $classRaw,
                         'CLASS_NAME'         => $this->mapCabinClass($classRaw),
                         'TYPE_ID'            => $typeIdRaw,
@@ -774,13 +778,15 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$seg['class'];
                     $typeIdRaw = isset($seg['type_id']) ? (string)$seg['type_id'] : '';
                     $statusRaw = isset($seg['status']) ? (string)$seg['status'] : (isset($seg['segment_status']) ? (string)$seg['segment_status'] : '');
+                    $refDepDt = $this->formatDateTime((string)$seg['departure_datetime']);
+                    $refArrDt = $this->formatDateTime((string)$seg['arrival_datetime']);
                     $coupons[] = array(
                         'FLIGHT_NUMBER'=>(string)$seg['flight_number'],
                         'FARE_BASIS'=>(string)$seg['fare_basis'],
                         'DEPARTURE_AIRPORT'=>(string)$seg['departure_airport'],
-                        'DEPARTURE_DATETIME'=>$this->formatDateTime((string)$seg['departure_datetime']),
+                        'DEPARTURE_DATE'=>substr($refDepDt, 0, 8),'DEPARTURE_TIME'=>substr($refDepDt, 8, 6),
                         'ARRIVAL_AIRPORT'=>(string)$seg['arrival_airport'],
-                        'ARRIVAL_DATETIME'=>$this->formatDateTime((string)$seg['arrival_datetime']),
+                        'ARRIVAL_DATE'=>substr($refArrDt, 0, 8),'ARRIVAL_TIME'=>substr($refArrDt, 8, 6),
                         'CLASS'=>$classRaw,
                         'CLASS_NAME'=>$this->mapCabinClass($classRaw),
                         'TYPE_ID'=>$typeIdRaw,
@@ -1079,9 +1085,13 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$s['class'];
                     $typeIdRaw = isset($s['type_id']) ? (string)$s['type_id'] : '';
                     $statusRaw = isset($s['status']) ? (string)$s['status'] : (isset($s['segment_status']) ? (string)$s['segment_status'] : '');
+                    $depDt = $this->formatDateTime((string)$s['departure_datetime']);
+                    $arrDt = $this->formatDateTime((string)$s['arrival_datetime']);
                     $c[] = array('FLIGHT_NUMBER'=>(string)$s['flight_number'],'FARE_BASIS'=>(string)$s['fare_basis'],
-                        'DEPARTURE_AIRPORT'=>(string)$s['departure_airport'],'DEPARTURE_DATETIME'=>$this->formatDateTime((string)$s['departure_datetime']),
-                        'ARRIVAL_AIRPORT'=>(string)$s['arrival_airport'],'ARRIVAL_DATETIME'=>$this->formatDateTime((string)$s['arrival_datetime']),
+                        'DEPARTURE_AIRPORT'=>(string)$s['departure_airport'],
+                        'DEPARTURE_DATE'=>substr($depDt, 0, 8),'DEPARTURE_TIME'=>substr($depDt, 8, 6),
+                        'ARRIVAL_AIRPORT'=>(string)$s['arrival_airport'],
+                        'ARRIVAL_DATE'=>substr($arrDt, 0, 8),'ARRIVAL_TIME'=>substr($arrDt, 8, 6),
                         'CLASS'=>$classRaw,'CLASS_NAME'=>$this->mapCabinClass($classRaw),
                         'TYPE_ID'=>$typeIdRaw,'TYPE_ID_NAME'=>$typeIdRaw !== '' ? $this->mapTypeId($typeIdRaw) : '',
                         'SEGMENT_STATUS'=>$statusRaw,'SEGMENT_STATUS_NAME'=>$statusRaw !== '' ? $this->mapSegmentStatus($statusRaw) : '');
