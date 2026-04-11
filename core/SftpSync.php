@@ -21,6 +21,8 @@
  * ============================================================
  */
 
+require_once __DIR__ . '/Utils.php';
+
 class SftpSync
 {
     /** @var array Конфигурация подключения */
@@ -85,11 +87,9 @@ class SftpSync
 
         // Проверяем локальную папку
         $localPath = $this->config['local_path'];
-        if (!is_dir($localPath)) {
-            if (!mkdir($localPath, 0755, true)) {
-                $this->log('ERROR', 'Не удалось создать локальную папку: ' . $localPath);
-                return $result;
-            }
+        if (!Utils::ensureDirectory($localPath)) {
+            $this->log('ERROR', 'Не удалось создать локальную папку: ' . $localPath);
+            return $result;
         }
 
         // Проверяем соединение
@@ -253,6 +253,8 @@ class SftpSync
             return false;
         }
 
+        Utils::ensureOwnership($localFilePath);
+
         return true;
     }
 
@@ -363,18 +365,24 @@ class SftpSync
         $timestamp = date('Y-m-d H:i:s');
         $line = '[' . $timestamp . '] [' . $level . '] ' . $message . "\n";
 
+        // Создаём папку если нет
+        $logDir = dirname($this->logFile);
+        Utils::ensureDirectory($logDir);
+
+        $isNewFile = !file_exists($this->logFile);
+
         // Ротация лога (5 МБ)
         if (file_exists($this->logFile) && filesize($this->logFile) > 5 * 1024 * 1024) {
             @rename($this->logFile, $this->logFile . '.old');
-        }
-
-        // Создаём папку если нет
-        $logDir = dirname($this->logFile);
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0755, true);
+            Utils::ensureOwnership($this->logFile . '.old');
+            $isNewFile = true;
         }
 
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
+
+        if ($isNewFile) {
+            Utils::ensureOwnership($this->logFile);
+        }
     }
 
     /**

@@ -1,0 +1,230 @@
+{
+    "OrderAttributes": [
+        {
+            "PartnerOrderAttribute": null,
+            "OrderCustomerId": 1,
+            "CustomOrderAttribute": "Attribute1"
+        },
+        {
+            "PartnerOrderAttribute": "Partner Attribute 1",
+            "OrderCustomerId": 1,
+            "CustomOrderAttribute": null
+        }
+    ],
+    "OrderCustomers": [
+        {
+            "OrderCustomerId": 66650,
+            "FirstName": "Иван",
+            "MiddleName": "Иванович",
+            "LastName": "Иванов",
+            "Sex": "Male",
+            "BirthDate": "1976-10-12T00:00:00",
+            "DocumentNumber": "4601123450",
+            "DocumentValidTill": "9999-12-31T23:59:59",
+            "DocumentType": "RussianPassport",
+            "CitizenshipCode": "RU",
+            "Attributes": [
+                {
+                    "OrderCustomerAttributeId": 2356,
+                    "Value": "Кассир Иванова И. С."
+                },
+                {
+                    "OrderCustomerAttributeId": 2357,
+                    "PartnerOrderAttributeId": 1245,
+                    "Value": "ООО Ромашка"
+                }
+            ]
+        }
+    ],
+    "PosSysName": "ThePos",
+    "EmployeeName": "Иванов Александр",
+    "OrderItem": {
+        "$type": "ApiContracts.Order.V1.Info.OrderItem.Railway.RailwayFullOrderItemInfo, ApiContracts",
+        "CarrierTin": null,
+        "MealSalesOpenedTill": "0001-01-01T00:00:00",
+        "IsAdditionalMealOptionPossible": false,
+        "IsInterstate": false,
+        "CabinGenderKind": null,
+        "TransportType": "Train",
+        "IsReturnOnClaim": false,
+        "ExchangeInfo": null,
+        "BookingTrainNumber": null,
+        "TrainNumberToGetRoute": null,
+        "CarrierDescription": "ЗАО ТК \"ГСЭ\"",
+        "CarrierAddition": null,
+        "ElectronicRegistrationExpirationDateTime": "2016-11-01T22:40:00",
+        "AdditionalInformation": "",
+        "IsOnlyFullReturnPossible": false,
+        "IsExchange": false,
+        "TrainSpeedDescription": null,
+        "CarDescription": null,
+        "ServiceType": "Tickets",
+        "PlaceQuantity": 1,
+        "CarNumber": "07",
+        "OriginStationName": "МОСКВА ОКТЯБРЬСКАЯ",
+        "DestinationStationName": "САНКТ-ПЕТЕРБУРГ-ГЛАВН.",
+        "OriginTimeZoneDifference": 0,
+        "DestinationTimeZoneDifference": 0,
+        "LocalDepartureDateTime": "2016-11-01T23:40:00",
+        "LocalArrivalDateTime": "2016-11-02T08:36:00",
+        "TrainNumber": "054ЧА",
+        "CarType": "Luxury",
+        "PlaceReservationType": "Usual",
+        "Carrier": null,
+        "Provider": "P1",
+        "BoardingSystemType": null,
+        "TrainName": null,
+        "TrainNameEn": null,
+        "CarrierMnemocode": "ГРАНД",
+        "RoutePolicy": "Internal",
+        "ServiceClass": "1Б",
+        "ServiceClassNameRu": "БИЗНЕС",
+        "ServiceClassNameEn": "Conference compartment",
+        "OrderItemCustomers": [
+            {
+                "$type": "ApiContracts.Order.V1.Info.OrderItem.Railway.RailwayOrderItemCustomerInfo, ApiContracts",
+                "TransitDocument": "NoValue",
+                "Category": "Adult",
+                "RailwayCards": null,
+                "TransportationRequirement": null,
+                "CarbonDioxideConsumption": null,
+                "CarbonDioxideSavingComparedToAviaTrip": null,
+                "CarbonDioxideSavingComparedToAutoTrip": null,
+                "MilitaryInfo": null,
+                "RefuseToReceiveAutomaticSpecialTariff": false,
+                "OrderItemBlankId": 51946,
+                "Places": "001Н",
+                "PlaceQuantity": 1,
+                "PlacesWithType": [
+                    {
+                        "Number": "001",
+                        "Type": "Lower"
+                    }
+                ],
+                "IsMedicalWorker": false,
+                "IsDisabledPerson": false,
+                "IsMarketingNewsletterAllowed": false,
+                "Promocode": null,
+                "OrderCustomerId": 66650,
+                "OrderItemCustomerId": 51445,
+                "Amount": 9481.7,
+                "ClientFeeCalculation": {
+                    "Charge": 100.0,
+                    "Profit": 0.0
+                },
+                "AgentFeeCalculation": null
+            }
+        ],
+        "OrderItemBlanks": [
+            {
+                "$type": "ApiContracts.Order.V1.Info.OrderItem.Railway.RailwayOrderItemBlankInfo, ApiContracts",
+                "BonusAmount": null,
+                "PrepaidMealInfo": null,
+                "TransitPermissionApprovalStatus": "NoValue",
+                "IsNonRefundableTariff": false,
+                "IsBeddingIncluded": true,
+                "IsOnlyFullReturnPossible": false,
+                "DepartmentVatRateValues": null,
+                "DepartmentAmount": 0.0,
+                "AdultPassengerTicketNumber": null,
+                "CarServices": null,
+                "IsElectronicRegistrationSet": true,
+                "PendingElectronicRegistration": "NoValue",
+                "ElectronicRegistrationSetDateTime": null,
+                "ElectronicRegistrationExpirationDateTime": "2016-11-01T22:40:00",
+                "OnlineTicketReturnExpirationDateTime": "2016-11-01T22:40:00",
+                "IsMealOptionPossible": false,
+                "VoucherNumber": null,
+                "BaseFare": 0.0,
+                "AdditionalPrice": 0.0,
+                "ServicePrice": 0.0,
+                "VatRateValues": null,
+                "SignSequence": null,
+                "BlankStatus": "ElectronicRegistrationPresent",
+                "FareInfo": null,
+                "TariffInfo": {
+                    "TariffType": "Full",
+                    "TariffName": "ПОЛНЫЙ",
+                    "DisplayName": "ПОЛНЫЙ"
+                },
+                "PlaceQuantity": 1,
+                "IsRailwayFault": false,
+                "OrderItemBlankId": 51946,
+                "PreviousOrderItemBlankId": 0,
+                "BlankNumber": "71234567890000",
+                "Amount": 9481.7,
+                "FinProvider": {
+                    "Tin": "7708709686",
+                    "Name": "Московский ФПК",
+                    "Phone": "+7 987 654-55-55"
+                },
+                "FinAgent": {
+                    "Tin": "7708709686",
+                    "Name": "ФПК",
+                    "Phone": "88002507701"
+                },
+                "FiscalData": [
+                    {
+                        "Supplier": {
+                            "Tin": "7708709686",
+                            "Phone": "88002507701",
+                            "LegalName": "ФПК"
+                        },
+                        "FiscalLines": [
+                            {
+                                "Text": "Билет",
+                                "Amount": 9481.7,
+                                "Vat": 1896.34,
+                                "Code": "182 1 01 01011 01 1000 110",
+                                "LineType": "Fare",
+                                "VatType": "Standard"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "ArrivalDateTime": "2016-11-02T08:36:00",
+        "OriginLocationCode": "2006004",
+        "OriginLocationName": "МОСКВА",
+        "DestinationLocationCode": "2004001",
+        "DestinationLocationName": "САНКТ-ПЕТЕРБУРГ",
+        "OrderId": 51978,
+        "AgentReferenceId": null,
+        "OrderItemId": 52157,
+        "PreviousOrderItemId": 0,
+        "PosSysName": "ThePos",
+        "Amount": 9481.7,
+        "ReservationNumber": "71234567890000",
+        "OperationType": "Purchase",
+        "OperationReason": "Voluntary",
+        "SimpleOperationStatus": "Succeeded",
+        "DetailedOperationStatus": "Voided",
+        "DepartureDateTime": "2016-11-01T23:40:00",
+        "CreateDateTime": "2016-10-27T18:50:04",
+        "PayTimeLimit": null,
+        "ConfirmTimeLimit": "2016-10-27T19:04:04",
+        "ConfirmDateTime": "2016-10-27T19:00:15",
+        "ClientFeeCalculation": {
+            "$type": "ApiContracts.Common.V1.Fin.FeeCalculation, ApiContracts",
+            "Charge": 100.0,
+            "Profit": 0.0
+        },
+        "AgentFeeCalculation": {
+            "$type": "ApiContracts.Common.V1.Fin.FeeCalculation, ApiContracts",
+            "Charge": 100.0,
+            "Profit": 0.0
+        },
+        "ProviderPaymentForm": null,
+        "IsExternallyLoaded": false,
+        "AgentPaymentId": null,
+        "VoidTill": null,
+        "ServiceTypeInfo": "NoValue",
+        "SalesChannel": "NoValue",
+        "MainOrderItemId": 0,
+        "ServiceProvider": "NoValue",
+        "PaymentMethod": "Confirm",
+        "BookedByProvider": null,
+        "Vat": 0.0
+    }
+}

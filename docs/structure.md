@@ -12,11 +12,12 @@
 | `core/` | Ядро системы: логгер, менеджер парсеров, обработчик (Processor), отправка в API, SFTP-клиент, утилиты, интерфейс парсера |
 | `parsers/` | Реализации парсеров (plug-and-play). Каждый парсер — один PHP-файл, реализующий ParserInterface |
 | `parsers/constants/` | Справочники констант и маппингов для парсеров (например, типы пассажиров, пол, классы обслуживания) |
-| `input/` | Входные XML-файлы. Внутри — подпапки по поставщителям (moyagent, demo_hotel и т.д.). В каждой поставщике: корень (новые файлы), Processed/, Error/ |
+| `input/` | Входные файлы (XML, JSON). Внутри — подпапки по поставщителям (moyagent, smarttravel, demo_hotel). В каждой: корень (новые файлы), Processed/, Error/ |
 | `json/` | Выходные JSON-файлы после обработки. Имя: `{папка_поставщика}_{имя_xml}_{Ymd_His}.json` |
-| `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP) |
-| `tests/` | Тесты. В tests/fixtures/ — XML-фикстуры для автотестов парсеров |
+| `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH) |
+| `tests/` | Тесты. В tests/fixtures/ — XML/JSON-фикстуры для автотестов парсеров (MoyAgent + SmartTravel) |
 | `assets/` | Фронтенд: общие стили (style.css), скрипт панели (app.js), библиотека для выгрузки XLSX |
+| `docs/` | Документация проекта и AI-контекст: текущее состояние, changelog AI, полная структура, системный промпт; для каждого основного `.md` — UTF-8 зеркало `.txt` (обновление через `scripts/sync-docs-to-txt.php`) |
 | `.cursor/` | Настройки и скиллы Cursor IDE (в т.ч. update-structure, context-keeper) |
 
 ---
@@ -25,7 +26,7 @@
 
 | Файл | Описание |
 |------|----------|
-| `config/settings.json` | Главный файл настроек. Содержит: `interval` (секунды между запусками), `last_run` (timestamp последней обработки), секцию `api` (enabled, url, login, password, timeout), секцию `sftp` (enabled, host, port, login, password, remote_path, local_path, interval), опционально `data_column_order` (порядок колонок на data.php). Файл автоматически обновляется при каждом запуске обработки и при сохранении настроек из веб-интерфейса. |
+| `config/settings.json` | Главный файл настроек. Содержит: `interval` (секунды между запусками), `last_run` (timestamp последней обработки), секцию `api` (enabled, url, login, password, timeout), секцию `sftp` (enabled, host, port, login, password, remote_path, local_path, interval), секцию `smarttravel` (enabled, mode, pull/webhook настройки, proxy), опционально `data_column_order` (порядок колонок на data.php). Файл автоматически обновляется при каждом запуске обработки и при сохранении настроек из веб-интерфейса. |
 | `config/sftp_last_run.txt` | Одна строка — timestamp последней успешной SFTP-синхронизации. Обновляется после каждого запуска SftpSync (из process.php или sftp_sync.php). Используется для проверки интервала между синхронизациями. |
 
 ---
@@ -36,11 +37,13 @@
 |------|----------|
 | `core/ParserInterface.php` | Интерфейс (контракт) парсера. Описывает три метода: `getSupplierFolder()` — имя папки в input/, `getSupplierName()` — человекочитаемое название поставщика, `parse($xmlFilePath)` — разбор XML и возврат массива ORDER. Любой новый парсер должен реализовать этот интерфейс. |
 | `core/ParserManager.php` | Менеджер парсеров с авто-обнаружением. При создании сканирует папку parsers/, подключает все *.php, через рефлексию находит классы, реализующие ParserInterface, создаёт экземпляры и строит карту «имя папки → парсер». Файлы в parsers/constants/ не сканируются (подключаются из парсеров). Методы: getParser($folder), getRegisteredFolders(), getAllParsers(). |
-| `core/Processor.php` | Оркестратор обработки. Читает настройки из config/settings.json, проверяет интервал (isIntervalPassed), для каждой папки поставщика: glob(*.xml) → вызов парсера → saveJson → перемещение XML в Processed/ или Error/ → при доступном API отправка через ApiSender. Создаёт подпапки Processed и Error при необходимости. Обновляет last_run после цикла. |
+| `core/Processor.php` | Оркестратор обработки. Читает настройки из config/settings.json, проверяет интервал (isIntervalPassed), для каждой папки поставщика: glob(*.xml + *.json) → вызов парсера → saveJson → перемещение в Processed/ или Error/ → при доступном API отправка через ApiSender. Поддерживает multi-order (массив ORDER-ов из одного файла). Метод processSingleFile() — обработка одного файла (для webhook/PullSync). |
 | `core/Logger.php` | Логгер в файл logs/app.log. Уровни: info, warning, error, success. Формат строки: `[Y-m-d H:i:s] [LEVEL] message`. Ротация: при размере файла >5 МБ переименование в app.log.old. Методы: info(), warning(), error(), success(), getLastLines($lines), clear(). |
 | `core/ApiSender.php` | Отправка заказов в API 1С по HTTP. Конструктор принимает конфиг api и путь к logs/api_send.log. Методы: isAvailable() — проверка доступности (HEAD, таймаут 2–3 с), send($orderData, $jsonFileName, $sourceXml) — удаление SOURCE_FILE и PARSED_AT, POST JSON, Basic Auth, запись в лог (JSON Lines), getLogEntries($limit), clearLog(). При ошибках возвращает понятные сообщения (сеть, 401, 404, 500 и т.д.). |
 | `core/SftpSync.php` | SFTP-клиент на cURL (libssh2). Конструктор: конфиг (host, port, login, password, remote_path, local_path), путь к sftp_sync.log. Методы: sync() — листинг *.xml, скачивание в local_path, перемещение на SFTP в Processed/; testConnection(), listRemoteXmlFiles(), downloadFile(), moveToProcessed(). Путь на SFTP: ~/remote_path/. Логирование и ротация лога (>5 МБ → .old). |
-| `core/Utils.php` | Утилиты. Единственный публичный метод: generateUUID() — генерирует UUID версии 4 (RFC 4122). Используется парсерами для полей UID заказа и продуктов. Требование проекта: UUID создавать только через этот класс. |
+| `core/Utils.php` | Утилиты. Методы: generateUUID() — UUID v4 (RFC 4122); curlWithProxy($url, $options) — универсальный cURL с поддержкой Basic Auth и HTTP-прокси; ensureOwnership($path) — установка владельца ext_kuritsyn и группы bitrix (chown/chgrp с подавлением ошибок); ensureDirectory($dir, $permissions) — создание папки с установкой владельца/группы. Используется парсерами (UUID), PullSync (cURL), и всеми модулями для установки прав на создаваемые файлы/папки. |
+| `core/PullSync.php` | PULL-синхронизатор SmartTravel. Запрашивает данные с API SmartTravel (GET + Basic Auth + HTTP-прокси), сохраняет ответ в input/smarttravel/pull_*.json. Аналог SftpSync для REST API. Лог: logs/pull_sync.log. |
+| `core/DataTableHelpers.php` | Вспомогательные функции для страницы данных и API data_rows: formatRstlsDate($date), formatAgent($agent), buildRowsFromJsonFile($filePath) — возвращает массив строк таблицы из одного JSON-файла заказа (один продукт = одна строка). Подключается из data.php и api.php при action=data_rows. |
 
 ---
 
@@ -51,6 +54,8 @@
 | `parsers/MoyAgentParser.php` | Парсер поставщика «Мой агент» (авиабилеты + EMD). Папка: input/moyagent/. Формат XML: корень order_snapshot. Операции: TKT (продажа), REF/RFND/CANX (возврат/аннуляция), EXCH (обмен). Поддерживает конъюнкции (emd_ticket_doc main_prod_id и скрытые конъюнкции по признакам fare=0, 0 сегментов, tkt_number ±1..9). EMD — отдельные продукты в PRODUCTS[]. Использует MoyAgentConstants для маппинга типов пассажиров, пола, документов, классов, GDS, типа перелёта и т.д. Поля PAYMENTS строятся из xml->payments (зачёт по билету — TYPE TICKET, RELATED_TICKET_NUMBER). |
 | `parsers/constants/MoyAgentConstants.php` | Справочник констант для MoyAgentParser. Статические методы возвращают массивы маппингов: getPassengerTypes(), getGenderMap(), getDocTypes(), getCabinClassMap(), getTypeIdMap(), getFlightTypeMap(), getGdsMap(), getSegmentStatusMap(), getTicketCreditFopCodes() и др. Используются для преобразования кодов из XML в читаемые названия и коды RSTLS. |
 | `parsers/DemoHotelParser.php` | Демо-парсер отелей (шаблон для новых парсеров). Папка: input/demo_hotel/. Формат XML: корень hotel_order, секции order и booking. Возвращает ORDER с PRODUCT_TYPE код 000000003 (Отельный билет). Содержит пошаговые комментарии, как добавить нового поставщика. |
+| `parsers/SmartTravelParser.php` | Парсер SmartTravel (РЖД-ЦПР). Папка: input/smarttravel/. Формат JSON. Один файл для PUSH и PULL: определяет режим по ключам (Orders=PULL, OrderItem=PUSH). PUSH → один ORDER, PULL → массив ORDER-ов. Маппинг ЖД-полей (бланки, маршруты, пассажиры, комиссии, возвраты). PRODUCT_TYPE: 000000001 (ЖД-билет). |
+| `parsers/constants/SmartTravelConstants.php` | Справочник констант SmartTravel: маппинги OperationType, Sex, DocumentType, CarType, BlankStatus, ServiceType, PassengerCategory (из PDF таблиц 5-12, 21). Содержит таблицы транслитерации (кириллица→латиница, диакритика→ASCII) и метод transliterate() (не используется по умолчанию). |
 
 ---
 
@@ -59,12 +64,13 @@
 | Файл | Описание |
 |------|----------|
 | `index.php` | Панель управления. HTML-страница с блоком настроек (интервал, кнопки «Запустить», «Вкл. автообработку», «Очистить логи»), блоком логов и навигацией. Подключает assets/style.css и assets/app.js. Логи и настройки загружаются через AJAX (api.php). |
-| `data.php` | Страница обработанных заказов. Читает до 100 последних JSON из json/, разворачивает каждый заказ по продуктам (PRODUCTS), формирует строки таблицы (60 колонок). Содержит PHP-функции formatRstlsDate() и formatAgent(). Сортировка по дате выписки или дате загрузки (GET sort, dir), фильтр по всем колонкам (JS), кнопка «Выгрузить в XLSX» (SheetJS), кнопка «Очистить таблицу» (clear_json), кнопка 🔄 для повторной отправки (resend). Подключает style.css и встроенный JS. |
+| `data.php` | Страница обработанных заказов. Вкладки по парсерам (список из ParserManager); данные подгружаются через api.php?action=data_rows (GET: supplier, offset, limit, sort, dir). Первая загрузка и «Загрузить ещё» — порциями по 50 файлов; кеш по вкладке в памяти. Таблица 60 колонок, рендер строк в JS из ответа data_rows. Сортировка (дата выписки/загрузки), фильтр по колонкам, кнопка «Выгрузить в XLSX», кнопка «Очистить таблицу» (clear_json), кнопка 🔄 (resend). Подключает Logger, ParserManager, style.css и встроенный JS. |
 | `api_logs.php` | Страница логов отправки в API 1С. Работает в двух режимах: при запросе с ?action=get_logs/get_settings/clear_logs отдаёт JSON; без параметров — HTML-страница с таблицей записей из logs/api_send.log. Встроенный JS: загрузка логов и настроек, кнопки «Обновить» и «Очистить логи», автообновление логов каждые 10 с. Подключает style.css. |
-| `api.php` | AJAX API для веб-интерфейса. Один вход: GET-параметр action. Действия: logs (GET) — последние 200 строк app.log; run (POST) — runProcessing(true), т.е. SFTP + обработка принудительно; settings (GET/POST) — чтение/запись config/settings.json (interval, data_column_order); clear_logs (POST); clear_json (POST) — удаление всех *.json из json/; resend (POST) — тело JSON с полем file (имя .json), чтение файла из json/, отправка через ApiSender. Все ответы в JSON, заголовки CORS. Подключает process.php (для runProcessing) и Logger. |
-| `process.php` | Точка входа конвейера обработки. Определяет BASE_DIR при первом подключении. Содержит функции: runSftpSync($force) — чтение sftp из settings.json, проверка интервала по sftp_last_run.txt, вызов SftpSync->sync(), обновление sftp_last_run.txt; runProcessing($force) — runSftpSync + создание Logger, ParserManager, Processor, processor->run($force), дополнение результата полями sftp_downloaded, sftp_errors. При запуске из CLI (php process.php) вызывает runProcessing(false) и выводит результат в консоль. Из веб-интерфейса подключается из api.php при action=run. |
+| `api.php` | AJAX API для веб-интерфейса. Один вход: GET-параметр action. Действия: logs (GET) — последние 200 строк app.log; run (POST) — runProcessing(true), в ответе sftp_status, sftp_skipped; settings (GET/POST) — чтение/запись config/settings.json (interval, data_column_order); clear_logs (POST); clear_json (POST); resend (POST); data_rows (GET) — supplier (обязательно), offset, limit, sort, dir — возвращает rows, total_files, has_more для вкладок и «Загрузить ещё». Подключает process.php, Logger, DataTableHelpers (для data_rows). |
+| `process.php` | Точка входа конвейера обработки. Определяет BASE_DIR при первом подключении. Содержит функции: runSftpSync($force), runPullSync($force) (SmartTravel PULL API), runProcessing($force) — последовательно: SFTP → PULL → Processor. Результат дополняется полями sftp_*, pull_*. CLI: php process.php; веб: из api.php при action=run. |
+| `webhook.php` | Универсальный приёмник PUSH-уведомлений. URL: webhook.php?supplier=smarttravel. Принимает POST с JSON, проверяет Basic Auth (если включено), сохраняет в input/{supplier}/webhook_*.json, вызывает Processor->processSingleFile(). Лог: logs/webhook.log. |
 | `sftp_sync.php` | Автономная точка входа только для SFTP-синхронизации. Читает config/settings.json, секцию sftp; при enabled и (force или истёк интервал) создаёт SftpSync и вызывает sync(), обновляет sftp_last_run.txt. Запуск: CLI (php sftp_sync.php [--force]) или браузер (sftp_sync.php?force=1). Вывод: в CLI — текст, в браузере — JSON с полями status, downloaded, errors, files, timestamp. Вспомогательная функция logAndExit() для вывода ошибки в лог и завершения с кодом 1. |
-| `test.php` | Автотесты парсеров (MoyAgentParser). Подключает ParserInterface, Utils, MoyAgentParser. Массив expectations: для каждого XML из tests/fixtures/ заданы ожидаемые значения (статус, количество продуктов, номер заказа, пассажир, перевозчик, купоны, комиссии, возвраты и т.д.). Скрипт прогоняет фикстуры через parser->parse(), сравнивает результат с expectations, считает passed/failed. Режимы: веб (HTML с блоками PASS/FAIL и сводкой) и CLI (php test.php). Не изменяет файлы и не отправляет данные в API. |
+| `test.php` | Автотесты парсеров (MoyAgent + SmartTravel). Подключает MoyAgentParser, SmartTravelParser. Массивы expectations: XML-фикстуры для MoyAgent, JSON-фикстуры для SmartTravel. Прогоняет фикстуры через parse(), сравнивает результат, считает passed/failed. Режимы: веб (HTML) и CLI (php test.php). |
 
 ---
 
@@ -89,6 +95,7 @@
 | `tests/fixtures/125359005865.xml` | Фикстура: 5 авиа + 5 EMD, SVO→AUH→SVO. Проверки: BOOKING_AGENT, AGENT, all_travellers, all_tickets. |
 | `tests/fixtures/125358954718.xml` | Фикстура: возврат + 2 EMD с номерами и ненулевой суммой, penalty 5060. |
 | `tests/fixtures/125359052102.xml` | Фикстура: продажа со скрытой конъюнкцией (без emd_ticket_doc), VKO→TIV. Проверки: conj_count=2. |
+| `tests/fixtures/smarttravel_push_railway.json` | Фикстура SmartTravel PUSH: ЖД покупка, 1 бланк, Москва→С-Петербург. Проверки: invoice_number=51978, traveller=ИВАНОВ ИВАН, carrier=ЗАО ТК "ГСЭ", fare=9481.7, комиссии CLIENT/VENDOR. |
 
 ---
 
@@ -99,17 +106,29 @@
 | `logs/app.log` | Текстовый, строки вида `[Y-m-d H:i:s] [LEVEL] message` | Основной лог: запуски обработки, результаты парсинга, ошибки, предупреждения. Ротация при размере >5 МБ. |
 | `logs/api_send.log` | JSON Lines (каждая строка — JSON-объект) | Каждая попытка отправки в API 1С: timestamp, status, json_file, source_xml, http_code, response, message. |
 | `logs/sftp_sync.log` | Текстовый, тот же формат что app.log | Лог SFTP-синхронизации: подключение, список файлов, скачивание, перемещение. Ротация >5 МБ. |
+| `logs/pull_sync.log` | Текстовый, тот же формат что app.log | Лог PULL-синхронизации SmartTravel: запросы к API, скачанные файлы, ошибки. Ротация >5 МБ. |
+| `logs/webhook.log` | Текстовый, тот же формат что app.log | Лог входящих webhook-уведомлений: авторизация, сохранение файлов, обработка. Ротация >5 МБ. |
 
 ---
 
-## Документация и прочее (корень проекта)
+## Документация (docs/)
 
 | Файл | Описание |
 |------|----------|
-| `CURRENT_STAGE.md` | Текущее состояние проекта: описание, стек, структура, архитектура, формат ORDER, парсеры, API, SFTP, веб-интерфейс, известные проблемы, последние изменения. Обновляется после значимых правок (контекст для разработки и AI). |
-| `CHANGELOG_AI.md` | История изменений, внесённых с участием AI: дата, запрос пользователя, что сделано, изменённые файлы, принятые решения. |
-| `structure.md` | Этот файл — подробное описание структуры проекта и всех файлов. |
-| `SisPrompt.md` | Системный промпт для веб-версии нейросетей: краткий контекст проекта, стек, структура, pipeline, формат ORDER, критические правила. Используется, чтобы нейросеть была в контексте проекта. |
+| `docs/CURRENT_STAGE.md` | Текущее состояние проекта: описание, стек, структура, архитектура, формат ORDER, парсеры, API, SFTP, веб-интерфейс, известные проблемы, последние изменения. Обновляется после значимых правок (контекст для разработки и AI). |
+| `docs/CHANGELOG_AI.md` | История изменений, внесённых с участием AI: дата, запрос пользователя, что сделано, изменённые файлы, принятые решения. |
+| `docs/structure.md` | Этот файл — подробное описание структуры проекта и всех файлов. |
+| `docs/SisPrompt.md` | Системный промпт для веб-версии нейросетей: краткий контекст проекта, стек, структура, pipeline, формат ORDER, критические правила. |
+| `docs/SisPrompt.txt` | UTF-8 копия `docs/SisPrompt.md`. Обновляется `php scripts/sync-docs-to-txt.php` из корня проекта. |
+| `docs/CURRENT_STAGE.txt` | UTF-8 копия `docs/CURRENT_STAGE.md`. |
+| `docs/CHANGELOG_AI.txt` | UTF-8 копия `docs/CHANGELOG_AI.md`. |
+| `docs/structure.txt` | UTF-8 копия `docs/structure.md`. |
+
+## Корень проекта (прочее)
+
+| Файл | Описание |
+|------|----------|
+| `scripts/sync-docs-to-txt.php` | Копирует четыре `docs/*.md` в одноимённые `docs/*.txt`. Запуск из корня: `php scripts/sync-docs-to-txt.php`. |
 | `nextstep.md` | План улучшений и оптимизации, следующие шаги с пояснениями, подробная инструкция по подключению новых поставщиков через API. |
 | `README.md` | Краткое описание проекта для людей (если есть). |
 | `migration.md` | Документ миграции (если есть). |

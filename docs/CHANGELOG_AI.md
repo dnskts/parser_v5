@@ -2,6 +2,260 @@
 
 ---
 
+## 2026-03-25 — Права владения ext_kuritsyn:bitrix на создаваемые файлы/папки
+
+**Запрос пользователя:** Все файлы и папки, создаваемые PHP, должны принадлежать пользователю `ext_kuritsyn` и группе `bitrix`.
+
+### Что было сделано
+
+**core/Utils.php** — два новых статических метода:
+- `ensureOwnership($path)` — `@chown($path, 'ext_kuritsyn')` + `@chgrp($path, 'bitrix')`, возвращает bool.
+- `ensureDirectory($dir, $permissions = 0775)` — `mkdir()` если не существует + `ensureOwnership()`.
+
+**core/Processor.php** (6 изменений):
+- `saveJson()`: после `file_put_contents()` → `ensureOwnership($jsonFilePath)`.
+- `moveFile()`: после `rename()` → `ensureOwnership($destination)`.
+- `ensureSubfolders()`: `mkdir()` для Processed/ и Error/ заменён на `ensureDirectory()`.
+- Конструктор: `mkdir()` для json/ заменён на `ensureDirectory()`.
+- `saveSettings()`: `mkdir()` → `ensureDirectory()`, после записи → `ensureOwnership()`.
+
+**core/Logger.php** (3 изменения):
+- Конструктор: `mkdir()` → `ensureDirectory()`.
+- `write()`: при ротации `rename()` → `ensureOwnership()` для `.old`; при создании нового файла → `ensureOwnership()`.
+
+**core/ApiSender.php** (2 изменения):
+- Конструктор: `mkdir()` → `ensureDirectory()`.
+- `writeLog()`: при создании нового файла → `ensureOwnership()`.
+
+**core/SftpSync.php** (3 изменения):
+- `sync()`: `mkdir()` для локальной папки → `ensureDirectory()`.
+- `downloadFile()`: после `fclose()` → `ensureOwnership($localFilePath)`.
+- `log()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+
+**core/PullSync.php** (3 изменения):
+- `sync()`: `mkdir()` → `ensureDirectory()`, после сохранения JSON → `ensureOwnership($filePath)`.
+- `log()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+
+**webhook.php** (3 изменения):
+- `webhookLog()`: `mkdir()` → `ensureDirectory()`, ротация → `ensureOwnership(.old)`, новый файл → `ensureOwnership()`.
+- Создание `input/{supplier}/`: `mkdir()` → `ensureDirectory()`.
+- После сохранения webhook JSON → `ensureOwnership($filePath)`.
+
+**sftp_sync.php** (3 изменения):
+- `configDir mkdir()` → `ensureDirectory()`.
+- После `file_put_contents()` для `sftp_last_run.txt` → `ensureOwnership()`.
+- `logAndExit()`: `mkdir()` → `ensureDirectory()`, при создании нового файла → `ensureOwnership()`.
+
+**process.php** (3 изменения):
+- `runSftpSync()`: `mkdir()` → `ensureDirectory()`, после записи `sftp_last_run.txt` → `ensureOwnership()`.
+- `runPullSync()`: `mkdir()` → `ensureDirectory()`, после обновления `settings.json` → `ensureOwnership()`.
+
+**api.php** (1 изменение):
+- `settings` POST: `mkdir()` → `ensureDirectory()`, после записи `settings.json` → `ensureOwnership()`.
+
+**require_once** для `core/Utils.php` добавлен в: Processor.php, Logger.php, ApiSender.php, SftpSync.php, webhook.php, sftp_sync.php, process.php.
+
+**docs/SisPrompt.md** — в «Критические правила» добавлено правило про ext_kuritsyn:bitrix.
+
+### Принятые решения
+- `chown`/`chgrp` с `@` — ошибки подавляются, работа продолжается независимо от прав PHP-процесса.
+- `ensureOwnership()` для логов вызывается **только при создании нового файла** (проверка `!file_exists()` перед записью), а не при каждом `FILE_APPEND`.
+- `ensureDirectory()` по умолчанию создаёт папки с правами 0775 (группа `bitrix` может записывать).
+- PHP 7.0 синтаксис сохранён: `array()`, без type hints.
+
+### Изменённые файлы
+- `core/Utils.php` — два новых метода
+- `core/Processor.php` — 6 точек вызова
+- `core/Logger.php` — конструктор + write()
+- `core/ApiSender.php` — конструктор + writeLog()
+- `core/SftpSync.php` — sync() + downloadFile() + log()
+- `core/PullSync.php` — sync() + log()
+- `webhook.php` — webhookLog() + inputDir + webhook JSON
+- `sftp_sync.php` — sftp_last_run.txt + configDir + logAndExit()
+- `process.php` — runSftpSync() + runPullSync()
+- `api.php` — settings POST
+- `docs/SisPrompt.md` — критическое правило
+- `docs/CURRENT_STAGE.md` — обновлено
+- `docs/CHANGELOG_AI.md` — эта запись
+- `docs/structure.md` — описание Utils.php
+
+---
+
+## 2026-03-25 — Перенос документации в каталог `docs/`
+
+**Запрос пользователя:** Перенести `CURRENT_STAGE.md`, `CHANGELOG_AI.md`, `structure.md`, `SisPrompt.md` и одноимённые `.txt` из корня проекта в `docs/`; обновить скрипт синхронизации, `.cursorrules`, skills и внутренние ссылки.
+
+### Что было сделано
+
+- Создана папка **`docs/`**, в неё перенесены восемь файлов (четыре `.md` и четыре `.txt`).
+- **`scripts/sync-docs-to-txt.php`** читает и пишет пары в `docs/` (`docs/*.md` → `docs/*.txt`).
+- Обновлены **`.cursorrules`**, **`.cursor/skills/context-keeper.md`**, **`.cursor/skills/update-structure/SKILL.md`**, **`README.md`**, **`docs/CURRENT_STAGE.md`** (дерево в секции 3, таблица изменений, блок AI), **`docs/structure.md`** (секции «Документация (docs/)» и «Корень проекта»), **`docs/SisPrompt.md`**.
+- **`.gitignore`** без изменений (пути к документации не игнорировались).
+
+### Изменённые файлы
+
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`, `docs/SisPrompt.md`, `docs/*.txt` (расположение и синхронизация)
+- `scripts/sync-docs-to-txt.php`, `.cursorrules`, `.cursor/skills/context-keeper.md`, `.cursor/skills/update-structure/SKILL.md`, `README.md` (ссылки на `docs/`, пункт про `docs/` в структуре)
+- `nextstep.md` — пути к документации с префиксом `docs/`
+
+---
+
+## 2026-03-25 — Зеркала документации в `.txt` и скрипт синхронизации
+
+**Запрос пользователя:** Сохранять `SisPrompt.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md` и `structure.md` в формате `.txt` при каждом изменении (синхронизация содержимого). *(На 2026-03-25 эти файлы перенесены в `docs/` — см. запись выше.)*
+
+### Что было сделано
+
+- Добавлен **`scripts/sync-docs-to-txt.php`** — копирует четыре `.md` в одноимённые `.txt` (UTF-8); позже пути перенесены в **`docs/`**.
+- Сгенерированы зеркала **`SisPrompt.txt`**, **`CURRENT_STAGE.txt`**, **`CHANGELOG_AI.txt`**, **`structure.txt`** (первично в корне; затем вместе с `.md` — в `docs/`).
+- Обновлены **`.cursorrules`**, **`.cursor/skills/context-keeper.md`**, **`.cursor/skills/update-structure/SKILL.md`** — обязательный запуск скрипта после правок перечисленных `.md`.
+- Обновлены **`structure.md`**, **`CURRENT_STAGE.md`** — описание зеркал и скрипта.
+
+### Принятые решения
+
+- Источник истины — файлы `.md`; `.txt` — полные копии для окружений, где удобнее plain text.
+- Автоматизация на стороне агента: `php scripts/sync-docs-to-txt.php` после изменений (без git-hook и без задачи onSave в редакторе).
+
+### Изменённые файлы
+
+- `scripts/sync-docs-to-txt.php` — новый
+- `SisPrompt.txt`, `CURRENT_STAGE.txt`, `CHANGELOG_AI.txt`, `structure.txt` — новые
+- `.cursorrules`, `.cursor/skills/context-keeper.md`, `.cursor/skills/update-structure/SKILL.md`, `structure.md`, `CURRENT_STAGE.md`, `CHANGELOG_AI.md`
+
+---
+
+## 2026-03-17 — SmartTravel PUSH+PULL интеграция (ЖД-билеты)
+
+**Запрос пользователя:** Добавить поддержку SmartTravel (РЖД-Цифровые пассажирские решения) с одновременной работой PUSH (webhook) и PULL (API polling) режимов, единым парсером для обоих, минимальными правками в существующий pipeline.
+
+### Что было сделано
+
+**Новые файлы (5):**
+- **`core/PullSync.php`** — PULL-синхронизатор SmartTravel. GET-запрос к API с Basic Auth + HTTP-прокси (закрытый контур банка). Сохраняет ответ в `input/smarttravel/pull_*.json`. Аналог SftpSync для REST API.
+- **`webhook.php`** — Универсальный приёмник PUSH-уведомлений. Принимает POST с JSON, проверяет Basic Auth (если включено), сохраняет в `input/{supplier}/webhook_*.json`, вызывает `Processor->processSingleFile()`.
+- **`parsers/SmartTravelParser.php`** — Единый парсер для PUSH и PULL. Определяет режим по ключам JSON (`Orders` → PULL, `OrderItem` → PUSH). PUSH → один ORDER, PULL → массив ORDER-ов. Маппинг: бланки, маршруты, пассажиры, комиссии, возвраты.
+- **`parsers/constants/SmartTravelConstants.php`** — Справочник констант: OperationType, Sex, DocumentType, CarType, BlankStatus, ServiceType, PassengerCategory (таблицы 5-12, 21 из PDF). Таблицы транслитерации из `transliteration-tables.docx` (не используются по умолчанию).
+- **`tests/fixtures/smarttravel_push_railway.json`** — Фикстура: ЖД покупка, 1 бланк, Москва→С-Петербург (из PDF section 2.4).
+
+**Изменённые файлы (5):**
+- **`core/Utils.php`** — Добавлен метод `curlWithProxy($url, $options)`: универсальный cURL-запрос с Basic Auth и HTTP-прокси.
+- **`core/Processor.php`** — 3 изменения: glob расширен на `*.json`; поддержка multi-order (массив ORDER-ов из одного файла); добавлен публичный метод `processSingleFile($filePath, $folder)`.
+- **`process.php`** — Добавлена функция `runPullSync($force)` с проверкой интервала и обновлением `last_run`. Вызов в pipeline: SFTP → PULL → Processor.
+- **`config/settings.json`** — Новая секция `smarttravel` (enabled, mode, pull, webhook) + добавление в `tab_order`.
+- **`test.php`** — Подключение SmartTravelParser, отдельный блок тестов для JSON-фикстур SmartTravel (23 проверки).
+
+### Принятые решения
+- **Один парсер для двух режимов** — SmartTravelParser определяет режим по структуре JSON (ключи `Orders` vs `OrderItem`), а не по конфигурации.
+- **Переключение PUSH↔PULL** — одно поле `"mode"` в settings.json; перезапуск process.php.
+- **Транслитерация** — таблицы из transliteration-tables.docx включены в SmartTravelConstants, но по умолчанию не применяются. Имена хранятся на кириллице. Доступно для будущего использования.
+- **PRODUCT_TYPE** — `000000001` (ЖД-билет), аналогично авиа.
+- **Прокси обязателен для PULL** — закрытый контур банка.
+- **Webhook URL** — `webhook.php?supplier=smarttravel` (универсальный, поддерживает любых поставщиков).
+
+### Тесты
+- Все 247 тестов проходят (224 MoyAgent + 23 SmartTravel).
+
+### Изменённые файлы (полный список)
+- `core/Utils.php`
+- `core/PullSync.php` (новый)
+- `core/Processor.php`
+- `webhook.php` (новый)
+- `parsers/SmartTravelParser.php` (новый)
+- `parsers/constants/SmartTravelConstants.php` (новый)
+- `process.php`
+- `config/settings.json`
+- `test.php`
+- `tests/fixtures/smarttravel_push_railway.json` (новый)
+- `CURRENT_STAGE.md`
+- `CHANGELOG_AI.md`
+- `structure.md`
+
+---
+
+## 2026-03-16 — MoyAgent: контакты клиента, отчество и документ, discount/supplier_code, багаж/перевозчики сегментов + колонки data.php + тесты
+
+**Запрос пользователя:** Добавить в JSON и таблицу: контакты клиента (с префиксом Cont), ФИО с отчеством в TRAVELLER, поля пассажира middle_name/doc_country/doc_expire, поля билета discount/supplier_code, а также bag_allowance и carrier сегментов. Протянуть до `data.php` через `core/DataTableHelpers.php` и обновить `test.php`.
+
+### Что было сделано
+- **parsers/MoyAgentParser.php**
+  - `TRAVELLER` теперь собирается как «Фамилия Имя Отчество» (если отчество есть).
+  - В продукт добавлены поля: `PASSENGER_MIDDLE_NAME`, `PASSENGER_DOC_COUNTRY`, `PASSENGER_DOC_EXPIRE`.
+  - На уровень заказа добавлены: `CONT_EMAIL`, `CONT_PHONE`, `CONT_NAME`.
+  - В продукт добавлены: `DISCOUNT`, `SUPPLIER_CODE`, `BAG_ALLOWANCE`, `SEG_CARRIERS` (агрегаты по сегментам).
+- **core/DataTableHelpers.php** — новые поля прокинуты в строки таблицы (`cont_*`, `supplier_code`, `discount`, `bag_allowance`, `seg_carriers`, `passenger_*`).
+- **data.php** — добавлено 10 колонок (итого 70), обновлён `renderRow()` и `colspan`-заглушки.
+- **test.php** — расширены ожидания и добавлены проверки новых полей (контакты, отчество/документ, supplier_code/discount, багаж/перевозчики сегментов).
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`
+- `core/DataTableHelpers.php`
+- `data.php`
+- `test.php`
+- `CURRENT_STAGE.md`
+- `CHANGELOG_AI.md`
+
+---
+
+## 2026-03-16 — Реализация плана nextstep: retry 1С, SFTP статус, вкладки data.php, DataTableHelpers, тесты, Processor
+
+**Запрос пользователя:** Реализовать план из nextstep: retry при отправке в 1С (с опцией 0), статус SFTP в панели, «Загрузить ещё» и вкладки по парсерам на data.php, динамический список фикстур в test.php, логирование времени парсинга, обновить SKILL и nextstep, документацию.
+
+### Что было сделано
+- **ApiSender:** В send() добавлен цикл retry при HTTP 5xx и таймауте cURL (errno 28). Параметры api.retry_attempts (0 = текущее поведение, одна попытка) и api.retry_delay_sec в settings.json. При 0 повторных попыток нет. Вынесена explanationForHttpCode() для 4xx/5xx.
+- **process.php:** В результат runProcessing() добавлены sftp_skipped и sftp_status (пропущено/ошибки: N/скачано: N). **app.js:** сообщение после run отображает data.sftp_status.
+- **core/DataTableHelpers.php:** Новый файл с formatRstlsDate(), formatAgent(), buildRowsFromJsonFile($filePath). Используется в api data_rows и вынесена общая логика строк таблицы.
+- **api.php:** Добавлен action=data_rows (GET: supplier, offset, limit, sort, dir). glob по supplier_*.json, сортировка по filemtime, срез файлов, для каждого buildRowsFromJsonFile, объединение строк, сортировка по sort/dir, ответ rows, total_files, has_more.
+- **data.php:** Переработан: список поставщиков из ParserManager (вкладки), данные через AJAX (data_rows). Первая загрузка — первый поставщик, offset 0, limit 50; переключение вкладок — кеш в памяти или запрос; кнопка «Загрузить ещё» — следующий fileOffset. Рендер строк в JS (renderRow), фильтр, сортировка, XLSX, resend, очистка таблицы сохранены. Добавлены стили .data-tabs, .data-tab, .data-load-more, .data-table__td--empty.
+- **Processor:** Перед и после parser->parse() замер microtime(true), запись в app.log: «Время парсинга {fileName}: X с».
+- **test.php:** Список тестов формируется из glob(tests/fixtures/*.xml). Для каждого файла: если нет в expectations — запись в results с no_expectations=true, описание «Нет ожиданий», без провала. В HTML и CLI выводится предупреждение. Добавлены стили test-file__header--warn, test-file__badge--warn.
+- **SKILL update-structure:** В раздел When to trigger добавлено правило: после изменений обновлять CURRENT_STAGE.md, CHANGELOG_AI.md, structure.md; SisPrompt.md — при изменении ключевых правил или структуры.
+- **nextstep.md:** Удалены выполненные пункты (1.1 retry+SFTP, 1.2 производительность, 1.4 фикстуры+время парсинга). Добавлены 10 новых шагов в раздел 2 (защита паролей, доступ api.php, несколько SFTP, мониторинг логов, алерты SFTP, тесты retry, документация cache_index и др.).
+- **CURRENT_STAGE.md, structure.md, SisPrompt.md:** Обновлены под новую структуру (DataTableHelpers, data_rows, вкладки, retry, sftp_status, тесты, время парсинга).
+
+### Изменённые/созданные файлы
+- config/settings.json — api.retry_attempts, api.retry_delay_sec
+- core/ApiSender.php — retry в send(), explanationForHttpCode()
+- core/Processor.php — лог времени парсинга
+- core/DataTableHelpers.php — новый
+- process.php — sftp_skipped, sftp_status
+- assets/app.js — вывод sftp_status
+- api.php — action=data_rows
+- data.php — полная переработка (вкладки, data_rows, «Загрузить ещё»)
+- assets/style.css — .data-tabs, .data-tab, .data-load-more, .data-table__td--empty
+- test.php — динамический список фикстур, no_expectations
+- .cursor/skills/update-structure/SKILL.md — правило обновления доков
+- nextstep.md — удалены сделанные пункты, 10 новых шагов
+- CURRENT_STAGE.md, structure.md, SisPrompt.md, CHANGELOG_AI.md
+
+### Принятые решения
+- retry_attempts=0 сохраняет прежнее поведение (одна попытка в send()). isAvailable() не менялся.
+- Вкладки data.php получают список из ParserManager; данные по вкладке кешируются в JS (loadedData[supplier]).
+- «Загрузить ещё» передаёт fileOffset (смещение по файлам), а не по строкам; limit=50 файлов за запрос.
+
+---
+
+## 2026-03-16 — tab_order для вкладок и переименование «Мой агент» → «МА авиа»
+
+**Запрос пользователя:** Вынести порядок вкладок на странице data.php в config/settings.json и сделать так, чтобы по умолчанию открывалась вкладка с «МА авиа» (бывший «Мой агент»), а также переименовать соответствующего поставщика.
+
+### Что было сделано
+- **config/settings.json:** Добавлен верхнеуровневый ключ `tab_order` — массив имён папок поставщиков (`getSupplierFolder()`), определяющий порядок вкладок на data.php. По умолчанию: `["moyagent", "demo_hotel"]`.
+- **data.php:** При инициализации теперь читается `config/settings.json`, из него берётся `tab_order`. Список `$suppliers` после загрузки из `ParserManager` переупорядочивается согласно `tab_order`: первые элементы массива — поставщики из настроек в указанном порядке, остальные идут в конце (по алфавиту по имени папки). Активной вкладкой по умолчанию становится первый элемент отсортированного `$suppliers`, причём класс `data-tab--active` ставится по `folder`, а не по ссылочному сравнению массива.
+- **parsers/MoyAgentParser.php:** Метод `getSupplierName()` обновлён: теперь возвращает строку `"МА авиа"` вместо `"Мой агент"`, так что во всех UI-элементах поставщик отображается как «МА авиа», при этом `getSupplierFolder()` по-прежнему возвращает `"moyagent"` (совместимо с `tab_order` и входной папкой `input/moyagent/`).
+- **Документация:** В `CURRENT_STAGE.md` уточнено назначение `config/settings.json` (добавлены `tab_order`, `data_column_order`), а описание `MoyAgentParser.php` обновлено на «МА авиа» (с сохранением ссылки на происхождение «Мой агент»).
+
+### Изменённые файлы
+- `config/settings.json` — добавлен ключ `tab_order`.
+- `data.php` — чтение настроек, сортировка `$suppliers` по `tab_order`, выбор активной вкладки по `folder`.
+- `parsers/MoyAgentParser.php` — `getSupplierName()` теперь возвращает `"МА авиа"`.
+- `CURRENT_STAGE.md` — обновлена шапка (последнее обновление) и описание settings.json/MoyAgentParser.
+
+### Принятые решения
+- Порядок вкладок управляется только через `tab_order` в `settings.json`, чтобы не плодить дополнительные точки конфигурации.
+- Для определения активной вкладки используется логика «первый в `$suppliers` после сортировки»; JS продолжает опираться на `suppliers[0].folder`, что автоматически подхватывает изменения порядка.
+
+---
+
 ## 2026-03-16 — Аудит проекта: документация, комментарии, nextstep.md
 
 **Запрос пользователя:** Проанализировать проект, найти лишний код и ошибки, обновить документацию, описать все файлы в structure.md, проверить комментарии на русском, обновить системный промпт при необходимости, создать nextstep.md с планом улучшений и подробной инструкцией по подключению поставщиков через API.

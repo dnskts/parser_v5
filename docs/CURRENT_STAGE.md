@@ -1,20 +1,20 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-03-16
-**Обновлено после:** Аудит проекта: structure.md, nextstep.md, комментарии ApiSender, порядок комментариев в test.php
+**Последнее обновление:** 2026-03-25
+**Обновлено после:** права владения ext_kuritsyn:bitrix на создаваемые файлы/папки (Utils::ensureOwnership, Utils::ensureDirectory)
 
 ---
 
 ## 1. Общее описание проекта
 
-**XML Parser v5** — система обработки XML-файлов от поставщиков туристических услуг (авиабилеты, отели) с преобразованием в единый JSON-формат **ORDER** по спецификации **RSTLS** и отправкой во внешний API **1С:Предприятие**.
+**XML Parser v5** — система обработки файлов от поставщиков туристических услуг (авиабилеты, ЖД, отели) с преобразованием в единый JSON-формат **ORDER** по спецификации **RSTLS** и отправкой во внешний API **1С:Предприятие**.
 
 **Статистика проекта:**
-- 16 PHP-файлов, ~4 000 строк PHP-кода
+- 21 PHP-файл, ~5 500 строк PHP-кода
 - 2 фронтенд-файла (JS + CSS), ~920 строк
-- Итого: ~4 920 строк кода
-- 2 парсера (MoyAgent — боевой, DemoHotel — шаблон)
-- 7 тестовых fixture-файлов (XML) в `tests/fixtures/` для MoyAgentParser
+- Итого: ~6 400 строк кода
+- 3 парсера (MoyAgent — авиа, SmartTravel — ЖД, DemoHotel — шаблон)
+- 8 тестовых fixture-файлов (7 XML + 1 JSON) в `tests/fixtures/`
 
 Ключевые возможности:
 - Автоматическое обнаружение парсеров (plug-and-play)
@@ -24,7 +24,9 @@
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
 - **SFTP-синхронизация встроена в обработку:** загрузка XML с сервера поставщика при каждом запуске (кнопка «Запустить» и автообработка)
-- Данные документов пассажиров: дата рождения, пол, тип документа, номер документа
+- **SmartTravel PUSH+PULL:** приём ЖД-данных от SmartTravel (РЖД-ЦПР) через webhook (PUSH) и REST API с прокси (PULL), единый парсер для обоих режимов
+- Данные документов пассажиров: дата рождения, пол, тип документа, номер документа, **страна и срок действия**, отчество
+- Контакты клиента на уровне заказа: **CONT_EMAIL/CONT_PHONE/CONT_NAME**
 - Справочник констант (parsers/constants/): типы пассажиров, пол, классы, type_id, GDS, типы перелёта, статусы сегментов
 - Веб-панель управления с логами в реальном времени
 
@@ -44,31 +46,37 @@
 
 ## 3. Структура проекта
 parser_v5/
+├── docs/                     — контекст для людей и AI: CURRENT_STAGE, CHANGELOG_AI, structure, SisPrompt (.md + зеркала .txt)
 ├── config/
-│   ├── settings.json         — интервал, last_run, api, sftp (все настройки)
+│   ├── settings.json         — интервал, last_run, api, sftp, tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
 ├── core/
 │   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
 │   ├── Logger.php            — app.log (INFO/WARNING/ERROR/SUCCESS), ротация 5МБ→.old
 │   ├── ParserInterface.php   — контракт: getSupplierFolder(), getSupplierName(), parse()
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
-│   ├── Processor.php         — оркестратор: glob(.xml)→parse→saveJson→send→move
+│   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→saveJson→send→move + processSingleFile()
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
-│   └── Utils.php             — Utils::generateUUID() (v4)
+│   ├── PullSync.php          — PULL-синхронизатор SmartTravel: GET + Basic Auth + HTTP-прокси
+│   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership(), ensureDirectory()
+│   └── DataTableHelpers.php — buildRowsFromJsonFile(), formatRstlsDate(), formatAgent() для data.php и api data_rows
 ├── parsers/
 │   ├── constants/
-│   │   └── MoyAgentConstants.php — справочник констант и маппингов
-│   ├── MoyAgentParser.php    — «Мой агент» авиа V5 (TKT/REF/RFND/CANX + конъюнкции)
+│   │   ├── MoyAgentConstants.php — справочник констант и маппингов (авиа)
+│   │   └── SmartTravelConstants.php — справочник констант SmartTravel (ЖД) + транслитерация
+│   ├── MoyAgentParser.php    — «МА авиа» (Мой агент) авиа V5 (TKT/REF/RFND/CANX + конъюнкции)
+│   ├── SmartTravelParser.php — SmartTravel (ЖД) — PUSH + PULL в одном парсере
 │   └── DemoHotelParser.php   — шаблон отелей
-├── input/{supplier}/         — XML (подпапки Processed/, Error/)
-├── json/                     — результаты ({folder}{xmlName}{Ymd_His}.json)
-├── logs/                     — app.log + api_send.log + sftp_sync.log
-├── tests/fixtures/           — 5 XML-фикстур для MoyAgentParser
+├── input/{supplier}/         — XML/JSON (подпапки Processed/, Error/). Поставщики: moyagent, smarttravel, demo_hotel
+├── json/                     — результаты ({folder}_{name}_{Ymd_His}.json)
+├── logs/                     — app.log + api_send.log + sftp_sync.log + pull_sync.log + webhook.log
+├── tests/fixtures/           — 7 XML + 1 JSON фикстура для MoyAgent и SmartTravel
 ├── index.php                 — панель управления (app.js, AJAX)
-├── data.php                  — таблица заказов (серверный рендеринг, 60 колонок)
+├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend)
-├── process.php               — точка входа pipeline (CLI cron + require из api.php)
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows)
+├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + Processor
+├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
 ├── test.php                  — автотесты парсеров (Web + CLI)
 └── assets/                   — app.js (только для index.php), style.css (общий)
@@ -89,7 +97,10 @@ runProcessing($force)         fetch('api.php?action=run')
 │     SftpSync → cURL+SFTP → листинг → скачать → переместить в Processed на SFTP
 │     XML-файлы в input/moyagent/
 │
-│  2. Processor->run($force)
+│  2. runPullSync($force)            (если smarttravel.enabled && mode=pull)
+│     PullSync → cURL+BasicAuth+Proxy → SmartTravel API → JSON в input/smarttravel/
+│
+│  3. Processor->run($force)
 └──────────┬───────────────────┘
 ▼
 ┌─────────────────┐
@@ -97,13 +108,13 @@ runProcessing($force)         fetch('api.php?action=run')
 └───────┬─────────┘
 ▼
 ┌─────────────────┐
-│   Processor     │  glob(.xml) → parse → saveJson → send → move
+│   Processor     │  glob(*.xml + *.json) → parse → saveJson → send → move
 └───────┬─────────┘
 │
-┌───────┼────────────┐
-▼       ▼            ▼
-MoyAgent  DemoHotel    Новый
-Parser    Parser       Parser
+┌───────┼────────────┬───────────┐
+▼       ▼            ▼           ▼
+MoyAgent  SmartTravel  DemoHotel  Новый
+Parser    Parser       Parser     Parser
 │       │            │
 └───────┼────────────┘
 ▼
@@ -141,16 +152,17 @@ sftp_sync.php ─── standalone (CLI + браузер) ─── для ру�
 1. **Auto-discovery парсеров:** `ParserManager` сканирует `parsers/*.php`, сравнивает `get_declared_classes()` до/после, проверяет `implementsInterface('ParserInterface')`
 2. **Файловое хранилище:** JSON, XML, текстовые логи — без СУБД
 3. **Двойная точка входа:** `process.php` — CLI (cron) и модуль (require из api.php)
-4. **Три раздельных лога:** `app.log` (текстовый), `api_send.log` (JSON Lines), `sftp_sync.log` (текстовый)
+4. **Пять раздельных логов:** `app.log`, `api_send.log` (JSON Lines), `sftp_sync.log`, `pull_sync.log`, `webhook.log`
 5. **Интервальный контроль:** cron проверяет `last_run + interval`, UI — `force=true`
 6. **SFTP через cURL:** используется встроенная поддержка SFTP в ext-curl (libssh2), без ext-ssh2 и без внешних библиотек
 7. **SFTP встроен в runProcessing:** при каждом запуске (Web UI или CLI) сначала runSftpSync(), затем Processor. sftp_sync.php остаётся для standalone-запуска
+8. **SmartTravel PUSH+PULL:** один парсер, два режима. PUSH: webhook.php (POST → input/smarttravel/ → Processor). PULL: PullSync (GET + Basic Auth + HTTP-прокси → input/smarttravel/). Переключение — поле `mode` в settings.json
 
 ### 4.4. Processor.run() — детальная логика
 Проверка интервала: if (!$force && !isIntervalPassed()) → return
 Получение папок: $folders = ParserManager->getRegisteredFolders()
 Проверка API: $apiAvailable = ApiSender->isAvailable() (HEAD, 2с)
-Цикл по папкам → glob("input/$folder/*.xml") → цикл по XML:
+Цикл по папкам → glob("input/$folder/*.xml + *.json") → цикл по файлам:
 try:
 result = $parser->parse(xmlFile)
 saveJson($result, $folder, $xmlFile)
@@ -211,7 +223,7 @@ updateLastRunTime() → settings.json.last_run = time()
           "CLASS": "D"
         }
       ],
-      "TRAVELLER": "MAKAROV KONSTANTIN",
+  "TRAVELLER": "MAKAROV KONSTANTIN",
       "TAXES": [
         { "CODE": "", "AMOUNT": 787970, "EQUIVALENT_AMOUNT": 787970, "VAT_RATE": 0, "VAT_AMOUNT": 0 },
         { "CODE": "RI", "AMOUNT": 3182, "EQUIVALENT_AMOUNT": 3182, "VAT_RATE": 0, "VAT_AMOUNT": 0 }
@@ -260,7 +272,7 @@ json
 }
 5.5. Коды типов продуктов
 CODE	NAME
-000000001	Авиабилет
+000000001	Авиабилет / ЖД-билет
 000000003	Отельный билет
 6. Парсеры
 6.0. ParserInterface — контракт
@@ -284,7 +296,7 @@ BOOKING_AGENT	reservation[@bookingAgent]
 AGENT	air_ticket_doc[@issuingAgent]
 CARRIER	air_ticket_prod[@validating_carrier]
 NUMBER	air_ticket_doc[@tkt_number]
-TRAVELLER	passenger[@name] + [@first_name]
+TRAVELLER	passenger[@name] + [@first_name] + [@middle_name?]
 Конъюнкции (V4+):
 
 XML-структура: один билет = несколько air_ticket_prod:
@@ -303,7 +315,7 @@ buildCouponsFromGroup() / buildTaxesFromGroup() с дедупликацией
 
 Метод	Версия	Описание
 parse()	V1	Главный метод парсинга
-buildPassengersMap()	V1	Карта psgr_id → данные (+ doc_type, doc_number, doc_country, doc_expire)
+buildPassengersMap()	V1	Карта psgr_id → данные (+ middle_name, doc_type, doc_number, doc_country, doc_expire)
 buildTravelDocsMap()	V5	Карта prod_id → данные (+ issuingAgent, flight_type_raw)
 buildReservationsMap()	V5	Карта supplier → данные (+ bookingAgent)
 buildConjLinksMap()	V4	Карта child_prod_id → main_prod_id
@@ -323,7 +335,7 @@ mapTypeId()	V6	1–6 → Эконом, Бизнес, Первый и т.д.
 mapFlightType()	V6	regular, charter, lowcost и т.д. → русские названия
 mapGdsId()	V6	crs (число) → название GDS
 mapSegmentStatus()	V6	Код статуса сегмента → название
-buildPassengerDocInfo()	V6	Извлечение 4 полей документа пассажира (birth_date, gender, doc_type, doc_number)
+buildPassengerDocInfo()	V6	Извлечение полей документа пассажира (birth_date, gender, doc_type, doc_number, middle_name, doc_country, doc_expire)
 mapTicketStatus()	V1	TKT→продажа, REF→возврат
 
 Конъюнкции V6: скрытые конъюнкции
@@ -353,7 +365,31 @@ tkt_number отличается на 1–9 от основного
 
 Тест: 125359052102.xml — тест-кейс 6 в test.php
 
-6.2. DemoHotelParser — шаблон
+6.2. SmartTravelParser — SmartTravel (ЖД-билеты)
+Файл: parsers/SmartTravelParser.php
+Папка: input/smarttravel/
+Формат: JSON (PUSH и PULL)
+Один файл, два режима:
+- PUSH (webhook): JSON с ключом "OrderItem" → parsePushReport() → один ORDER
+- PULL (API): JSON с ключом "Orders" → parsePullResponse() → массив ORDER-ов
+Маппинг:
+- INVOICE_NUMBER = OrderId
+- INVOICE_DATA = CreateDateTime → YYYYMMDDHHmmss
+- CLIENT = PosSysName
+- PRODUCTS[].NUMBER = BlankNumber
+- PRODUCTS[].STATUS = OperationType → Purchase="продажа", Return="возврат"
+- PRODUCTS[].TRAVELLER = LastName + FirstName (верхний регистр)
+- PRODUCTS[].CARRIER = CarrierDescription
+- TAXES[0] = fare (CODE=""), TAXES[1] = VAT
+- COMMISSIONS = ClientFeeCalculation.Charge (CLIENT) + AgentFeeCalculation.Charge (VENDOR)
+- COUPONS = маршрут (OriginLocationName → DestinationLocationName)
+- Данные пассажира: BirthDate, Sex, DocumentType, DocumentNumber, MiddleName, CitizenshipCode
+- PRODUCT_TYPE: {NAME: "ЖД-билет", CODE: "000000001"}
+Зависимости: SmartTravelConstants.php (маппинги Sex, DocumentType, OperationType, CarType и т.д.)
+Транслитерация: таблицы в SmartTravelConstants, метод transliterate() доступен, но не применяется по умолчанию.
+Тест: smarttravel_push_railway.json — ЖД покупка, 1 бланк, Москва→С-Петербург
+
+6.3. DemoHotelParser — шаблон
 Файл: parsers/DemoHotelParser.php (202 строки)
 Папка: input/demo_hotel/
 Формат XML: <hotel_order>
@@ -505,7 +541,7 @@ Resizable-столбцы (drag-resize)
 formatRstlsDate() — "20251013121600" → "13.10.2025 12:16"
 formatAgent() — антидубль (V5): CODE===NAME → одно значение
 Даты вылета/прилёта: все сегменты через запятую (V5)
-60 колонок:
+70 колонок:
 
 #	Колонка	Источник
 1	🔄	UI
@@ -566,14 +602,16 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 56	Сбор пост. возвр.	REFUND.FEE_VENDOR
 57	Штраф пост.	REFUND.PENALTY_VENDOR
 58	Штраф РСТЛС	REFUND.PENALTY_CLIENT
+
+Доп. колонки (добавлены, выведены в конце таблицы): CONT_EMAIL, CONT_PHONE, CONT_NAME, SUPPLIER_CODE, SEG_CARRIERS, BAG_ALLOWANCE, DISCOUNT, PASSENGER_MIDDLE_NAME, PASSENGER_DOC_COUNTRY, PASSENGER_DOC_EXPIRE
 9.3. api_logs.php — Логи API
 Двухрежимная: HTML-страница + AJAX к самой себе
 Читает logs/api_send.log (JSON Lines)
 Не использует app.js — встроенные скрипты
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
-Тестирует MoyAgentParser на 6 фикстурах из tests/fixtures/
-7 фикстур, assertions по каждому файлу
+Тестирует MoyAgentParser (7 XML) и SmartTravelParser (1 JSON)
+8 фикстур, 247 assertions
 Вспомогательная функция addCheck() — DRY вместо копипаста
 PASS-блоки свёрнуты по умолчанию, FAIL — развёрнуты
 Badge показывает количество проверок: PASS (22)
@@ -587,6 +625,7 @@ Badge показывает количество проверок: PASS (22)
 125359005865.xml	5 авиа + 5 EMD = 10 продуктов, SVO→AUH→SVO	BOOKING_AGENT, AGENT, all_travellers, all_tickets
 125358954718.xml	Возврат + 2 EMD (номера и ненулевая сумма), penalty 5060	REFUND, 3 продукта
 125359052102.xml	Скрытая конъюнкция (без emd_ticket_doc), VKO→TIV	CONJ_COUNT=2
+smarttravel_push_railway.json	SmartTravel PUSH: ЖД покупка, Москва→С-Петербург	INVOICE_NUMBER=51978, TRAVELLER=ИВАНОВ ИВАН, fare=9481.7
 Категории проверок:
 
 Категория	Проверки
@@ -601,7 +640,7 @@ Multi-passenger	all_travellers, all_tickets
 9.5. api.php — AJAX API
 action	Метод	Описание
 logs	GET	Последние N строк app.log
-run	POST	runSftpSync + runProcessing (SFTP + обработка, force=true)
+run	POST	runSftpSync + runPullSync + runProcessing (SFTP + PULL + обработка, force=true)
 settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
 clear_json	POST	Удаление всех *.json из json/
@@ -615,16 +654,20 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Веб-интерфейс (панель, таблица 60 колонок, логи API, тесты)
 ✅ Повторная отправка (кнопка 🔄), очистка JSON (кнопка «Очистить таблицу»)
 ✅ Resizable-столбцы в data.php
-✅ Автотесты (test.php, 6 фикстур, 132 assertions)
+✅ Автотесты (test.php, 8 фикстур, 247 assertions — MoyAgent + SmartTravel)
 ✅ SFTP-синхронизатор встроен в обработку — при «Запустить» и автообработке (cURL+SFTP)
+✅ SmartTravel PUSH+PULL: парсер ЖД-билетов, webhook.php, PullSync с прокси, единый парсер для двух режимов
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
 Известные проблемы (⚠️)
-⚠️ Нет retry-логики при отправке в 1С
+⚠️ Retry при отправке в 1С опционален (api.retry_attempts); при 0 — одна попытка
 ⚠️ data.php — серверный рендеринг — может быть медленным
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-03-25	Права владения ext_kuritsyn:bitrix: `ensureOwnership()`, `ensureDirectory()` во всех файлах, создающих файлы/папки (10 PHP-файлов)	core/Utils.php, core/Processor.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php, sftp_sync.php, process.php, api.php
+2026-03-25	Документация в `docs/` (четыре `.md` + зеркала `.txt`); `sync-docs-to-txt.php` обновляет `docs/*.txt`; правила Cursor, README и nextstep на пути `docs/*`	docs/, scripts/sync-docs-to-txt.php, .cursorrules, .cursor/skills/context-keeper.md, .cursor/skills/update-structure/SKILL.md, README.md, nextstep.md
+2026-03-17	SmartTravel PUSH+PULL: парсер ЖД, PullSync (API+прокси), webhook.php, SmartTravelConstants, тесты	SmartTravelParser.php, SmartTravelConstants.php, PullSync.php, webhook.php, Processor.php, process.php, Utils.php, settings.json, test.php
 2026-03-13	Зачёт и Связ.билет: buildPaymentsFromXml из xml->payments, tkt_fop ПК/БИЛЕТ→TYPE=TICKET, EXCH в analyzeOrderType	parsers/MoyAgentParser.php, MoyAgentConstants.php
 2026-03-13	SFTP timeout 5→2с (CONNECTTIMEOUT=1), автообработка сохраняется при навигации (localStorage), AbortController для fetch	core/SftpSync.php, assets/app.js
 2026-03-13	SFTP встроен в pipeline: runSftpSync в runProcessing, кнопка «Запустить» и автообработка забирают XML с SFTP	process.php, assets/app.js
@@ -668,13 +711,15 @@ SSH host key проверка отключена в SftpSync (внутрення
 ext-curl обязателен (с поддержкой SFTP/libssh2 для синхронизации)
 14. Контекст для AI-ассистента
 Критические правила
+Документация: при изменении `docs/SisPrompt.md`, `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md` или `docs/structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `docs/*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
+Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
 UUID — только Utils::generateUUID(), require core/Utils.php
-Processor привязан к glob(*.xml) — другие форматы потребуют рефакторинга
-Нет retry при отправке в 1С; ручная переотправка через 🔄 в data.php
+Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
+Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php
 app.js обслуживает только index.php; data.php и api_logs.php имеют встроенные скрипты
 SFTP встроен в runProcessing(); sftp_sync.php — standalone для отдельного запуска
 ext-curl обязателен (+ поддержка SFTP через libssh2)
-settings.json модифицируется автоматически (last_run), содержит секции api и sftp
+settings.json модифицируется автоматически (last_run), содержит секции api, sftp, smarttravel
 SUPPLIER берётся из getSupplierName(), НЕ из air_ticket_prod[@supplier]
 AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_prod[@issuingAgent]
 BOOKING_AGENT берётся из reservation[@bookingAgent]
@@ -682,7 +727,10 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
 data.php formatAgent() — антидубль: если CODE===NAME → одно значение
 data.php даты — все сегменты через запятую, не первый/последний
-SFTP вызывается из runProcessing() перед Processor; единый pipeline при «Запустить» и автообработке
+SFTP и PullSync вызываются из runProcessing() перед Processor; единый pipeline при «Запустить» и автообработке
+SmartTravel: PUSH через webhook.php?supplier=smarttravel (POST), PULL через PullSync (GET + Basic Auth + прокси)
+SmartTravel: переключение mode в settings.json ("pull"/"push"), один парсер определяет режим по JSON-ключам
+SmartTravel: processSingleFile() — немедленная обработка одного файла (webhook/PullSync)
 SFTP-путь относительный (от домашней директории пользователя, формат ~/remote_path/)
 Тестовые фикстуры — реальные имена
 Фикстуры названы по номерам заказов (ord_id из XML), не по типу теста:

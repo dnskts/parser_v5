@@ -636,6 +636,42 @@ body {
    ТАБЛИЦА ДАННЫХ (страница обработанных заказов)
    ---------------------------------------------------------- */
 
+/* Вкладки по поставщикам */
+.data-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.data-tab {
+    padding: 6px 14px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #475569;
+}
+.data-tab:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+.data-tab--active {
+    background: #1a1a2e;
+    color: #fff;
+    border-color: #1a1a2e;
+}
+
+.data-load-more {
+    margin-top: 12px;
+}
+
+.data-table__td--empty {
+    text-align: center;
+    padding: 24px;
+    color: #64748b;
+}
+
 /* Обёртка — прокрутка, заголовки закреплены при скролле */
 .data-table-wrapper {
     overflow: auto;

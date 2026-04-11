@@ -209,8 +209,8 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(data) {
                 if (data.status === 'ok') {
                     var msg = 'Готово: ' + data.processed + ' обработано, ' + data.errors + ' ошибок';
-                    if (data.sftp_downloaded > 0) {
-                        msg = 'SFTP: ' + data.sftp_downloaded + ' файлов. ' + msg;
+                    if (data.sftp_status) {
+                        msg = 'SFTP: ' + data.sftp_status + '. ' + msg;
                     }
                     setStatus('success', msg);
                     lastRunText.textContent = 'Последний запуск: ' + formatDate(new Date());

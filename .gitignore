@@ -1,3 +1,41 @@
-input/
-json/
-logs/
+# === Input папки ===
+# Игнорировать содержимое, но сохранить структуру
+input/*
+!input/.gitkeep
+!input/moyagent/
+input/moyagent/*
+!input/moyagent/.gitkeep
+!input/moyagent/Processed/
+input/moyagent/Processed/*
+!input/moyagent/Processed/.gitkeep
+!input/moyagent/Error/
+input/moyagent/Error/*
+!input/moyagent/Error/.gitkeep
+
+!input/smarttravel/
+input/smarttravel/*
+!input/smarttravel/.gitkeep
+!input/smarttravel/Processed/
+input/smarttravel/Processed/*
+!input/smarttravel/Processed/.gitkeep
+!input/smarttravel/Error/
+input/smarttravel/Error/*
+!input/smarttravel/Error/.gitkeep
+
+!input/demo_hotel/
+input/demo_hotel/*
+!input/demo_hotel/.gitkeep
+!input/demo_hotel/Processed/
+input/demo_hotel/Processed/*
+!input/demo_hotel/Processed/.gitkeep
+!input/demo_hotel/Error/
+input/demo_hotel/Error/*
+!input/demo_hotel/Error/.gitkeep
+
+# === JSON результаты ===
+json/*
+!json/.gitkeep
+
+# === Логи ===
+logs/*
+!logs/.gitkeep

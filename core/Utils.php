@@ -38,4 +38,107 @@ class Utils
         // Форматируем в стандартный вид UUID
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
+
+    /**
+     * Устанавливает владельца (ext_kuritsyn) и группу (bitrix) для файла/папки.
+     * Ошибки подавляются (@) — PHP может не иметь прав на chown/chgrp.
+     *
+     * @param string $path — путь к файлу или папке
+     * @return bool — true если обе операции успешны
+     */
+    public static function ensureOwnership($path)
+    {
+        $ownerOk = @chown($path, 'ext_kuritsyn');
+        $groupOk = @chgrp($path, 'bitrix');
+        return $ownerOk && $groupOk;
+    }
+
+    /**
+     * Создаёт директорию (если не существует) и устанавливает владельца/группу.
+     *
+     * @param string $dir — путь к директории
+     * @param int $permissions — права доступа (по умолчанию 0775)
+     * @return bool — true если директория существует или создана успешно
+     */
+    public static function ensureDirectory($dir, $permissions = 0775)
+    {
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, $permissions, true)) {
+                return false;
+            }
+        }
+        self::ensureOwnership($dir);
+        return true;
+    }
+
+    /**
+     * Универсальный cURL-запрос с поддержкой прокси и Basic Auth.
+     *
+     * @param string $url — адрес запроса
+     * @param array $options — параметры:
+     *   method (GET|POST), headers (array), body (string),
+     *   auth_login, auth_password,
+     *   proxy, proxy_login, proxy_password,
+     *   timeout (int, по умолчанию 30), ssl_verify (bool, по умолчанию false)
+     * @return array — http_code, body, error, duration
+     */
+    public static function curlWithProxy($url, $options = array())
+    {
+        $method    = isset($options['method']) ? strtoupper($options['method']) : 'GET';
+        $timeout   = isset($options['timeout']) ? (int)$options['timeout'] : 30;
+        $sslVerify = isset($options['ssl_verify']) ? (bool)$options['ssl_verify'] : false;
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, min($timeout, 10));
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $sslVerify);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $sslVerify ? 2 : 0);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+
+        if ($method === 'POST') {
+            curl_setopt($ch, CURLOPT_POST, true);
+            if (isset($options['body'])) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $options['body']);
+            }
+        }
+
+        if (isset($options['headers']) && is_array($options['headers'])) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $options['headers']);
+        }
+
+        // Basic Auth
+        if (!empty($options['auth_login'])) {
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_USERPWD,
+                $options['auth_login'] . ':' . (isset($options['auth_password']) ? $options['auth_password'] : '')
+            );
+        }
+
+        // Прокси
+        if (!empty($options['proxy'])) {
+            curl_setopt($ch, CURLOPT_PROXY, $options['proxy']);
+            if (!empty($options['proxy_login'])) {
+                curl_setopt($ch, CURLOPT_PROXYUSERPWD,
+                    $options['proxy_login'] . ':' . (isset($options['proxy_password']) ? $options['proxy_password'] : '')
+                );
+            }
+        }
+
+        $t0 = microtime(true);
+        $body = curl_exec($ch);
+        $duration = round(microtime(true) - $t0, 3);
+
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        return array(
+            'http_code' => $httpCode,
+            'body'      => $body !== false ? $body : '',
+            'error'     => $error,
+            'duration'  => $duration
+        );
+    }
 }
