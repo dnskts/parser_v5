@@ -39,3 +39,5 @@ json/*
 # === Логи ===
 logs/*
 !logs/.gitkeep
+
+config/sftp_last_run.txt
