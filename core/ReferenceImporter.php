@@ -75,6 +75,38 @@ class ReferenceImporter
                 'files' => array('Агенты.txt', 'Пользователи.txt'),
                 'mapper' => 'mapAgent'
             ),
+            'cities' => array(
+                'files' => array('Города.txt'),
+                'mapper' => 'mapCity'
+            ),
+            'countries' => array(
+                'files' => array('Страны.txt'),
+                'mapper' => 'mapCountry'
+            ),
+        );
+    }
+
+    /**
+     * Справочники, которые собираются из «Контрагенты.txt».
+     *
+     * Файл выгрузки весит десятки мегабайт, поэтому целиком в справочник
+     * он не переносится — из него выбираются только нужные контрагенты
+     * по наименованию (белый список ниже + ручные записи с пустым uid).
+     *
+     * @return array — тип справочника => массив array('code' => ..., 'name' => ...)
+     */
+    public static function getContractorRefMap()
+    {
+        return array(
+            // code = имя папки парсера в input/ (по нему ищет ReferenceManager::enrich)
+            'suppliers' => array(
+                array('code' => 'moyagent',    'name' => 'Мой Агент ООО'),
+                array('code' => 'smarttravel', 'name' => 'РЖД - ЦИФРОВЫЕ ПАССАЖИРСКИЕ РЕШЕНИЯ'),
+            ),
+            // Все заказы уходят в 1С от лица «РС ТЛС ООО» (см. ReferenceManager::CLIENT_CODE)
+            'clients' => array(
+                array('code' => 'rstls', 'name' => 'РС ТЛС ООО'),
+            ),
         );
     }
 
@@ -90,6 +122,11 @@ class ReferenceImporter
         $results = array();
         foreach (self::getImportMap() as $type => $config) {
             $results[$type] = $this->importType($type);
+        }
+
+        // Поставщики и клиенты — выборка из «Контрагенты.txt» (файл слишком велик для целиком)
+        foreach ($this->importContractorRefs() as $type => $contractorResult) {
+            $results[$type] = $contractorResult;
         }
 
         $imported = 0;
@@ -311,6 +348,286 @@ class ReferenceImporter
         );
     }
 
+    /**
+     * Город: код — «КодМОМ» (IATA-код города PLD или числовой код 1552997),
+     * если он пуст — внутренний «Код» 1С. Ссылка на страну сохраняется как UID.
+     *
+     * @param array $row — запись выгрузки
+     * @return array|null
+     */
+    private function mapCity($row)
+    {
+        $code = self::extractLocationCode(self::value($row, 'КодМОМ'));
+        if ($code === '') {
+            $code = trim(self::value($row, 'Код'));
+        }
+        if ($code === '') {
+            return null;
+        }
+
+        $name = trim(self::value($row, 'Наименование'));
+
+        return array(
+            'uid'         => trim(self::value($row, 'UID')),
+            'code'        => $code,
+            'name'        => $name !== '' ? $name : $code,
+            'country_uid' => trim(self::value($row, 'Страна'))
+        );
+    }
+
+    /**
+     * Страна: код — «КодАльфа2» (RU), при пустом — «КодАльфа3» (RUS).
+     * Записи без буквенного кода пропускаются: поле «Код» у них равно «--»
+     * (это устаревшие дубли наименований), искать по такому коду невозможно.
+     *
+     * @param array $row — запись выгрузки
+     * @return array|null
+     */
+    private function mapCountry($row)
+    {
+        $code = strtoupper(trim(self::value($row, 'КодАльфа2')));
+        if ($code === '') {
+            $code = strtoupper(trim(self::value($row, 'КодАльфа3')));
+        }
+        if ($code === '') {
+            return null;
+        }
+
+        $name = trim(self::value($row, 'Наименование'));
+        $fullName = trim(self::value($row, 'НаименованиеПолное'));
+
+        return array(
+            'uid'       => trim(self::value($row, 'UID')),
+            'code'      => $code,
+            'name'      => $name !== '' ? $name : $code,
+            'full_name' => $fullName
+        );
+    }
+
+    // ============================================================
+    // ВЫБОРКА КОНТРАГЕНТОВ (suppliers, clients)
+    // ============================================================
+
+    /**
+     * Сборка справочников suppliers.json и clients.json из «Контрагенты.txt».
+     *
+     * Из выгрузки берутся только контрагенты, чьи наименования перечислены
+     * в getContractorRefMap(), плюс наименования ручных записей с пустым uid —
+     * им UID дозаполняется. Остальные записи существующих справочников
+     * сохраняются как есть, чтобы ручные правки не терялись.
+     *
+     * @return array — тип справочника => результат импорта (как в importType)
+     */
+    public function importContractorRefs()
+    {
+        $refMap = self::getContractorRefMap();
+        $results = array();
+
+        $filePath = $this->findSourceFile(array('Контрагенты.txt'));
+        if ($filePath === null) {
+            foreach ($refMap as $type => $ignored) {
+                $this->logger->info("Импорт {$type}: файл не найден (Контрагенты.txt) — пропущен");
+                $results[$type] = $this->result('skipped', '', 0, 0, 'Файл не найден: Контрагенты.txt');
+            }
+            return $results;
+        }
+
+        $fileName = basename($filePath);
+
+        // Текущее содержимое справочников (ручные правки) и список искомых наименований
+        $existing = array();
+        $wanted = array();
+        $lookup = array();
+
+        foreach ($refMap as $type => $builtin) {
+            $existing[$type] = $this->readReference($type);
+            $wanted[$type] = array();
+
+            foreach ($builtin as $item) {
+                $wanted[$type][$item['code']] = $item['name'];
+            }
+
+            // Ручные записи без UID: имя берём из справочника, UID дозаполним из выгрузки
+            foreach ($existing[$type] as $entry) {
+                if (!isset($entry['code']) || (string)$entry['code'] === '') {
+                    continue;
+                }
+                $code = (string)$entry['code'];
+                $name = isset($entry['name']) ? trim((string)$entry['name']) : '';
+                $uid = isset($entry['uid']) ? trim((string)$entry['uid']) : '';
+                if ($name !== '' && $uid === '' && !isset($wanted[$type][$code])) {
+                    $wanted[$type][$code] = $name;
+                }
+            }
+
+            foreach ($wanted[$type] as $code => $name) {
+                $key = self::normalizeRefName($name);
+                if ($key === '') {
+                    continue;
+                }
+                if (!isset($lookup[$key])) {
+                    $lookup[$key] = array();
+                }
+                $lookup[$key][] = array('type' => $type, 'code' => $code);
+            }
+        }
+
+        // Один проход по файлу: собираем только те записи, что нужны
+        $found = array();
+        $rowsTotal = $this->streamJsonRows($filePath, function ($row) use ($lookup, &$found) {
+            $key = ReferenceImporter::normalizeRefName(isset($row['Наименование']) ? $row['Наименование'] : '');
+            if ($key === '' || !isset($lookup[$key])) {
+                return;
+            }
+            foreach ($lookup[$key] as $target) {
+                // Совпадений по наименованию может быть несколько — берём первое
+                if (!isset($found[$target['type']][$target['code']])) {
+                    $found[$target['type']][$target['code']] = $row;
+                }
+            }
+        });
+
+        if ($rowsTotal === false) {
+            foreach ($refMap as $type => $ignored) {
+                $this->logger->error("Импорт {$type}: не удалось прочитать {$fileName}");
+                $results[$type] = $this->result('error', $fileName, 0, 0, "Не удалось прочитать {$fileName}");
+            }
+            return $results;
+        }
+
+        foreach ($refMap as $type => $ignored) {
+            $typeFound = isset($found[$type]) ? $found[$type] : array();
+            $results[$type] = $this->writeContractorRef(
+                $type, $existing[$type], $wanted[$type], $typeFound, $fileName
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Слияние найденных контрагентов с текущим справочником и запись файла.
+     *
+     * @param string $type — тип справочника (suppliers, clients)
+     * @param array $existing — текущие записи справочника
+     * @param array $wanted — код => искомое наименование
+     * @param array $found — код => запись выгрузки 1С
+     * @param string $fileName — имя файла выгрузки (для логов)
+     * @return array — результат импорта (как в importType)
+     */
+    private function writeContractorRef($type, $existing, $wanted, $found, $fileName)
+    {
+        $entries = array();
+        $byCode = array();
+
+        // Сохраняем существующие записи (в том числе добавленные вручную)
+        foreach ($existing as $entry) {
+            if (!is_array($entry) || !isset($entry['code']) || (string)$entry['code'] === '') {
+                continue; // подсказку и мусор не переносим — подсказка добавляется заново ниже
+            }
+            $code = (string)$entry['code'];
+            $byCode[$code] = count($entries);
+            $entries[] = $entry;
+        }
+
+        $missing = array();
+
+        foreach ($wanted as $code => $name) {
+            if (!isset($found[$code])) {
+                $missing[] = $name;
+            }
+
+            $row = isset($found[$code]) ? $found[$code] : array();
+            $uid = trim(self::value($row, 'UID'));
+            $rowName = trim(self::value($row, 'Наименование'));
+
+            $entry = array(
+                'uid'      => $uid,
+                'code'     => $code,
+                'name'     => $rowName !== '' ? $rowName : $name,
+                'code_1c'  => trim(self::value($row, 'Код')),
+                'code_mom' => trim(self::value($row, 'КодМОМ')),
+                'inn'      => trim(self::value($row, 'ИНН'))
+            );
+
+            if (isset($byCode[$code])) {
+                // Обновляем существующую запись, не теряя добавленные вручную поля
+                $entries[$byCode[$code]] = array_merge($entries[$byCode[$code]], $entry);
+            } else {
+                $byCode[$code] = count($entries);
+                $entries[] = $entry;
+            }
+        }
+
+        $count = count($entries);
+
+        // Подсказка для ручного дополнения — первым элементом массива.
+        // Поля code у неё нет, поэтому ReferenceManager её игнорирует.
+        array_unshift($entries, self::getRefHint($type));
+
+        if (!$this->writeReference($type, $entries)) {
+            $this->logger->error("Импорт {$type}: не удалось записать {$type}.json");
+            return $this->result('error', $fileName, 0, count($missing), "Не удалось записать {$type}.json");
+        }
+
+        if (!empty($missing)) {
+            $this->logger->warning(
+                "Импорт {$type}: в {$fileName} не найдены контрагенты: " . implode(', ', $missing)
+                . ' — UID оставлен пустым'
+            );
+        }
+
+        $this->logger->success(
+            "Импорт {$type}: из {$fileName} загружено записей: {$count}, без UID: " . count($missing)
+        );
+
+        return $this->result('ok', $fileName, $count, count($missing), '');
+    }
+
+    /**
+     * Служебная запись-подсказка для справочников, которые дополняются вручную.
+     *
+     * @param string $type — тип справочника (suppliers, clients)
+     * @return array
+     */
+    private static function getRefHint($type)
+    {
+        $what = $type === 'clients' ? 'клиента' : 'поставщика';
+        $codeHint = $type === 'clients'
+            ? 'code = условный код клиента (для ORDER.CLIENT используется rstls)'
+            : 'code = имя папки парсера в input/ (moyagent, smarttravel, ...)';
+
+        return array(
+            '_hint' => 'Как добавить ' . $what . ' вручную: скопируйте блок _template в конец массива, '
+                . $codeHint . ', name = наименование контрагента из 1С точно как в выгрузке, '
+                . 'uid оставьте пустым — он подставится сам при следующем нажатии «Загрузить справочники». '
+                . 'Записи без поля code справочником игнорируются, поэтому эту подсказку удалять не нужно.',
+            '_source' => 'references/import/Контрагенты.txt — поля UID, Код, Наименование, ИНН, КодМОМ',
+            '_template' => array(
+                'uid'  => '',
+                'code' => $type === 'clients' ? 'код_клиента' : 'имя_папки_парсера',
+                'name' => 'Наименование контрагента из 1С'
+            )
+        );
+    }
+
+    /**
+     * Приведение наименования контрагента к сравнимому виду:
+     * нижний регистр, «ё» в «е», знаки препинания и лишние пробелы убираются.
+     * В выгрузке 1С встречаются висячие пробелы («Мой Агент ООО ») и дефисы.
+     *
+     * @param string $value — исходное наименование
+     * @return string
+     */
+    public static function normalizeRefName($value)
+    {
+        $value = mb_strtolower(trim((string)$value), 'UTF-8');
+        $value = str_replace('ё', 'е', $value);
+        $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value);
+
+        return trim(preg_replace('/\s+/u', ' ', $value));
+    }
+
     // ============================================================
     // ЧТЕНИЕ И ЗАПИСЬ ФАЙЛОВ
     // ============================================================
@@ -404,6 +721,114 @@ class ReferenceImporter
         }
 
         return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Потоковое чтение выгрузки: объекты JSON выдаются по одному в callback.
+     *
+     * Нужно для «Контрагенты.txt» — файл на десятки мегабайт, целиком
+     * в память его загружать не нужно. Границы объектов определяются по
+     * балансу фигурных скобок с учётом строк и экранирования.
+     *
+     * @param string $filePath — полный путь к файлу выгрузки
+     * @param callable $callback — вызывается для каждой записи (array $row)
+     * @return int|false — количество разобранных записей или false при ошибке чтения
+     */
+    private function streamJsonRows($filePath, $callback)
+    {
+        $handle = @fopen($filePath, 'rb');
+        if ($handle === false) {
+            return false;
+        }
+
+        $buffer = '';
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $atStart = true;
+        $total = 0;
+
+        while (!feof($handle)) {
+            $chunk = fread($handle, 262144);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+
+            // BOM снимаем только в начале файла (1С выгружает UTF-8 с сигнатурой)
+            if ($atStart) {
+                if (substr($chunk, 0, 3) === "\xEF\xBB\xBF") {
+                    $chunk = substr($chunk, 3);
+                }
+                $atStart = false;
+            }
+
+            $len = strlen($chunk);
+            for ($i = 0; $i < $len; $i++) {
+                $char = $chunk[$i];
+
+                if ($depth > 0) {
+                    $buffer .= $char;
+                }
+
+                if ($inString) {
+                    if ($escaped) {
+                        $escaped = false;
+                    } elseif ($char === '\\') {
+                        $escaped = true;
+                    } elseif ($char === '"') {
+                        $inString = false;
+                    }
+                    continue;
+                }
+
+                if ($char === '"') {
+                    $inString = true;
+                } elseif ($char === '{') {
+                    if ($depth === 0) {
+                        $buffer = '{';
+                    }
+                    $depth++;
+                } elseif ($char === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $row = json_decode($buffer, true);
+                        $buffer = '';
+                        if (is_array($row)) {
+                            $total++;
+                            call_user_func($callback, $row);
+                        }
+                    }
+                }
+            }
+        }
+
+        fclose($handle);
+
+        return $total;
+    }
+
+    /**
+     * Чтение существующего справочника references/{type}.json.
+     * Нужно, чтобы при импорте не потерять записи, добавленные вручную.
+     *
+     * @param string $type — тип справочника
+     * @return array — записи справочника (пустой массив, если файла нет)
+     */
+    private function readReference($type)
+    {
+        $filePath = $this->referencesDir . DIRECTORY_SEPARATOR . $type . '.json';
+        if (!file_exists($filePath)) {
+            return array();
+        }
+
+        $content = file_get_contents($filePath);
+        if ($content === false || trim($content) === '') {
+            return array();
+        }
+
+        $data = json_decode($content, true);
+
+        return is_array($data) ? $data : array();
     }
 
     /**

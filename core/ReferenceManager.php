@@ -17,6 +17,12 @@ require_once __DIR__ . '/Utils.php';
 
 class ReferenceManager
 {
+    /**
+     * Код записи в clients.json, чей UID подставляется в ORDER.CLIENT.
+     * Все заказы оформляются в 1С от лица «РС ТЛС ООО».
+     */
+    const CLIENT_CODE = 'rstls';
+
     /** @var string Путь к папке references/ */
     private $referencesDir;
 
@@ -293,6 +299,30 @@ class ReferenceManager
     }
 
     /**
+     * UID контрагента-клиента («РС ТЛС ООО») для поля ORDER.CLIENT.
+     * Берётся из clients.json по коду CLIENT_CODE.
+     *
+     * @param string $fileName — имя файла (для лога)
+     * @param array &$warnings — массив предупреждений (по ссылке)
+     * @return string — UID или пустая строка, если справочник не заполнен
+     */
+    private function resolveClientUid($fileName, &$warnings)
+    {
+        $found = $this->findByCode('clients', self::CLIENT_CODE);
+
+        if ($found !== null && $found['uid'] !== '') {
+            return $found['uid'];
+        }
+
+        $msg = 'Справочник clients: UID не найден для code \'' . self::CLIENT_CODE
+            . '\' (РС ТЛС ООО), CLIENT остался пустым (файл: ' . $fileName . ')';
+        $this->logger->warning($msg);
+        $warnings[] = $msg;
+
+        return '';
+    }
+
+    /**
      * Обогащение ORDER полями UID из справочников.
      *
      * @param array $order — ORDER (ассоциативный массив)
@@ -304,6 +334,12 @@ class ReferenceManager
     {
         $warnings = array();
 
+        // --- CLIENT ---
+        // Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName
+        // у SmartTravel) в 1С не используется: заказы оформляются от лица
+        // «РС ТЛС ООО», поэтому в CLIENT уходит UID этого контрагента.
+        $order['CLIENT'] = $this->resolveClientUid($fileName, $warnings);
+
         if (!isset($order['PRODUCTS']) || !is_array($order['PRODUCTS'])) {
             return array('order' => $order, 'warnings' => $warnings);
         }
@@ -314,6 +350,21 @@ class ReferenceManager
                 $order['PRODUCTS'][$pIdx]['SUPPLIER'] = $this->buildRefObject(
                     'suppliers', $supplierFolder, $fileName, $warnings
                 );
+            }
+
+            // --- CARRIER ---
+            // Парсеры отдают перевозчика строкой (IATA «SU» у авиа) —
+            // приводим к объекту {UID, CODE, NAME} из справочника airlines
+            if (isset($product['CARRIER'])) {
+                $carrierValue = $product['CARRIER'];
+                if (is_string($carrierValue) && trim($carrierValue) !== '') {
+                    $order['PRODUCTS'][$pIdx]['CARRIER'] = $this->buildRefObject(
+                        'airlines', trim($carrierValue), $fileName, $warnings
+                    );
+                } elseif (is_array($carrierValue) && isset($carrierValue['CODE'])) {
+                    $found = $this->findByCode('airlines', $carrierValue['CODE']);
+                    $order['PRODUCTS'][$pIdx]['CARRIER']['UID'] = $found !== null ? $found['uid'] : '';
+                }
             }
 
             // --- AGENT ---
@@ -351,7 +402,13 @@ class ReferenceManager
             }
 
             // --- COUPONS ---
-            $carrierCode = isset($product['CARRIER']) ? (string)$product['CARRIER'] : '';
+            // CARRIER берём из исходного продукта: он мог быть как строкой, так и объектом
+            $carrierCode = '';
+            if (isset($product['CARRIER'])) {
+                $carrierCode = is_array($product['CARRIER'])
+                    ? (isset($product['CARRIER']['CODE']) ? trim((string)$product['CARRIER']['CODE']) : '')
+                    : trim((string)$product['CARRIER']);
+            }
 
             if (isset($product['COUPONS']) && is_array($product['COUPONS'])) {
                 foreach ($product['COUPONS'] as $cIdx => $coupon) {
@@ -498,6 +555,9 @@ class ReferenceManager
             return array_keys($types);
         }
 
-        return array('suppliers', 'agents', 'airports', 'airlines', 'service_classes', 'currencies');
+        return array(
+            'suppliers', 'clients', 'agents', 'airports', 'airlines',
+            'service_classes', 'currencies', 'cities', 'countries'
+        );
     }
 }

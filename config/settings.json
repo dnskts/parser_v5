@@ -3,9 +3,9 @@
     "last_run": 1776006620,
     "api": {
         "enabled": true,
-        "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
-        "login": "api_user",
-        "password": "api_password",
+        "url": "https:\/\/10.30.88.24\/TRADE\/hs\/PARSER_Exchange\/Order",
+        "login": "WebServises",
+        "password": "951753",
         "timeout": 5,
         "retry_attempts": 0,
         "retry_delay_sec": 2

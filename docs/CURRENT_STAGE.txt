@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-04-11
-**Обновлено после:** модуль справочников (references) для подстановки UID из 1С, разделение дат в MoyAgent
+**Последнее обновление:** 2026-09-10
+**Обновлено после:** города/страны/контрагенты в импорте справочников, CLIENT = UID «РС ТЛС ООО» и CARRIER-объект в enrich(), исправлено отображение перевозчика в data.php
 
 ---
 
@@ -52,11 +52,14 @@ parser_v5/
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
 ├── references/               — справочники для подстановки UID (заполняются импортом из 1С, вручную или через API 1С)
 │   ├── import/               — выгрузки 1С «как есть» (кладутся вручную раз в месяц, в .gitignore)
-│   ├── suppliers.json        — поставщики (только вручную, источника в выгрузке нет)
+│   ├── suppliers.json        — поставщики (2 записи из Контрагенты.txt + подсказка для ручного дополнения)
+│   ├── clients.json          — клиент «РС ТЛС ООО» (code=rstls), его UID уходит в ORDER.CLIENT
 │   ├── agents.json           — агенты (AGENT + BOOKING_AGENT), code вместо UID
 │   ├── airports.json         — аэропорты и ЖД-вокзалы (IATA / код станции)
 │   ├── airlines.json         — авиакомпании (IATA)
 │   ├── service_classes.json  — классы обслуживания (не импортируются: в 1С нет UID)
+│   ├── cities.json           — города (КодМОМ, ссылка на страну); в enrich пока не используются
+│   ├── countries.json        — страны (КодАльфа2/КодАльфа3); в enrich пока не используются
 │   └── currencies.json       — валюты (ISO)
 ├── core/
 │   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
@@ -209,7 +212,7 @@ updateLastRunTime() → settings.json.last_run = time()
   "UID": "8fd8578c-c002-4e73-891d-278373b59ef4",
   "INVOICE_NUMBER": "125359005865",
   "INVOICE_DATA": "20260226155022",
-  "CLIENT": "MA1PA6",
+  "CLIENT": "63a8bcb0-9b69-11e9-b97d-0050569c2148",
   "SOURCE_FILE": "125359005865.xml",
   "PARSED_AT": "2026-03-03 12:19:06",
   "PRODUCTS": [
@@ -226,8 +229,8 @@ updateLastRunTime() → settings.json.last_run = time()
       "PASSENGER_AGE": "ADULT",
       "CONJ_COUNT": 2,
       "PENALTY": 0,
-      "CARRIER": "EY",
-      "SUPPLIER": { "UID": "...", "CODE": "moyagent", "NAME": "МА авиа" },
+      "CARRIER": { "UID": "...", "CODE": "EY", "NAME": "Этихад Эйрвэйз" },
+      "SUPPLIER": { "UID": "...", "CODE": "moyagent", "NAME": "Мой Агент ООО" },
       "COUPONS": [
         {
           "FLIGHT_NUMBER": "842",
@@ -262,7 +265,7 @@ updateLastRunTime() → settings.json.last_run = time()
 Корень	UID	UUID v4	Уникальный ID заказа
 Корень	INVOICE_NUMBER	string	Номер заказа
 Корень	INVOICE_DATA	YYYYMMDDHHmmss	Дата заказа
-Корень	CLIENT	string	Код клиента
+Корень	CLIENT	UUID	UID контрагента «РС ТЛС ООО» из clients.json (подставляется в enrich() вместо кода из файла поставщика)
 Корень	PRODUCTS	array	Массив продуктов (≥1)
 Product	UID	UUID v4	Уникальный ID продукта
 Product	PRODUCT_TYPE	{NAME, CODE}	Тип продукта
@@ -270,6 +273,7 @@ Product	NUMBER	string	Номер билета (as-is из XML)
 Product	STATUS	string	продажа / возврат / обмен
 Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
 Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
+Product	CARRIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника airlines (до enrich — строка IATA)
 Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
 Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
 Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
@@ -559,12 +563,34 @@ php sftp_sync.php --force
 АвиаКомпании.txt	airlines.json	UID	КодБуквенный: LH, SU	Наименование
 АэропортыСтанцииЖД.txt	airports.json	UID	код из КодМОМ: ZRH	Наименование
 Агенты.txt / Пользователи.txt	agents.json	— (нет в 1С)	КодМОМ: 022	ФизическоеЛицо
+Города.txt	cities.json	UID	КодМОМ (PLD, 1552997), иначе Код	Наименование
+Страны.txt	countries.json	UID	КодАльфа2 (RU), иначе КодАльфа3 (RUS)	Наименование
+Контрагенты.txt	suppliers.json / clients.json	UID	code = folder парсера / rstls	Наименование
 
 Нюансы выгрузки:
 - КодМОМ у аэропортов встречается в трёх формах: "airport ZRH", " ZIA" и "LOS" — берётся последнее слово после trim
 - ЖД-вокзалы (Тип=ЖДВокзал) тоже импортируются, у них КодМОМ — числовой код станции (2024713)
 - Записи без кода и дубликаты по коду пропускаются (в лог — количество)
 - Рубль в 1С называется «руб.», парсер отдаёт RUB — соответствие через поле aliases
+- У большинства стран «Код» равен «--» (устаревшие дубли наименований) — записи без КодАльфа2/КодАльфа3 пропускаются
+
+Контрагенты (ReferenceImporter::importContractorRefs()):
+Контрагенты.txt весит ~24 МБ (около 740 тыс. строк), целиком в справочник он не переносится.
+Файл читается потоково (streamJsonRows: чанки по 256 КБ, границы объектов по балансу фигурных скобок),
+и из него выбираются только контрагенты из белого списка getContractorRefMap():
+
+code	Наименование в 1С	UID	куда
+moyagent	Мой Агент ООО (с висячим пробелом)	44ad7ae0-2244-11ef-9246-0050569c2148	suppliers.json
+smarttravel	РЖД - ЦИФРОВЫЕ ПАССАЖИРСКИЕ РЕШЕНИЯ	9f86f6c1-9b69-11e9-b97d-0050569c2148	suppliers.json
+rstls	РС ТЛС ООО	63a8bcb0-9b69-11e9-b97d-0050569c2148	clients.json
+
+Импорт мержит, а не перезаписывает: записи с кодами вне белого списка сохраняются,
+а у ручных записей с заполненным name и пустым uid UID дозаполняется из выгрузки.
+Первый элемент suppliers.json / clients.json — запись-подсказка (_hint, _source, _template)
+без поля code; findByCode() такие записи игнорирует, удалять подсказку не нужно.
+Наименования сверяются только по полю «Наименование» после нормализации (регистр, ё→е,
+знаки препинания и лишние пробелы). «НаименованиеПолное» не используется: у постороннего
+контрагента «РСТЛС НАПИТКИ» там записано ООО "РС ТЛС".
 
 Поле aliases: дополнительные написания кода/имени, по которым тоже идёт поиск.
 Используется для валют («руб.» ↔ RUB) и агентов (латиница «Elizaveta Perekrestova»).
@@ -574,8 +600,17 @@ php sftp_sync.php --force
 Поэтому: сначала точное совпадение (по name и aliases, с нормализацией),
 затем — вхождение всех слов заказа в ФИО из 1С. Несколько кандидатов → WARNING, подстановки нет.
 
-Незаполненные справочники (suppliers, service_classes) дают WARNING в app.log,
+Незаполненные справочники (service_classes) дают WARNING в app.log,
 но НЕ переводят файл в Error/ — обработка считается успешной.
+
+Что подставляет enrich() (ReferenceManager):
+- CLIENT (корень заказа) — UID «РС ТЛС ООО» из clients.json по коду CLIENT_CODE='rstls'.
+  Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName у SmartTravel) в 1С не уходит.
+- SUPPLIER — {UID, CODE, NAME} из suppliers.json по folder парсера
+- CARRIER — {UID, CODE, NAME} из airlines.json (парсеры отдают строку IATA)
+- AGENT / BOOKING_AGENT — {CODE, NAME} без UID
+- CURRENCY, DEPARTURE_AIRPORT / ARRIVAL_AIRPORT, AIRLINE, SERVICE_CLASS
+- cities и countries только импортируются: полей CITY/COUNTRY в ORDER нет
 
 9. Web UI
 9.1. index.php — Панель управления
@@ -721,11 +756,13 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ Retry при отправке в 1С опционален (api.retry_attempts); при 0 — одна попытка
 ⚠️ data.php — серверный рендеринг — может быть медленным
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
-⚠️ suppliers.json пуст — источника в выгрузке 1С нет, заполняется вручную (moyagent, smarttravel)
 ⚠️ service_classes.json не импортируется — в выгрузке КлассыАвиаЖДбилетов.txt нет поля UID
+⚠️ CARRIER у SmartTravel — наименование перевозчика («ЗАО ТК "ГСЭ"»), а не IATA-код, поэтому UID из airlines не находится (WARNING)
+⚠️ Колонка «Клиент» в data.php показывает UID «РС ТЛС ООО» — после enrich() в ORDER остаётся только он
 ⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-10	Города/страны в импорте, suppliers и clients из Контрагенты.txt потоковым чтением (белый список + мерж ручных правок + подсказка в файле), CLIENT = UID «РС ТЛС ООО», CARRIER → объект {UID,CODE,NAME}, исправлен баг `[object Object]` в колонке «Перевозчик»	core/ReferenceImporter.php, core/ReferenceManager.php, core/DataTableHelpers.php
 2026-09-10	Импорт справочников из выгрузки 1С: папка references/import/, ReferenceImporter, кнопка «Загрузить справочники», агенты по коду вместо UID, aliases при поиске, предупреждения справочников больше не переводят файл в Error/; убрана отладочная запись в debug-edd969.log	core/ReferenceImporter.php, core/ReferenceManager.php, core/Processor.php, core/Utils.php, api.php, index.php, assets/app.js, .gitignore
 2026-03-25	Права владения ext_kuritsyn:bitrix: `ensureOwnership()`, `ensureDirectory()` во всех файлах, создающих файлы/папки (10 PHP-файлов)	core/Utils.php, core/Processor.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php, sftp_sync.php, process.php, api.php
 2026-03-25	Документация в `docs/` (четыре `.md` + зеркала `.txt`); `sync-docs-to-txt.php` обновляет `docs/*.txt`; правила Cursor, README и nextstep на пути `docs/*`	docs/, scripts/sync-docs-to-txt.php, .cursorrules, .cursor/skills/context-keeper.md, .cursor/skills/update-structure/SKILL.md, README.md, nextstep.md
@@ -791,6 +828,11 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет)
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
+Справочники: CLIENT в ORDER — всегда UID «РС ТЛС ООО» из clients.json (ReferenceManager::CLIENT_CODE), код из файла поставщика отбрасывается
+Справочники: suppliers.json и clients.json собираются из Контрагенты.txt по белому списку ReferenceImporter::getContractorRefMap(); полный contractors.json не создаётся (файл ~24 МБ)
+Справочники: чтобы добавить поставщика — дописать в suppliers.json запись с code (папка парсера), name (наименование из 1С) и пустым uid; при следующем импорте UID подставится сам, ручные поля не затираются
+Справочники: первая запись suppliers.json / clients.json — подсказка без поля code, findByCode() её игнорирует
+data.php formatRefValue() — поля справочников (SUPPLIER, CARRIER, CURRENCY) после enrich() объекты, до enrich() строки; функция обрабатывает оба варианта
 data.php formatAgent() — антидубль: если CODE===NAME → одно значение
 data.php даты — все сегменты через запятую, не первый/последний
 SFTP и PullSync вызываются из runProcessing() перед Processor; единый pipeline при «Запустить» и автообработке
