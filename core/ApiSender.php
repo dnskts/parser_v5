@@ -11,6 +11,8 @@
  * - Проверяет доступность API (метод isAvailable)
  * - Отправляет данные заказа методом POST с базовой авторизацией
  * - Удаляет служебные поля (SOURCE_FILE, PARSED_AT) перед отправкой
+ * - Сворачивает справочники (CLIENT, SUPPLIER, CARRIER, CURRENCY, аэропорты)
+ *   в плоский UID-строку — формат, который принимает HTTP-сервис 1С
  * - Записывает каждую попытку отправки в лог (JSON Lines)
  * - Возвращает понятные сообщения об ошибках (сеть, таймаут, HTTP-код)
  *
@@ -108,9 +110,9 @@ class ApiSender
             return array('success' => false, 'message' => $msg, 'http_code' => null);
         }
 
-        $sendData = $orderData;
-        unset($sendData['SOURCE_FILE']);
-        unset($sendData['PARSED_AT']);
+        // В json/ хранится полный ORDER с объектами {UID,CODE,NAME} для таблицы.
+        // В 1С уходят только UID (как в прежнем *_export.json).
+        $sendData = $this->prepareForApi($orderData);
 
         $jsonBody = json_encode($sendData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($jsonBody === false) {
@@ -180,6 +182,98 @@ class ApiSender
             isset($lastResult['response']) ? $lastResult['response'] : null,
             $lastExplanation);
         return array('success' => false, 'message' => $lastExplanation, 'http_code' => isset($lastResult['http_code']) ? $lastResult['http_code'] : null);
+    }
+
+    /**
+     * Готовит ORDER к отправке в 1С: убирает служебные поля и сворачивает
+     * справочники в плоский UID (строка), как в прежнем формате *_export.json.
+     *
+     * В файлах json/ объекты {UID,CODE,NAME} сохраняются — они нужны таблице
+     * data.php. В HTTP-тело уходит только UID.
+     *
+     * @param array $orderData — ORDER после enrich()
+     * @return array — копия заказа для POST
+     */
+    private function prepareForApi($orderData)
+    {
+        $data = $orderData;
+        unset($data['SOURCE_FILE']);
+        unset($data['PARSED_AT']);
+
+        // CLIENT после enrich() уже строка-UID; если вдруг объект — берём UID
+        if (isset($data['CLIENT'])) {
+            $data['CLIENT'] = $this->flattenRefToUid($data['CLIENT']);
+        }
+
+        if (!isset($data['PRODUCTS']) || !is_array($data['PRODUCTS'])) {
+            return $data;
+        }
+
+        foreach ($data['PRODUCTS'] as $pIdx => $product) {
+            if (isset($product['SUPPLIER'])) {
+                $data['PRODUCTS'][$pIdx]['SUPPLIER'] = $this->flattenRefToUid($product['SUPPLIER']);
+            }
+            if (isset($product['CARRIER'])) {
+                $data['PRODUCTS'][$pIdx]['CARRIER'] = $this->flattenRefToUid($product['CARRIER']);
+            }
+            if (isset($product['CURRENCY'])) {
+                $data['PRODUCTS'][$pIdx]['CURRENCY'] = $this->flattenRefToUid($product['CURRENCY']);
+            }
+
+            // AGENT / BOOKING_AGENT: в 1С нет UID агентов — оставляем {CODE, NAME}
+            if (isset($product['AGENT']) && is_array($product['AGENT'])) {
+                $agent = $product['AGENT'];
+                unset($agent['UID']);
+                $data['PRODUCTS'][$pIdx]['AGENT'] = $agent;
+            }
+            if (isset($product['BOOKING_AGENT']) && is_array($product['BOOKING_AGENT'])) {
+                $booking = $product['BOOKING_AGENT'];
+                unset($booking['UID']);
+                $data['PRODUCTS'][$pIdx]['BOOKING_AGENT'] = $booking;
+            }
+
+            if (!isset($product['COUPONS']) || !is_array($product['COUPONS'])) {
+                continue;
+            }
+
+            foreach ($product['COUPONS'] as $cIdx => $coupon) {
+                if (isset($coupon['DEPARTURE_AIRPORT'])) {
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_AIRPORT'] = $this->flattenRefToUid(
+                        $coupon['DEPARTURE_AIRPORT']
+                    );
+                }
+                if (isset($coupon['ARRIVAL_AIRPORT'])) {
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_AIRPORT'] = $this->flattenRefToUid(
+                        $coupon['ARRIVAL_AIRPORT']
+                    );
+                }
+
+                // В payload 1С достаточно CLASS (буква) и CARRIER на продукте;
+                // объекты AIRLINE / SERVICE_CLASS туда не отправляем
+                unset($data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['AIRLINE']);
+                unset($data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS']);
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Объект справочника {UID,CODE,NAME} → строка UID.
+     * Если значение уже строка (UID или код до enrich) — возвращается как есть.
+     *
+     * @param mixed $value — объект или строка
+     * @return string
+     */
+    private function flattenRefToUid($value)
+    {
+        if (is_array($value)) {
+            return isset($value['UID']) ? (string)$value['UID'] : '';
+        }
+        if (is_string($value) || is_numeric($value)) {
+            return (string)$value;
+        }
+        return '';
     }
 
     /**

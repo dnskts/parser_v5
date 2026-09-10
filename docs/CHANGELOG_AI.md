@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-09-10 — Плоские UID в POST в 1С + json/.gitkeep
+
+**Запрос пользователя:** Выделенные на скрине поля (CLIENT, CARRIER, SUPPLIER, аэропорты, CURRENCY) должны уходить в 1С как UID; остальная структура — как в рабочем export. Папка json/ не создавалась при установке на сервер.
+
+### Что было сделано
+
+**`core/ApiSender.php`:**
+- Новый `prepareForApi($orderData)` вызывается из `send()` перед `json_encode`.
+- Сворачивает в плоский UID-строку: `CLIENT`, `SUPPLIER`, `CARRIER`, `CURRENCY`, `DEPARTURE_AIRPORT`, `ARRIVAL_AIRPORT`.
+- У `AGENT` / `BOOKING_AGENT` снимает `UID` (в 1С его нет).
+- Из купонов убирает `AIRLINE` и `SERVICE_CLASS` (в 1С достаточно буквы `CLASS` и `CARRIER` на продукте).
+- По-прежнему удаляет `SOURCE_FILE` и `PARSED_AT`.
+- Файлы в `json/` не меняются — там остаются объекты для `data.php`.
+
+**`json/.gitkeep`:** возвращён, чтобы при clone с git папка `json/` существовала (содержимое по-прежнему в `.gitignore`).
+
+### Принятые решения
+- Сворачивание только при отправке, не в enrich/saveJson: таблица заказов продолжает показывать коды/имена через `formatRefValue`.
+- Повторная отправка (resend) тоже идёт через `send()` → `prepareForApi()`.
+
+### Проверка
+- Reflection-тест `prepareForApi`: SUPPLIER/CARRIER/CURRENCY/аэропорты → UID-строки; SOURCE_FILE/AIRLINE/SERVICE_CLASS/AGENT.UID отсутствуют.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`
+- `json/.gitkeep`
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`
+
+---
+
 ## 2026-09-10 — Города/страны/контрагенты в импорте, CLIENT и CARRIER в enrich, баг перевозчика
 
 **Запрос пользователя:** Города, страны и контрагенты содержат UID — их тоже надо загружать по кнопке. Поставщики находятся в справочнике контрагентов, взять оттуда и задать в `enrich()` (поставщик «МА авиа» = «Мой Агент ООО» в 1С). Вместо `CLIENT` = `MA1PA6` всегда передавать UID компании «РС ТЛС ООО». Исправить баг: перевозчик в таблице отображается как `[object Object]`. Отдельно: не хранить большой `suppliers.json` — оставить двух поставщиков и подготовить подсказки для ручного дополнения.

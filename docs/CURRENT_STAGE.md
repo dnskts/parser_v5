@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-10
-**Обновлено после:** города/страны/контрагенты в импорте справочников, CLIENT = UID «РС ТЛС ООО» и CARRIER-объект в enrich(), исправлено отображение перевозчика в data.php
+**Обновлено после:** перед отправкой в 1С справочники сворачиваются в плоский UID; возвращён json/.gitkeep
 
 ---
 
@@ -62,7 +62,7 @@ parser_v5/
 │   ├── countries.json        — страны (КодАльфа2/КодАльфа3); в enrich пока не используются
 │   └── currencies.json       — валюты (ISO)
 ├── core/
-│   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
+│   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, prepareForApi (плоские UID), лог в api_send.log
 │   ├── Logger.php            — app.log (INFO/WARNING/ERROR/SUCCESS), ротация 5МБ→.old
 │   ├── ParserInterface.php   — контракт: getSupplierFolder(), getSupplierName(), parse()
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
@@ -81,7 +81,7 @@ parser_v5/
 │   ├── SmartTravelParser.php — SmartTravel (ЖД) — PUSH + PULL в одном парсере
 │   └── DemoHotelParser.php   — шаблон отелей
 ├── input/{supplier}/         — XML/JSON (подпапки Processed/, Error/). Поставщики: moyagent, smarttravel, demo_hotel
-├── json/                     — результаты ({folder}_{name}_{Ymd_His}.json)
+├── json/                     — результаты ({folder}_{name}_{Ymd_His}.json); в git только .gitkeep
 ├── logs/                     — app.log + api_send.log + sftp_sync.log + pull_sync.log + webhook.log
 ├── tests/fixtures/           — 7 XML + 1 JSON фикстура для MoyAgent и SmartTravel
 ├── index.php                 — панель управления (app.js, AJAX)
@@ -434,7 +434,12 @@ json
 7.2. Формат отправки
 Метод: POST, Auth: Basic Auth
 Заголовки: Content-Type: application/json; charset=utf-8, Accept: application/json
-Тело: JSON ORDER (без SOURCE_FILE, PARSED_AT)
+Тело: JSON ORDER после prepareForApi():
+- удаляются SOURCE_FILE, PARSED_AT
+- CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT → плоский UID (строка), не объект {UID,CODE,NAME}
+- у AGENT/BOOKING_AGENT снимается UID (в 1С его нет)
+- из купонов убираются AIRLINE и SERVICE_CLASS (в 1С достаточно CLASS-буквы и CARRIER на продукте)
+В файлах json/ полный ORDER с объектами сохраняется — для data.php.
 SSL: верификация отключена
 7.3. Проверка доступности
 isAvailable() — HEAD-запрос, timeout 2с. Вызывается перед циклом обработки. Результат кешируется на весь цикл.
@@ -762,6 +767,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-10	ApiSender::prepareForApi — перед POST в 1С справочники CLIENT/SUPPLIER/CARRIER/CURRENCY/аэропорты сворачиваются в плоский UID (как в *_export.json); из купонов убираются AIRLINE/SERVICE_CLASS; возвращён json/.gitkeep	core/ApiSender.php, json/.gitkeep
 2026-09-10	Города/страны в импорте, suppliers и clients из Контрагенты.txt потоковым чтением (белый список + мерж ручных правок + подсказка в файле), CLIENT = UID «РС ТЛС ООО», CARRIER → объект {UID,CODE,NAME}, исправлен баг `[object Object]` в колонке «Перевозчик»	core/ReferenceImporter.php, core/ReferenceManager.php, core/DataTableHelpers.php
 2026-09-10	Импорт справочников из выгрузки 1С: папка references/import/, ReferenceImporter, кнопка «Загрузить справочники», агенты по коду вместо UID, aliases при поиске, предупреждения справочников больше не переводят файл в Error/; убрана отладочная запись в debug-edd969.log	core/ReferenceImporter.php, core/ReferenceManager.php, core/Processor.php, core/Utils.php, api.php, index.php, assets/app.js, .gitignore
 2026-03-25	Права владения ext_kuritsyn:bitrix: `ensureOwnership()`, `ensureDirectory()` во всех файлах, создающих файлы/папки (10 PHP-файлов)	core/Utils.php, core/Processor.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php, sftp_sync.php, process.php, api.php
@@ -829,6 +835,7 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
 Справочники: CLIENT в ORDER — всегда UID «РС ТЛС ООО» из clients.json (ReferenceManager::CLIENT_CODE), код из файла поставщика отбрасывается
+Справочники: в json/ после enrich() поля справочников — объекты {UID,CODE,NAME}; в HTTP POST в 1С ApiSender::prepareForApi() сворачивает их в плоский UID (CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT)
 Справочники: suppliers.json и clients.json собираются из Контрагенты.txt по белому списку ReferenceImporter::getContractorRefMap(); полный contractors.json не создаётся (файл ~24 МБ)
 Справочники: чтобы добавить поставщика — дописать в suppliers.json запись с code (папка парсера), name (наименование из 1С) и пустым uid; при следующем импорте UID подставится сам, ручные поля не затираются
 Справочники: первая запись suppliers.json / clients.json — подсказка без поля code, findByCode() её игнорирует
