@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-10
-**Обновлено после:** перед отправкой в 1С справочники сворачиваются в плоский UID; возвращён json/.gitkeep
+**Обновлено после:** DEPARTURE_DATETIME в payload 1С; uid_test для Мой агент (references.uid_profile)
 
 ---
 
@@ -438,8 +438,9 @@ json
 - удаляются SOURCE_FILE, PARSED_AT
 - CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT → плоский UID (строка), не объект {UID,CODE,NAME}
 - у AGENT/BOOKING_AGENT снимается UID (в 1С его нет)
-- из купонов убираются AIRLINE и SERVICE_CLASS (в 1С достаточно CLASS-буквы и CARRIER на продукте)
+- купоны: собираются DEPARTURE_DATETIME / ARRIVAL_DATETIME из DATE+TIME; убираются DATE/TIME, AIRLINE, SERVICE_CLASS, CLASS_NAME, TYPE_ID*, SEGMENT_STATUS*
 В файлах json/ полный ORDER с объектами сохраняется — для data.php.
+Профиль UID: references.uid_profile = "prod"|"test" — при test в SUPPLIER/CLIENT подставляется uid_test из справочника (если задан).
 SSL: верификация отключена
 7.3. Проверка доступности
 isAvailable() — HEAD-запрос, timeout 2с. Вызывается перед циклом обработки. Результат кешируется на весь цикл.
@@ -767,6 +768,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-10	prepareForApi: DEPARTURE_DATETIME/ARRIVAL_DATETIME из DATE+TIME; uid_test у moyagent + references.uid_profile (prod/test)	core/ApiSender.php, core/ReferenceManager.php, core/ReferenceImporter.php, references/suppliers.json, config/settings.json
 2026-09-10	ApiSender::prepareForApi — перед POST в 1С справочники CLIENT/SUPPLIER/CARRIER/CURRENCY/аэропорты сворачиваются в плоский UID (как в *_export.json); из купонов убираются AIRLINE/SERVICE_CLASS; возвращён json/.gitkeep	core/ApiSender.php, json/.gitkeep
 2026-09-10	Города/страны в импорте, suppliers и clients из Контрагенты.txt потоковым чтением (белый список + мерж ручных правок + подсказка в файле), CLIENT = UID «РС ТЛС ООО», CARRIER → объект {UID,CODE,NAME}, исправлен баг `[object Object]` в колонке «Перевозчик»	core/ReferenceImporter.php, core/ReferenceManager.php, core/DataTableHelpers.php
 2026-09-10	Импорт справочников из выгрузки 1С: папка references/import/, ReferenceImporter, кнопка «Загрузить справочники», агенты по коду вместо UID, aliases при поиске, предупреждения справочников больше не переводят файл в Error/; убрана отладочная запись в debug-edd969.log	core/ReferenceImporter.php, core/ReferenceManager.php, core/Processor.php, core/Utils.php, api.php, index.php, assets/app.js, .gitignore

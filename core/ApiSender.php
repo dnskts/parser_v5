@@ -248,14 +248,57 @@ class ApiSender
                     );
                 }
 
-                // В payload 1С достаточно CLASS (буква) и CARRIER на продукте;
-                // объекты AIRLINE / SERVICE_CLASS туда не отправляем
-                unset($data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['AIRLINE']);
-                unset($data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS']);
+                // 1С ждёт DEPARTURE_DATETIME / ARRIVAL_DATETIME (как в *_export.json),
+                // а парсер кладёт раздельную пару DATE + TIME
+                $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_DATETIME'] = $this->buildDateTimeField(
+                    $coupon, 'DEPARTURE'
+                );
+                $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_DATETIME'] = $this->buildDateTimeField(
+                    $coupon, 'ARRIVAL'
+                );
+
+                // Лишние для 1С поля купона (остаются в json/ для таблицы)
+                unset(
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_DATE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_TIME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_DATE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_TIME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['AIRLINE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['CLASS_NAME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['TYPE_ID'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['TYPE_ID_NAME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SEGMENT_STATUS'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SEGMENT_STATUS_NAME']
+                );
             }
         }
 
         return $data;
+    }
+
+    /**
+     * Собирает YYYYMMDDHHmmss для купона: готовый *_DATETIME или склейка DATE+TIME.
+     *
+     * @param array $coupon — купон из ORDER
+     * @param string $prefix — DEPARTURE или ARRIVAL
+     * @return string
+     */
+    private function buildDateTimeField($coupon, $prefix)
+    {
+        $dtKey = $prefix . '_DATETIME';
+        if (isset($coupon[$dtKey]) && trim((string)$coupon[$dtKey]) !== '') {
+            return (string)$coupon[$dtKey];
+        }
+
+        $date = isset($coupon[$prefix . '_DATE']) ? trim((string)$coupon[$prefix . '_DATE']) : '';
+        $time = isset($coupon[$prefix . '_TIME']) ? trim((string)$coupon[$prefix . '_TIME']) : '';
+
+        if ($date !== '' && $time !== '') {
+            return $date . $time;
+        }
+
+        return $date !== '' ? $date : '';
     }
 
     /**

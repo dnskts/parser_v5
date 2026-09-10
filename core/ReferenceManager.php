@@ -120,7 +120,7 @@ class ReferenceManager
             foreach ($variants as $variant) {
                 if ((string)$variant === (string)$code) {
                     return array(
-                        'uid'  => isset($entry['uid']) ? (string)$entry['uid'] : '',
+                        'uid'  => $this->resolveEntryUid($entry),
                         'code' => (string)$entry['code'],
                         'name' => isset($entry['name']) ? (string)$entry['name'] : (string)$entry['code']
                     );
@@ -129,6 +129,29 @@ class ReferenceManager
         }
 
         return null;
+    }
+
+    /**
+     * UID записи справочника с учётом профиля среды.
+     * При references.uid_profile = "test" берётся uid_test (если задан), иначе uid.
+     *
+     * @param array $entry — запись справочника
+     * @return string
+     */
+    private function resolveEntryUid($entry)
+    {
+        $profile = isset($this->settings['uid_profile'])
+            ? strtolower(trim((string)$this->settings['uid_profile']))
+            : 'prod';
+
+        if ($profile === 'test') {
+            $uidTest = isset($entry['uid_test']) ? trim((string)$entry['uid_test']) : '';
+            if ($uidTest !== '') {
+                return $uidTest;
+            }
+        }
+
+        return isset($entry['uid']) ? (string)$entry['uid'] : '';
     }
 
     /**

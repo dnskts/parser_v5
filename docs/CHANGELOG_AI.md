@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-09-10 — DEPARTURE_DATETIME для 1С + uid_test Мой агент
+
+**Запрос пользователя:** HTTP 400 от 1С — «Поле объекта не обнаружено (DEPARTURE_DATETIME)»; добавить тестовый UID для Мой агент.
+
+### Что было сделано
+
+**`core/ApiSender.php` — prepareForApi:**
+- Собирает `DEPARTURE_DATETIME` / `ARRIVAL_DATETIME` из `*_DATE` + `*_TIME` (или берёт готовый `*_DATETIME`).
+- Убирает из payload купона раздельные DATE/TIME и служебные поля (`CLASS_NAME`, `TYPE_ID*`, `SEGMENT_STATUS*`, `AIRLINE`, `SERVICE_CLASS`).
+
+**Тестовый UID поставщика:**
+- В `references/suppliers.json` у `moyagent` добавлен `uid_test`: `8cb5239c-a9ba-11f0-80dd-0050569c2148` (прод `uid` без изменений).
+- В `config/settings.json` → `references.uid_profile`: `"prod"` (по умолчанию) или `"test"` на тестовом сервере.
+- `ReferenceManager::resolveEntryUid()` при `uid_profile=test` отдаёт `uid_test`, иначе `uid`.
+- Подсказка импорта упоминает `uid_test`.
+
+### На тесте
+В `config/settings.json` поставить: `"uid_profile": "test"` в секции `references`.
+
+### Проверка
+- Smoke: DATETIME склеивается, DATE/TIME в payload нет; prod/test UID для moyagent различаются.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`, `core/ReferenceManager.php`, `core/ReferenceImporter.php`
+- `references/suppliers.json`, `config/settings.json`
+- docs
+
+---
+
 ## 2026-09-10 — Плоские UID в POST в 1С + json/.gitkeep
 
 **Запрос пользователя:** Выделенные на скрине поля (CLIENT, CARRIER, SUPPLIER, аэропорты, CURRENCY) должны уходить в 1С как UID; остальная структура — как в рабочем export. Папка json/ не создавалась при установке на сервер.

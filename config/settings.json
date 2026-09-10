@@ -48,6 +48,7 @@
         "api_login": "",
         "api_password": "",
         "api_timeout": 30,
+        "uid_profile": "prod",
         "types": {
             "suppliers": {
                 "endpoint": "\/suppliers",
