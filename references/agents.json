@@ -1,1 +1,322 @@
-[]
+[
+    {
+        "uid": "",
+        "code": "013",
+        "name": "Шонохова Екатерина Викторовна",
+        "aliases": [
+            "Ekaterina Shonokhova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "023",
+        "name": "Елизавета Золотарева",
+        "aliases": [
+            "Elizaveta Zolotareva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "548",
+        "name": "Екатерина Максимова",
+        "aliases": [
+            "Ekaterina Maksimova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "045",
+        "name": "Anastasia Angazhi",
+        "aliases": []
+    },
+    {
+        "uid": "",
+        "code": "549",
+        "name": "Екатерина Ширкунова",
+        "aliases": [
+            "Ekaterina Shirkunova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "040",
+        "name": "WebServises",
+        "aliases": []
+    },
+    {
+        "uid": "",
+        "code": "351",
+        "name": "Аббасова Эльнара Арифовна",
+        "aliases": [
+            "Elnara Abbasova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "188",
+        "name": "Проковьева Лариса",
+        "aliases": [
+            "Larisa Prokopyeva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "161",
+        "name": "Курицын Денис Станиславович",
+        "aliases": [
+            "Denis Kuritsyn"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "125",
+        "name": "Циопич Ирина Александровна",
+        "aliases": [
+            "Irina Tsiopich"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "164",
+        "name": "Ященко Константин Леонидович",
+        "aliases": [
+            "Konstantin Yashchenko"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "165",
+        "name": "Ефремова Дарья Александровна",
+        "aliases": [
+            "Daria Efremova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "114",
+        "name": "Абрамова Елена Николаевна",
+        "aliases": [
+            "Elena Abramova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "243",
+        "name": "Гоманова Елена Михайловна",
+        "aliases": [
+            "Elena Gomanova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "022",
+        "name": "Перекрестова Елизавета Евгеньевна",
+        "aliases": [
+            "Elizaveta Perekrestova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "156",
+        "name": "Щербакова Мария Сергеевна",
+        "aliases": [
+            "Maria Scherbakova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "029",
+        "name": "Врублевская Кристина Сергеевна",
+        "aliases": [
+            "Kristina Vrublevskaya"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "032",
+        "name": "Архипова Мария Алексеевна",
+        "aliases": [
+            "Maria Arkhipova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "234",
+        "name": "Терехова Надежда Васильевна",
+        "aliases": [
+            "Nadezhda Terehova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "031",
+        "name": "Булгаков Максим Олегович",
+        "aliases": [
+            "Maksim Bulgakov"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "109",
+        "name": "Демидова Елена Николаевна",
+        "aliases": [
+            "Elena Demidova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "177",
+        "name": "Панкин Алексей Алексеевич",
+        "aliases": [
+            "Alexey Pankin"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "038",
+        "name": "Старостина Валентина Евгеньевна",
+        "aliases": [
+            "Valentina Starostina"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "557",
+        "name": "Лазарева Ирина Александровна",
+        "aliases": [
+            "Irina Lazareva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "238",
+        "name": "Мулендеев Андрей Александрович",
+        "aliases": [
+            "Andrey Mulendeev"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "007",
+        "name": "Дорофеева Анна",
+        "aliases": [
+            "Anna Dorofeeva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "111",
+        "name": "Иван Сусеков",
+        "aliases": [
+            "Ivan Susekov"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "044",
+        "name": "Ekaterina Pakulyeva 1",
+        "aliases": []
+    },
+    {
+        "uid": "",
+        "code": "008",
+        "name": "Голощапова Анна Сергеевна",
+        "aliases": [
+            "Anna Goloschapova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "014",
+        "name": "Спиридонова Екатерина Павловна",
+        "aliases": [
+            "Ekaterina Spiridonova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "024",
+        "name": "Ахаладзе Элла Анатольевна",
+        "aliases": [
+            "Ella Akhaladze"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "055",
+        "name": "Elena Shishkina",
+        "aliases": []
+    },
+    {
+        "uid": "",
+        "code": "020",
+        "name": "Ветвицкая Елена Николаевна",
+        "aliases": [
+            "Elena Vetvitskaya"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "043",
+        "name": "Фризина Елизавета",
+        "aliases": [
+            "Elizaveta Frizina"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "030",
+        "name": "Бахорева Людмила",
+        "aliases": [
+            "Lyudmila Bakhoreva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "035",
+        "name": "Исайкина Ольга Вячеславовна",
+        "aliases": [
+            "Olga Isaykina"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "255",
+        "name": "Подунай Валерия Владимировна",
+        "aliases": [
+            "Valeriya Podunay"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "042",
+        "name": "Никифорова Ольга Николаевна",
+        "aliases": [
+            "Olga Nikiforova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "036",
+        "name": "Огурцова Ольга",
+        "aliases": [
+            "Olga Ogurtsova"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "432",
+        "name": "Яковлева Александра",
+        "aliases": [
+            "Aleksandra Yakovleva"
+        ]
+    },
+    {
+        "uid": "",
+        "code": "037",
+        "name": "Макарова Татьяна Александровна",
+        "aliases": [
+            "Tatyana Makarova"
+        ]
+    }
+]

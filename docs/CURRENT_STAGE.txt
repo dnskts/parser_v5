@@ -50,12 +50,13 @@ parser_v5/
 ├── config/
 │   ├── settings.json         — интервал, last_run, api, sftp, references, tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
-├── references/               — справочники для подстановки UID (JSON-файлы, заполняются вручную или через API 1С)
-│   ├── suppliers.json        — поставщики
-│   ├── agents.json           — агенты (AGENT + BOOKING_AGENT)
-│   ├── airports.json         — аэропорты (IATA)
+├── references/               — справочники для подстановки UID (заполняются импортом из 1С, вручную или через API 1С)
+│   ├── import/               — выгрузки 1С «как есть» (кладутся вручную раз в месяц, в .gitignore)
+│   ├── suppliers.json        — поставщики (только вручную, источника в выгрузке нет)
+│   ├── agents.json           — агенты (AGENT + BOOKING_AGENT), code вместо UID
+│   ├── airports.json         — аэропорты и ЖД-вокзалы (IATA / код станции)
 │   ├── airlines.json         — авиакомпании (IATA)
-│   ├── service_classes.json  — классы обслуживания
+│   ├── service_classes.json  — классы обслуживания (не импортируются: в 1С нет UID)
 │   └── currencies.json       — валюты (ISO)
 ├── core/
 │   ├── ApiSender.php         — HTTP POST в 1С, Basic Auth, лог в api_send.log
@@ -64,6 +65,7 @@ parser_v5/
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
 │   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→enrich→saveJson→send→move + processSingleFile()
 │   ├── ReferenceManager.php  — менеджер справочников: загрузка, поиск, обогащение ORDER полями UID, синхронизация через API 1С
+│   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
 │   ├── PullSync.php          — PULL-синхронизатор SmartTravel: GET + Basic Auth + HTTP-прокси
 │   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership(), ensureDirectory()
@@ -82,7 +84,7 @@ parser_v5/
 ├── index.php                 — панель управления (app.js, AJAX)
 ├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows/sync_references)
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows/sync_references/import_references)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
@@ -178,10 +180,10 @@ try:
 result = $parser->parse(xmlFile)
 refResult = ReferenceManager->enrich(result, $folder, $fileName)
 result = refResult['order']
-if refResult['warnings'] → $hasRefWarnings = true, логи
+refResult['warnings'] → WARNING в app.log (в Error/ НЕ переводит)
 saveJson($result, $folder, $xmlFile)
 if ($apiAvailable): ApiSender->send(…) — ВСЕГДА, даже без UID
-moveFile($xmlFile, $hasRefWarnings ? "Error/" : "Processed/")
+moveFile($xmlFile, "Processed/")
 catch:
 moveFile($xmlFile, "Error/")
 Logger->error(…)
@@ -217,8 +219,8 @@ updateLastRunTime() → settings.json.last_run = time()
       "NUMBER": "6076506222015",
       "ISSUE_DATE": "20260226152252",
       "RESERVATION_NUMBER": "G1ZXKP",
-      "BOOKING_AGENT": { "UID": "...", "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
-      "AGENT": { "UID": "...", "CODE": "Валерия Подунай", "NAME": "Валерия Подунай" },
+      "BOOKING_AGENT": { "CODE": "022", "NAME": "Валерия Подунай" },
+      "AGENT": { "CODE": "022", "NAME": "Валерия Подунай" },
       "STATUS": "продажа",
       "TICKET_TYPE": "OWN",
       "PASSENGER_AGE": "ADULT",
@@ -269,8 +271,8 @@ Product	STATUS	string	продажа / возврат / обмен
 Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
 Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
 Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
-Product	BOOKING_AGENT	{UID,CODE,NAME}	Из reservation[@bookingAgent], UID из agents.json
-Product	AGENT	{UID,CODE,NAME}	Из air_ticket_doc[@issuingAgent], UID из agents.json
+Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
+Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
 Product	TAXES	array	Первый (CODE="") = тариф
 Product	PAYMENTS	array	Платежи
 5.3. Служебные поля (удаляются перед отправкой в 1С)
@@ -542,13 +544,47 @@ php sftp_sync.php --force
 ✅ Код реализован и протестирован (подключение работает)
 ⚠️ Сетевой доступ не открыт: сервер парсера (127.0.0.1) не может достучаться до SFTP-сервера (10.4.175.11) — все порты timeout
 ⏳ Требуется: администратор сети должен открыть доступ с сервера парсера к 10.4.175.11:22
+8.10. Справочники и импорт из 1С
+Назначение: подстановка UID из 1С в JSON ORDER (ReferenceManager::enrich()).
+
+Три способа заполнения references/*.json:
+1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на index.php вызывает api.php?action=import_references → ReferenceImporter::importAll()
+2. Вручную — правка references/*.json
+3. Через API 1С — syncReferences() при references.auto_sync=true (api_url пока пуст)
+
+Соответствие выгрузок и справочников (ReferenceImporter::getImportMap()):
+
+Файл выгрузки	Справочник	uid	code	name
+Валюты.txt	currencies.json	UID	trim(Наименование): RUB, TL	НаименованиеПолное
+АвиаКомпании.txt	airlines.json	UID	КодБуквенный: LH, SU	Наименование
+АэропортыСтанцииЖД.txt	airports.json	UID	код из КодМОМ: ZRH	Наименование
+Агенты.txt / Пользователи.txt	agents.json	— (нет в 1С)	КодМОМ: 022	ФизическоеЛицо
+
+Нюансы выгрузки:
+- КодМОМ у аэропортов встречается в трёх формах: "airport ZRH", " ZIA" и "LOS" — берётся последнее слово после trim
+- ЖД-вокзалы (Тип=ЖДВокзал) тоже импортируются, у них КодМОМ — числовой код станции (2024713)
+- Записи без кода и дубликаты по коду пропускаются (в лог — количество)
+- Рубль в 1С называется «руб.», парсер отдаёт RUB — соответствие через поле aliases
+
+Поле aliases: дополнительные написания кода/имени, по которым тоже идёт поиск.
+Используется для валют («руб.» ↔ RUB) и агентов (латиница «Elizaveta Perekrestova»).
+
+Поиск агентов (ReferenceManager::findAgentByName()): в 1С нет UID, а ФИО записано полностью
+(«Перекрестова Елизавета Евгеньевна»), в заказе — коротко («Елизавета Перекрестова»).
+Поэтому: сначала точное совпадение (по name и aliases, с нормализацией),
+затем — вхождение всех слов заказа в ФИО из 1С. Несколько кандидатов → WARNING, подстановки нет.
+
+Незаполненные справочники (suppliers, service_classes) дают WARNING в app.log,
+но НЕ переводят файл в Error/ — обработка считается успешной.
+
 9. Web UI
 9.1. index.php — Панель управления
 Логи в реальном времени (polling 3с)
 Кнопка «Запустить обработку»
 Тумблер автообработки
+Кнопка «Загрузить справочники» (импорт выгрузок 1С из references/import/)
 Настройки API (url, login, password, timeout, enabled)
-JS: assets/app.js (372 строки)
+JS: assets/app.js
 9.2. data.php — Обработанные заказы
 Серверный рендеринг, 60 колонок
 Кнопка 🔄 для повторной отправки
@@ -663,6 +699,9 @@ settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
 clear_json	POST	Удаление всех *.json из json/
 resend	POST	Повторная отправка JSON в 1С
+data_rows	GET	Строки таблицы заказов для data.php
+sync_references	POST	Синхронизация справочников через API 1С
+import_references	POST	Импорт справочников из references/import/ (ReferenceImporter)
 10. Текущее состояние
 Реализовано (✅)
 ✅ Ядро: Processor, ParserManager, Logger, ParserInterface, Utils
@@ -675,14 +714,19 @@ resend	POST	Повторная отправка JSON в 1С
 ✅ Автотесты (test.php, 8 фикстур, 247 assertions — MoyAgent + SmartTravel)
 ✅ SFTP-синхронизатор встроен в обработку — при «Запустить» и автообработке (cURL+SFTP)
 ✅ SmartTravel PUSH+PULL: парсер ЖД-билетов, webhook.php, PullSync с прокси, единый парсер для двух режимов
+✅ Справочники: подстановка UID (ReferenceManager) + импорт выгрузок 1С кнопкой «Загрузить справочники» (ReferenceImporter)
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
 Известные проблемы (⚠️)
 ⚠️ Retry при отправке в 1С опционален (api.retry_attempts); при 0 — одна попытка
 ⚠️ data.php — серверный рендеринг — может быть медленным
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
+⚠️ suppliers.json пуст — источника в выгрузке 1С нет, заполняется вручную (moyagent, smarttravel)
+⚠️ service_classes.json не импортируется — в выгрузке КлассыАвиаЖДбилетов.txt нет поля UID
+⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-10	Импорт справочников из выгрузки 1С: папка references/import/, ReferenceImporter, кнопка «Загрузить справочники», агенты по коду вместо UID, aliases при поиске, предупреждения справочников больше не переводят файл в Error/; убрана отладочная запись в debug-edd969.log	core/ReferenceImporter.php, core/ReferenceManager.php, core/Processor.php, core/Utils.php, api.php, index.php, assets/app.js, .gitignore
 2026-03-25	Права владения ext_kuritsyn:bitrix: `ensureOwnership()`, `ensureDirectory()` во всех файлах, создающих файлы/папки (10 PHP-файлов)	core/Utils.php, core/Processor.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php, sftp_sync.php, process.php, api.php
 2026-03-25	Документация в `docs/` (четыре `.md` + зеркала `.txt`); `sync-docs-to-txt.php` обновляет `docs/*.txt`; правила Cursor, README и nextstep на пути `docs/*`	docs/, scripts/sync-docs-to-txt.php, .cursorrules, .cursor/skills/context-keeper.md, .cursor/skills/update-structure/SKILL.md, README.md, nextstep.md
 2026-03-17	SmartTravel PUSH+PULL: парсер ЖД, PullSync (API+прокси), webhook.php, SmartTravelConstants, тесты	SmartTravelParser.php, SmartTravelConstants.php, PullSync.php, webhook.php, Processor.php, process.php, Utils.php, settings.json, test.php
@@ -743,6 +787,10 @@ AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_pr
 BOOKING_AGENT берётся из reservation[@bookingAgent]
 RESERVATION_NUMBER берётся из reservation[@rloc] через getMainReservation()
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
+Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references)
+Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет)
+Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
+Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
 data.php formatAgent() — антидубль: если CODE===NAME → одно значение
 data.php даты — все сегменты через запятую, не первый/последний
 SFTP и PullSync вызываются из runProcessing() перед Processor; единый pipeline при «Запустить» и автообработке

@@ -40,4 +40,12 @@ json/*
 logs/*
 !logs/.gitkeep
 
+# === Выгрузки справочников из 1С ===
+# Крупные txt-файлы, загружаются вручную раз в месяц
+references/import/*
+!references/import/.gitkeep
+
+# === Временные файлы ===
+temp/
+
 config/sftp_last_run.txt

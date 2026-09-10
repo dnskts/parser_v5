@@ -190,16 +190,12 @@ class Processor
                     }
 
                     $savedJsonFiles = array();
-                    $hasRefWarnings = false;
                     foreach ($ordersList as $singleOrder) {
                         // Обогащение справочниками (подстановка UID)
                         $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
                         $singleOrder = $refResult['order'];
-                        if (!empty($refResult['warnings'])) {
-                            $hasRefWarnings = true;
-                            foreach ($refResult['warnings'] as $refWarn) {
-                                $this->logger->warning($refWarn);
-                            }
+                        foreach ($refResult['warnings'] as $refWarn) {
+                            $this->logger->warning($refWarn);
                         }
 
                         $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
@@ -222,11 +218,11 @@ class Processor
                         }
                     }
 
-                    // Если есть предупреждения справочников — в Error/, иначе — в Processed/
-                    $moveSubfolder = $hasRefWarnings ? 'Error' : 'Processed';
+                    // Предупреждения справочников не считаются ошибкой обработки:
+                    // файл уходит в Processed/, ненайденные коды остаются в app.log
                     $this->moveFile(
                         $xmlFile,
-                        $supplierDir . DIRECTORY_SEPARATOR . $moveSubfolder . DIRECTORY_SEPARATOR . $fileName
+                        $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
                     );
 
                     $jsonList = implode(', ', $savedJsonFiles);
@@ -300,16 +296,12 @@ class Processor
                 $ordersList = array_values($orderData);
             }
 
-            $hasRefWarnings = false;
             foreach ($ordersList as $singleOrder) {
                 // Обогащение справочниками (подстановка UID)
                 $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
                 $singleOrder = $refResult['order'];
-                if (!empty($refResult['warnings'])) {
-                    $hasRefWarnings = true;
-                    foreach ($refResult['warnings'] as $refWarn) {
-                        $this->logger->warning($refWarn);
-                    }
+                foreach ($refResult['warnings'] as $refWarn) {
+                    $this->logger->warning($refWarn);
                 }
 
                 $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
@@ -324,10 +316,10 @@ class Processor
                 }
             }
 
-            $moveSubfolder = $hasRefWarnings ? 'Error' : 'Processed';
+            // Предупреждения справочников не считаются ошибкой обработки
             $this->moveFile(
                 $filePath,
-                $supplierDir . DIRECTORY_SEPARATOR . $moveSubfolder . DIRECTORY_SEPARATOR . $fileName
+                $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
             );
 
             $result['processed'] = count($ordersList);

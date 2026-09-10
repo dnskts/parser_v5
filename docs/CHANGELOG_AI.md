@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-09-10 — Импорт справочников из выгрузки 1С
+
+**Запрос пользователя:** Создать папку `references/import/`, куда раз в месяц вручную кладутся выгрузки из 1С в исходном формате. На index.php добавить кнопку «Загрузить справочники», по нажатию — синхронизировать справочники из этих файлов.
+
+### Что было сделано
+
+**Новые файлы (2):**
+- **`core/ReferenceImporter.php`** — импортёр выгрузок 1С. Читает файлы из `references/import/` (JSON внутри .txt, снимает UTF-8 BOM, при неудаче пробует CP1251), нормализует записи в `{uid, code, name, aliases}`, перезаписывает `references/*.json`. Карта соответствия — `getImportMap()`; мапперы `mapCurrency` / `mapAirline` / `mapAirport` / `mapAgent`; поиск файла без учёта регистра (`findSourceFile` + `buildFileIndex`). `importAll()` возвращает по каждому справочнику `status` (ok/skipped/error), `file`, `count`, `skipped`, `message`.
+- **`references/import/.gitkeep`** — папка для ручной загрузки выгрузок.
+
+**Изменённые файлы (6):**
+- **`.gitignore`** — содержимое `references/import/` исключено из репозитория (кроме `.gitkeep`): файлы крупные и обновляются вручную.
+- **`core/ReferenceManager.php`** — три изменения:
+  - `findByCode()` сверяет не только `code`, но и `aliases`.
+  - Новый `findAgentByName($fio, &$ambiguous)` — нормализация ФИО (регистр, ё→е, только буквы и цифры), точное совпадение по `name`/`aliases`, затем вхождение всех слов из заказа в ФИО из 1С. Несколько кандидатов → `$ambiguous = true`, подстановки нет.
+  - Новый `buildAgentObject()` — AGENT и BOOKING_AGENT собираются как `{CODE, NAME}` без UID.
+- **`core/Processor.php`** — в `run()` и `processSingleFile()` убран `$hasRefWarnings`: предупреждения справочников пишутся в app.log, но файл всегда уходит в `Processed/`.
+- **`api.php`** — новый action `import_references` (POST): `ReferenceImporter::importAll()`, в ответе `message`, `imported`, `rows`, `results`.
+- **`index.php`** — кнопка «📚 Загрузить справочники» рядом с тумблером автообработки.
+- **`assets/app.js`** — функция `importReferences()`: блокировка кнопки, POST на `import_references`, вывод результата, перезагрузка логов.
+- **`core/Utils.php`** — удалены три блока отладочной записи в `debug-edd969.log` из `ensureOwnership()` и `ensureDirectory()` (остались от предыдущей сессии отладки), сам лог удалён из корня.
+
+### Принятые решения
+- **Агенты подставляются по коду, а не по UID.** В выгрузке 1С (`Пользователи.txt`, `Агенты.txt`) поля UID нет вообще. Поэтому `CODE` = код агента из 1С (например `022`), `NAME` = ФИО из заказа, ключ `UID` в объект не добавляется.
+- **`service_classes.json` не импортируется** — в `КлассыАвиаЖДбилетов.txt` тоже нет UID.
+- **`suppliers.json` заполняется вручную** — источника в выгрузке нет.
+- **Предупреждения справочников больше не переводят файл в `Error/`.** Иначе при незаполненных suppliers/service_classes туда уезжал бы каждый заказ.
+- **Поле `aliases`** — дополнительные написания, по которым тоже работает поиск. Понадобилось для рубля (в 1С «руб.», парсер отдаёт `RUB`) и для агентов (логин латиницей «Elizaveta Perekrestova»).
+- **Аэропорты:** `КодМОМ` встречается как `"airport ZRH"`, `" ZIA"` и `"LOS"` — берётся последнее слово после trim. ЖД-вокзалы импортируются вместе с аэропортами (у них числовой код станции, с трёхбуквенными IATA не пересекается).
+- Записи без кода и дубликаты по коду пропускаются, количество пропущенных пишется в лог.
+
+### Проверка
+- Импорт на реальной выгрузке: валюты 122, авиакомпании 204 (92 пропущено), аэропорты 837 (178), агенты 41 (339).
+- `enrich()`: AGENT/BOOKING_AGENT → `{"CODE":"022","NAME":"Елизавета Перекрестова"}`; ZRH, FRA, LH, RUB подставляются с UID; остались только два ожидаемых WARNING (suppliers, service_classes).
+- `php test.php` — 8 файлов, 247 тестов, 0 упало.
+
+### Изменённые файлы
+- `core/ReferenceImporter.php` — новый
+- `references/import/.gitkeep` — новый
+- `core/ReferenceManager.php` — aliases, findAgentByName, buildAgentObject
+- `core/Processor.php` — убран перевод в Error/ при предупреждениях справочников
+- `api.php` — action import_references
+- `index.php` — кнопка «Загрузить справочники»
+- `assets/app.js` — обработчик importReferences
+- `core/Utils.php` — удалена отладочная запись в debug-edd969.log
+- `.gitignore` — references/import/*
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md` — обновлены
+
+---
+
 ## 2026-04-11 — Убран ошибочный префикс '555' из номеров авиабилетов
 
 **Запрос пользователя:** Номер билета в XML (air_ticket_doc[@tkt_number]) уже содержит код авиакомпании. Добавление '555' удваивало код. Убрать.

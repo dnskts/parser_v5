@@ -67,6 +67,10 @@
                         <button id="btn-toggle-auto" class="btn btn--outline">
                             ⏱ Вкл. автообработку
                         </button>
+                        <button id="btn-import-refs" class="btn btn--secondary"
+                                title="Прочитать выгрузку 1С из references/import/ и обновить справочники">
+                            📚 Загрузить справочники
+                        </button>
                         <button id="btn-clear-logs" class="btn btn--danger">
                             🗑 Очистить логи
                         </button>

@@ -17,7 +17,7 @@
 | `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH) |
 | `tests/` | Тесты. В tests/fixtures/ — XML/JSON-фикстуры для автотестов парсеров (MoyAgent + SmartTravel) |
 | `assets/` | Фронтенд: общие стили (style.css), скрипт панели (app.js), библиотека для выгрузки XLSX |
-| `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. Заполняются вручную или через API 1С (syncAll). Используются ReferenceManager для обогащения ORDER. |
+| `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. Заполняются импортом выгрузок 1С из `references/import/` (ReferenceImporter), вручную или через API 1С (syncAll). Используются ReferenceManager для обогащения ORDER. |
 | `docs/` | Документация проекта и AI-контекст: текущее состояние, changelog AI, полная структура, системный промпт; для каждого основного `.md` — UTF-8 зеркало `.txt` (обновление через `scripts/sync-docs-to-txt.php`) |
 | `.cursor/` | Настройки и скиллы Cursor IDE (в т.ч. update-structure, context-keeper) |
 
@@ -38,13 +38,14 @@
 |------|----------|
 | `core/ParserInterface.php` | Интерфейс (контракт) парсера. Описывает три метода: `getSupplierFolder()` — имя папки в input/, `getSupplierName()` — человекочитаемое название поставщика, `parse($xmlFilePath)` — разбор XML и возврат массива ORDER. Любой новый парсер должен реализовать этот интерфейс. |
 | `core/ParserManager.php` | Менеджер парсеров с авто-обнаружением. При создании сканирует папку parsers/, подключает все *.php, через рефлексию находит классы, реализующие ParserInterface, создаёт экземпляры и строит карту «имя папки → парсер». Файлы в parsers/constants/ не сканируются (подключаются из парсеров). Методы: getParser($folder), getRegisteredFolders(), getAllParsers(). |
-| `core/Processor.php` | Оркестратор обработки. Читает настройки из config/settings.json, проверяет интервал (isIntervalPassed), для каждой папки поставщика: glob(*.xml + *.json) → вызов парсера → ReferenceManager::enrich() (подстановка UID) → saveJson → перемещение в Processed/ или Error/ (при hasRefWarnings → Error/) → при доступном API отправка через ApiSender. Поддерживает multi-order (массив ORDER-ов из одного файла). Метод processSingleFile() — обработка одного файла (для webhook/PullSync). |
+| `core/Processor.php` | Оркестратор обработки. Читает настройки из config/settings.json, проверяет интервал (isIntervalPassed), для каждой папки поставщика: glob(*.xml + *.json) → вызов парсера → ReferenceManager::enrich() (подстановка UID) → saveJson → перемещение в Processed/ (в Error/ только при исключении; предупреждения справочников попадают в app.log и обработку не срывают) → при доступном API отправка через ApiSender. Поддерживает multi-order (массив ORDER-ов из одного файла). Метод processSingleFile() — обработка одного файла (для webhook/PullSync). |
 | `core/Logger.php` | Логгер в файл logs/app.log. Уровни: info, warning, error, success. Формат строки: `[Y-m-d H:i:s] [LEVEL] message`. Ротация: при размере файла >5 МБ переименование в app.log.old. Методы: info(), warning(), error(), success(), getLastLines($lines), clear(). |
 | `core/ApiSender.php` | Отправка заказов в API 1С по HTTP. Конструктор принимает конфиг api и путь к logs/api_send.log. Методы: isAvailable() — проверка доступности (HEAD, таймаут 2–3 с), send($orderData, $jsonFileName, $sourceXml) — удаление SOURCE_FILE и PARSED_AT, POST JSON, Basic Auth, запись в лог (JSON Lines), getLogEntries($limit), clearLog(). При ошибках возвращает понятные сообщения (сеть, 401, 404, 500 и т.д.). |
 | `core/SftpSync.php` | SFTP-клиент на cURL (libssh2). Конструктор: конфиг (host, port, login, password, remote_path, local_path), путь к sftp_sync.log. Методы: sync() — листинг *.xml, скачивание в local_path, перемещение на SFTP в Processed/; testConnection(), listRemoteXmlFiles(), downloadFile(), moveToProcessed(). Путь на SFTP: ~/remote_path/. Логирование и ротация лога (>5 МБ → .old). |
 | `core/Utils.php` | Утилиты. Методы: generateUUID() — UUID v4 (RFC 4122); curlWithProxy($url, $options) — универсальный cURL с поддержкой Basic Auth и HTTP-прокси; ensureOwnership($path) — установка владельца ext_kuritsyn и группы bitrix (chown/chgrp с подавлением ошибок); ensureDirectory($dir, $permissions) — создание папки с установкой владельца/группы. Используется парсерами (UUID), PullSync (cURL), и всеми модулями для установки прав на создаваемые файлы/папки. |
 | `core/PullSync.php` | PULL-синхронизатор SmartTravel. Запрашивает данные с API SmartTravel (GET + Basic Auth + HTTP-прокси), сохраняет ответ в input/smarttravel/pull_*.json. Аналог SftpSync для REST API. Лог: logs/pull_sync.log. |
-| `core/ReferenceManager.php` | Менеджер справочников. Загрузка JSON (loadReference), поиск по коду (findByCode), обогащение ORDER полями UID (enrich), синхронизация через API 1С (syncReference/syncAll), список типов (getAvailableTypes). Кеширование в памяти. При ненайденном UID: UID="", NAME=CODE, WARNING в лог. |
+| `core/ReferenceManager.php` | Менеджер справочников. Загрузка JSON (loadReference), поиск по коду с учётом aliases (findByCode), поиск агента по ФИО (findAgentByName — точное совпадение, затем вхождение всех слов заказа в ФИО из 1С), сборка объекта агента без UID (buildAgentObject), обогащение ORDER полями UID (enrich), синхронизация через API 1С (syncReference/syncAll), список типов (getAvailableTypes). Кеширование в памяти. При ненайденном UID: UID="", NAME=CODE, WARNING в лог. |
+| `core/ReferenceImporter.php` | Импорт справочников из выгрузок 1С. Читает файлы из `references/import/` (JSON в .txt, UTF-8 с BOM или CP1251), нормализует записи в `{uid, code, name, aliases}` и перезаписывает `references/*.json`. Карта соответствия — getImportMap() (currencies, airlines, airports, agents), мапперы mapCurrency/mapAirline/mapAirport/mapAgent. Пропускает записи без кода и дубликаты по коду. importAll() — все типы, importType($type) — один; результат по каждому справочнику: status (ok/skipped/error), file, count, skipped, message. |
 | `core/DataTableHelpers.php` | Вспомогательные функции для страницы данных и API data_rows: formatRstlsDate($date), formatAgent($agent), buildRowsFromJsonFile($filePath) — возвращает массив строк таблицы из одного JSON-файла заказа (один продукт = одна строка). Подключается из data.php и api.php при action=data_rows. |
 
 ---
@@ -65,10 +66,10 @@
 
 | Файл | Описание |
 |------|----------|
-| `index.php` | Панель управления. HTML-страница с блоком настроек (интервал, кнопки «Запустить», «Вкл. автообработку», «Очистить логи»), блоком логов и навигацией. Подключает assets/style.css и assets/app.js. Логи и настройки загружаются через AJAX (api.php). |
+| `index.php` | Панель управления. HTML-страница с блоком настроек (интервал, кнопки «Запустить», «Вкл. автообработку», «Загрузить справочники», «Очистить логи»), блоком логов и навигацией. Подключает assets/style.css и assets/app.js. Логи и настройки загружаются через AJAX (api.php). |
 | `data.php` | Страница обработанных заказов. Вкладки по парсерам (список из ParserManager); данные подгружаются через api.php?action=data_rows (GET: supplier, offset, limit, sort, dir). Первая загрузка и «Загрузить ещё» — порциями по 50 файлов; кеш по вкладке в памяти. Таблица 60 колонок, рендер строк в JS из ответа data_rows. Сортировка (дата выписки/загрузки), фильтр по колонкам, кнопка «Выгрузить в XLSX», кнопка «Очистить таблицу» (clear_json), кнопка 🔄 (resend). Подключает Logger, ParserManager, style.css и встроенный JS. |
 | `api_logs.php` | Страница логов отправки в API 1С. Работает в двух режимах: при запросе с ?action=get_logs/get_settings/clear_logs отдаёт JSON; без параметров — HTML-страница с таблицей записей из logs/api_send.log. Встроенный JS: загрузка логов и настроек, кнопки «Обновить» и «Очистить логи», автообновление логов каждые 10 с. Подключает style.css. |
-| `api.php` | AJAX API для веб-интерфейса. Один вход: GET-параметр action. Действия: logs (GET) — последние 200 строк app.log; run (POST) — runProcessing(true), в ответе sftp_status, sftp_skipped; settings (GET/POST) — чтение/запись config/settings.json (interval, data_column_order); clear_logs (POST); clear_json (POST); resend (POST); data_rows (GET) — supplier (обязательно), offset, limit, sort, dir — возвращает rows, total_files, has_more для вкладок и «Загрузить ещё»; sync_references (POST) — ручная синхронизация справочников через ReferenceManager::syncAll(). Подключает process.php, Logger, DataTableHelpers (для data_rows). |
+| `api.php` | AJAX API для веб-интерфейса. Один вход: GET-параметр action. Действия: logs (GET) — последние 200 строк app.log; run (POST) — runProcessing(true), в ответе sftp_status, sftp_skipped; settings (GET/POST) — чтение/запись config/settings.json (interval, data_column_order); clear_logs (POST); clear_json (POST); resend (POST); data_rows (GET) — supplier (обязательно), offset, limit, sort, dir — возвращает rows, total_files, has_more для вкладок и «Загрузить ещё»; sync_references (POST) — ручная синхронизация справочников через ReferenceManager::syncAll(); import_references (POST) — импорт справочников из references/import/ через ReferenceImporter::importAll(), в ответе message, imported (число справочников), rows (число записей), results (детали по каждому). Подключает process.php, Logger, DataTableHelpers (для data_rows). |
 | `process.php` | Точка входа конвейера обработки. Определяет BASE_DIR при первом подключении. Содержит функции: runSftpSync($force), runPullSync($force) (SmartTravel PULL API), syncReferences() (синхронизация справочников при auto_sync=true), runProcessing($force) — последовательно: SFTP → PULL → syncReferences → Processor. Результат дополняется полями sftp_*, pull_*. CLI: php process.php; веб: из api.php при action=run. |
 | `webhook.php` | Универсальный приёмник PUSH-уведомлений. URL: webhook.php?supplier=smarttravel. Принимает POST с JSON, проверяет Basic Auth (если включено), сохраняет в input/{supplier}/webhook_*.json, вызывает Processor->processSingleFile(). Лог: logs/webhook.log. |
 | `sftp_sync.php` | Автономная точка входа только для SFTP-синхронизации. Читает config/settings.json, секцию sftp; при enabled и (force или истёк интервал) создаёт SftpSync и вызывает sync(), обновляет sftp_last_run.txt. Запуск: CLI (php sftp_sync.php [--force]) или браузер (sftp_sync.php?force=1). Вывод: в CLI — текст, в браузере — JSON с полями status, downloaded, errors, files, timestamp. Вспомогательная функция logAndExit() для вывода ошибки в лог и завершения с кодом 1. |
@@ -81,7 +82,7 @@
 | Файл | Описание |
 |------|----------|
 | `assets/style.css` | Общие стили проекта (BEM-нотация): шапка, навигация, панель, кнопки, логи, таблица данных, футер, компактный layout. Используется на index.php, data.php, api_logs.php, test.php. |
-| `assets/app.js` | Логика только для index.php. Загрузка настроек и логов (api.php?action=settings, action=logs), ручной запуск обработки (action=run, POST), автообработка по таймеру с сохранением состояния в localStorage (parser_auto_enabled), очистка логов (action=clear_logs). Использует AbortController для прерывания fetch при уходе со страницы. Форматирование даты и подсветка строк лога по уровню. |
+| `assets/app.js` | Логика только для index.php. Загрузка настроек и логов (api.php?action=settings, action=logs), ручной запуск обработки (action=run, POST), автообработка по таймеру с сохранением состояния в localStorage (parser_auto_enabled), очистка логов (action=clear_logs), импорт справочников из выгрузки 1С (action=import_references, POST — кнопка «Загрузить справочники»). Использует AbortController для прерывания fetch при уходе со страницы. Форматирование даты и подсветка строк лога по уровню. |
 | `assets/xlsx.full.min.js` | Минифицированная библиотека SheetJS для экспорта таблицы в XLSX. Подключается на data.php как запасной вариант (fallback), если CDN недоступен. |
 
 ---
@@ -117,12 +118,13 @@
 
 | Файл | Описание |
 |------|----------|
-| `references/suppliers.json` | Справочник поставщиков: `[{uid, code, name}]`. code = folder парсера (moyagent, smarttravel). |
-| `references/agents.json` | Справочник агентов: `[{uid, code, name}]`. code = ФИО. Используется для AGENT и BOOKING_AGENT. |
-| `references/airports.json` | Справочник аэропортов: `[{uid, code, name}]`. code = IATA-код (SVO, NHA). |
+| `references/import/` | Выгрузки из 1С «как есть» (JSON внутри .txt). Кладутся вручную раз в месяц, содержимое в .gitignore (кроме .gitkeep). Читаются ReferenceImporter по кнопке «Загрузить справочники»: Валюты.txt, АвиаКомпании.txt, АэропортыСтанцииЖД.txt, Агенты.txt / Пользователи.txt. |
+| `references/suppliers.json` | Справочник поставщиков: `[{uid, code, name}]`. code = folder парсера (moyagent, smarttravel). Заполняется только вручную — в выгрузке 1С источника нет. |
+| `references/agents.json` | Справочник агентов: `[{uid, code, name, aliases}]`. uid всегда пуст (в 1С его нет), code = код агента из 1С (022), name = ФИО, aliases = альтернативные написания (логин латиницей). Используется для AGENT и BOOKING_AGENT. |
+| `references/airports.json` | Справочник аэропортов и ЖД-вокзалов: `[{uid, code, name}]`. code = IATA-код (SVO, NHA) или числовой код станции. |
 | `references/airlines.json` | Справочник авиакомпаний: `[{uid, code, name}]`. code = IATA-код (SU, S7). |
-| `references/service_classes.json` | Справочник классов обслуживания: `[{uid, code, name}]`. code = однобуквенный код (A, Y, C, F). |
-| `references/currencies.json` | Справочник валют: `[{uid, code, name}]`. code = ISO-код (RUB, USD, EUR). |
+| `references/service_classes.json` | Справочник классов обслуживания: `[{uid, code, name}]`. code = однобуквенный код (A, Y, C, F). Не импортируется — в выгрузке 1С нет UID. |
+| `references/currencies.json` | Справочник валют: `[{uid, code, name, aliases}]`. code = наименование из 1С (RUB, TL, «руб.»), aliases = синонимы для поиска («руб.» → RUB). |
 
 ---
 
@@ -147,7 +149,7 @@
 | `nextstep.md` | План улучшений и оптимизации, следующие шаги с пояснениями, подробная инструкция по подключению новых поставщиков через API. |
 | `README.md` | Краткое описание проекта для людей (если есть). |
 | `migration.md` | Документ миграции (если есть). |
-| `.gitignore` | Исключения для Git: обычно input/, json/, логи, конфиги с паролями, .cursor/debug*.log. |
+| `.gitignore` | Исключения для Git: обычно input/, json/, логи, конфиги с паролями, .cursor/debug*.log, содержимое references/import/ (кроме .gitkeep). |
 
 ---
 

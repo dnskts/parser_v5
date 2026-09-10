@@ -9,6 +9,7 @@
  * - Ручной запуск обработки файлов
  * - Автообработка по таймеру (пока страница открыта)
  * - Сохранение настроек (интервал обработки)
+ * - Импорт справочников из выгрузки 1С
  * - Очистка логов
  * 
  * Все запросы к серверу идут через AJAX (fetch API)
@@ -34,6 +35,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     /** Кнопка включения/выключения автообработки */
     var btnToggleAuto = document.getElementById('btn-toggle-auto');
+    
+    /** Кнопка импорта справочников из выгрузки 1С */
+    var btnImportRefs = document.getElementById('btn-import-refs');
     
     /** Кнопка очистки логов */
     var btnClearLogs = document.getElementById('btn-clear-logs');
@@ -332,6 +336,37 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // -------------------------------------------------------
+    // ИМПОРТ СПРАВОЧНИКОВ ИЗ ВЫГРУЗКИ 1С
+    // -------------------------------------------------------
+    
+    /**
+     * Читает файлы выгрузки 1С из references/import/ и обновляет
+     * справочники references/*.json. Файлы кладутся в папку вручную.
+     */
+    function importReferences() {
+        btnImportRefs.disabled = true;
+        setStatus('running', 'Загрузка справочников...');
+
+        fetch('api.php?action=import_references', { method: 'POST' })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.status === 'ok') {
+                    setStatus('success', data.message);
+                } else {
+                    setStatus('error', data.message || 'Ошибка загрузки справочников');
+                }
+                loadLogs();
+            })
+            .catch(function(error) {
+                setStatus('error', 'Ошибка связи с сервером');
+                console.error('Ошибка загрузки справочников:', error);
+            })
+            .finally(function() {
+                btnImportRefs.disabled = false;
+            });
+    }
+
+    // -------------------------------------------------------
     // ОЧИСТКА ЛОГОВ
     // -------------------------------------------------------
     
@@ -363,6 +398,7 @@ document.addEventListener('DOMContentLoaded', function() {
     btnRun.addEventListener('click', runProcessing);
     btnToggleAuto.addEventListener('click', toggleAutoProcessing);
     btnSaveInterval.addEventListener('click', saveInterval);
+    btnImportRefs.addEventListener('click', importReferences);
     btnClearLogs.addEventListener('click', clearLogs);
     btnRefreshLogs.addEventListener('click', loadLogs);
 

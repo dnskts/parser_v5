@@ -17,6 +17,7 @@
  * - action=clear_json   — удалить все JSON-файлы из json/ (POST)
  * - action=resend       — повторная отправка JSON в API 1С (POST)
  * - action=data_rows    — порция строк таблицы по поставщику (GET: supplier, offset, limit, sort, dir)
+ * - action=import_references — импорт справочников из references/import/ (POST)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -377,6 +378,57 @@ switch ($action) {
             'status' => 'ok',
             'message' => 'Синхронизация справочников завершена',
             'results' => $syncResult
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * ИМПОРТ СПРАВОЧНИКОВ ИЗ ВЫГРУЗКИ 1С
+     *
+     * Читает файлы выгрузки из references/import/ и нормализует их
+     * в references/*.json. Принимает только POST-запросы.
+     */
+    case 'import_references':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Требуется POST-запрос'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        require_once BASE_DIR . '/core/ReferenceImporter.php';
+        $importer = new ReferenceImporter(
+            BASE_DIR . '/references/import',
+            BASE_DIR . '/references',
+            $logger
+        );
+        $importResult = $importer->importAll();
+
+        // Короткая сводка для строки статуса в интерфейсе
+        $importedTypes = 0;
+        $importedRows = 0;
+        $failedTypes = array();
+        foreach ($importResult as $refType => $refInfo) {
+            if ($refInfo['status'] === 'ok') {
+                $importedTypes++;
+                $importedRows += $refInfo['count'];
+            } elseif ($refInfo['status'] === 'error') {
+                $failedTypes[] = $refType;
+            }
+        }
+
+        $importMessage = "Справочников обновлено: {$importedTypes}, записей: {$importedRows}";
+        if (!empty($failedTypes)) {
+            $importMessage .= '. Ошибки: ' . implode(', ', $failedTypes);
+        }
+
+        echo json_encode(array(
+            'status'   => 'ok',
+            'message'  => $importMessage,
+            'imported' => $importedTypes,
+            'rows'     => $importedRows,
+            'results'  => $importResult
         ), JSON_UNESCAPED_UNICODE);
         break;
 

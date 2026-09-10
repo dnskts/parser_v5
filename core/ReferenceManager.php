@@ -100,16 +100,125 @@ class ReferenceManager
         }
 
         foreach ($data as $entry) {
-            if (isset($entry['code']) && (string)$entry['code'] === (string)$code) {
-                return array(
-                    'uid'  => isset($entry['uid']) ? (string)$entry['uid'] : '',
-                    'code' => (string)$entry['code'],
-                    'name' => isset($entry['name']) ? (string)$entry['name'] : (string)$entry['code']
-                );
+            if (!isset($entry['code'])) {
+                continue;
+            }
+
+            // Кроме code сверяем aliases: в 1С встречаются названия,
+            // не совпадающие с кодом из файла поставщика (например «руб.» и RUB)
+            $variants = array((string)$entry['code']);
+            if (isset($entry['aliases']) && is_array($entry['aliases'])) {
+                $variants = array_merge($variants, $entry['aliases']);
+            }
+
+            foreach ($variants as $variant) {
+                if ((string)$variant === (string)$code) {
+                    return array(
+                        'uid'  => isset($entry['uid']) ? (string)$entry['uid'] : '',
+                        'code' => (string)$entry['code'],
+                        'name' => isset($entry['name']) ? (string)$entry['name'] : (string)$entry['code']
+                    );
+                }
             }
         }
 
         return null;
+    }
+
+    /**
+     * Поиск агента по ФИО.
+     *
+     * В выгрузке 1С у агентов нет UID — только код, а ФИО записано полностью
+     * («Перекрестова Елизавета Евгеньевна»), тогда как в заказе приходит
+     * короткая форма («Елизавета Перекрестова»). Поэтому поиск двухступенчатый:
+     * сначала точное совпадение, затем — вхождение слов заказа в ФИО из 1С.
+     *
+     * @param string $fio — ФИО из заказа
+     * @param bool &$ambiguous — по ссылке: true, если совпадений больше одного
+     * @return array|null — array('code'=>..., 'name'=>...) или null
+     */
+    public function findAgentByName($fio, &$ambiguous = false)
+    {
+        $ambiguous = false;
+
+        $fio = trim($fio);
+        if ($fio === '') {
+            return null;
+        }
+
+        $data = $this->loadReference('agents');
+        if (empty($data)) {
+            return null;
+        }
+
+        $needle = self::normalizeName($fio);
+        if ($needle === '') {
+            return null;
+        }
+        $needleTokens = explode(' ', $needle);
+
+        $candidates = array();
+
+        foreach ($data as $entry) {
+            if (!isset($entry['code'])) {
+                continue;
+            }
+
+            $entryName = isset($entry['name']) ? (string)$entry['name'] : '';
+            $variants = array($entryName);
+            if (isset($entry['aliases']) && is_array($entry['aliases'])) {
+                $variants = array_merge($variants, $entry['aliases']);
+            }
+
+            foreach ($variants as $variant) {
+                $normalized = self::normalizeName((string)$variant);
+                if ($normalized === '') {
+                    continue;
+                }
+
+                // Точное совпадение — сразу возвращаем
+                if ($normalized === $needle) {
+                    return array(
+                        'code' => (string)$entry['code'],
+                        'name' => $entryName !== '' ? $entryName : (string)$entry['code']
+                    );
+                }
+
+                // Все слова из заказа входят в ФИО из 1С (без отчества, порядок не важен)
+                if (count(array_diff($needleTokens, explode(' ', $normalized))) === 0) {
+                    $candidates[(string)$entry['code']] = array(
+                        'code' => (string)$entry['code'],
+                        'name' => $entryName !== '' ? $entryName : (string)$entry['code']
+                    );
+                    break;
+                }
+            }
+        }
+
+        if (count($candidates) === 1) {
+            return reset($candidates);
+        }
+        if (count($candidates) > 1) {
+            $ambiguous = true;
+        }
+
+        return null;
+    }
+
+    /**
+     * Приведение ФИО к сравнимому виду: нижний регистр, «ё» в «е»,
+     * знаки препинания в пробелы, схлопывание пробелов.
+     *
+     * @param string $value — исходная строка
+     * @return string
+     */
+    private static function normalizeName($value)
+    {
+        $value = mb_strtolower(trim($value), 'UTF-8');
+        $value = str_replace('ё', 'е', $value);
+        $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value);
+
+        return trim(preg_replace('/\s+/u', ' ', $value));
     }
 
     /**
@@ -146,6 +255,44 @@ class ReferenceManager
     }
 
     /**
+     * Построение объекта агента для поля ORDER.
+     *
+     * В отличие от остальных справочников UID не подставляется — в выгрузке 1С
+     * его нет. В CODE попадает код агента из 1С, в NAME остаётся ФИО из заказа.
+     *
+     * @param array $agent — исходный объект AGENT или BOOKING_AGENT из заказа
+     * @param string $fileName — имя файла (для лога)
+     * @param array &$warnings — массив предупреждений (по ссылке)
+     * @return array — array('CODE'=>..., 'NAME'=>...)
+     */
+    private function buildAgentObject($agent, $fileName, &$warnings)
+    {
+        $fio = isset($agent['CODE']) ? trim((string)$agent['CODE']) : '';
+        $name = isset($agent['NAME']) && trim((string)$agent['NAME']) !== ''
+            ? (string)$agent['NAME']
+            : $fio;
+
+        if ($fio === '') {
+            return array('CODE' => '', 'NAME' => $name);
+        }
+
+        $ambiguous = false;
+        $found = $this->findAgentByName($fio, $ambiguous);
+
+        if ($found !== null) {
+            return array('CODE' => $found['code'], 'NAME' => $name);
+        }
+
+        $msg = $ambiguous
+            ? "Справочник agents: несколько совпадений для '{$fio}', код не подставлен (файл: {$fileName})"
+            : "Справочник agents: код не найден для '{$fio}' (файл: {$fileName})";
+        $this->logger->warning($msg);
+        $warnings[] = $msg;
+
+        return array('CODE' => $fio, 'NAME' => $name);
+    }
+
+    /**
      * Обогащение ORDER полями UID из справочников.
      *
      * @param array $order — ORDER (ассоциативный массив)
@@ -171,34 +318,16 @@ class ReferenceManager
 
             // --- AGENT ---
             if (isset($product['AGENT']) && is_array($product['AGENT']) && isset($product['AGENT']['CODE'])) {
-                $agentCode = $product['AGENT']['CODE'];
-                $found = $this->findByCode('agents', $agentCode);
-                if ($found !== null) {
-                    $order['PRODUCTS'][$pIdx]['AGENT']['UID'] = $found['uid'];
-                } else {
-                    $order['PRODUCTS'][$pIdx]['AGENT']['UID'] = '';
-                    if ($agentCode !== '') {
-                        $msg = "Справочник agents: UID не найден для code '{$agentCode}' (файл: {$fileName})";
-                        $this->logger->warning($msg);
-                        $warnings[] = $msg;
-                    }
-                }
+                $order['PRODUCTS'][$pIdx]['AGENT'] = $this->buildAgentObject(
+                    $product['AGENT'], $fileName, $warnings
+                );
             }
 
             // --- BOOKING_AGENT ---
             if (isset($product['BOOKING_AGENT']) && is_array($product['BOOKING_AGENT']) && isset($product['BOOKING_AGENT']['CODE'])) {
-                $baCode = $product['BOOKING_AGENT']['CODE'];
-                $found = $this->findByCode('agents', $baCode);
-                if ($found !== null) {
-                    $order['PRODUCTS'][$pIdx]['BOOKING_AGENT']['UID'] = $found['uid'];
-                } else {
-                    $order['PRODUCTS'][$pIdx]['BOOKING_AGENT']['UID'] = '';
-                    if ($baCode !== '') {
-                        $msg = "Справочник agents: UID не найден для code '{$baCode}' (файл: {$fileName})";
-                        $this->logger->warning($msg);
-                        $warnings[] = $msg;
-                    }
-                }
+                $order['PRODUCTS'][$pIdx]['BOOKING_AGENT'] = $this->buildAgentObject(
+                    $product['BOOKING_AGENT'], $fileName, $warnings
+                );
             }
 
             // --- CURRENCY ---
