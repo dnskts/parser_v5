@@ -31,6 +31,9 @@ class SftpSync
     /** @var string Путь к файлу лога */
     private $logFile;
 
+    /** @var bool Права на файл лога уже проверялись в этом запросе */
+    private $logOwnershipChecked = false;
+
     /** @var string Базовый URL для SFTP (sftp://user@host:port) */
     private $baseUrl;
 
@@ -380,7 +383,9 @@ class SftpSync
 
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
 
-        if ($isNewFile) {
+        // Права — на новом файле и один раз за запрос
+        if ($isNewFile || !$this->logOwnershipChecked) {
+            $this->logOwnershipChecked = true;
             Utils::ensureOwnership($this->logFile);
         }
     }

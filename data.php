@@ -200,6 +200,22 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
         </section>
     </main>
 
+    <!-- Окно просмотра и правки payload, который уходит в 1С (json_api/) -->
+    <div id="apiJsonModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);">
+        <div style="position:absolute;top:5%;left:50%;transform:translateX(-50%);width:min(900px,92vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.3);">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid #e0e0e0;">
+                <strong style="font-size:14px;">JSON для 1С: <span id="apiJsonFile" style="font-weight:normal;"></span></strong>
+                <button type="button" id="apiJsonClose" class="btn btn--secondary" style="padding:2px 10px;">✕</button>
+            </div>
+            <textarea id="apiJsonText" spellcheck="false" style="flex:1;min-height:50vh;margin:0;padding:12px 16px;border:0;font-family:Consolas,'Courier New',monospace;font-size:12px;line-height:1.45;resize:vertical;outline:none;"></textarea>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid #e0e0e0;">
+                <button type="button" id="apiJsonSave" class="btn btn--outline">Сохранить</button>
+                <button type="button" id="apiJsonSend" class="btn">Сохранить и отправить в 1С</button>
+                <span id="apiJsonStatus" style="font-size:13px;color:#666;"></span>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
     </footer>
@@ -248,7 +264,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
             return '<tr class="data-table__row">' +
                 '<td class="data-table__td" data-col-index="0" style="text-align:center"><button class="btn-resend" title="Отправить повторно в API 1С" data-file="' + esc(row.file) + '" onclick="resendJson(this.getAttribute(\'data-file\'), this)">🔄</button></td>' +
                 '<td class="data-table__td data-table__td--num" data-col-index="1">' + (index + 1) + '</td>' +
-                '<td class="data-table__td data-table__td--file" data-col-index="2" title="' + esc(row.file) + '">' + esc(row.file) + '</td>' +
+                '<td class="data-table__td data-table__td--file" data-col-index="2"><span class="data-file-link" title="Показать JSON, который уходит в 1С" style="cursor:pointer;text-decoration:underline dotted;">' + esc(row.file) + '</span></td>' +
                 '<td class="data-table__td" data-col-index="3">' + esc(row.invoice_num) + '</td>' +
                 '<td class="data-table__td data-table__td--nowrap" data-col-index="4">' + esc(row.invoice_date) + '</td>' +
                 '<td class="data-table__td" data-col-index="5">' + esc(row.client) + '</td>' +
@@ -435,6 +451,12 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
         });
 
         tbody.addEventListener('click', function(e) {
+            var fileLink = e.target.closest('.data-file-link');
+            if (fileLink) {
+                e.stopPropagation();
+                openApiJson(fileLink.textContent.trim());
+                return;
+            }
             var tr = e.target.closest('tr');
             if (!tr || e.target.closest('.btn-resend')) return;
             tr.classList.toggle('data-table__row--selected');
@@ -472,6 +494,104 @@ function resendJson(fileName, btn) {
         setTimeout(function() { btn.textContent = '🔄'; }, 5000);
     });
 }
+
+// --- Окно «JSON для 1С» (папка json_api/) ---
+var apiJsonCurrentFile = '';
+
+function apiJsonSetStatus(text, isError) {
+    var el = document.getElementById('apiJsonStatus');
+    el.textContent = text || '';
+    el.style.color = isError ? '#c0392b' : '#666';
+}
+
+function openApiJson(fileName) {
+    apiJsonCurrentFile = fileName;
+    document.getElementById('apiJsonFile').textContent = fileName;
+    document.getElementById('apiJsonText').value = 'Загрузка...';
+    apiJsonSetStatus('');
+    document.getElementById('apiJsonModal').style.display = 'block';
+
+    fetch('api.php?action=api_json&file=' + encodeURIComponent(fileName))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'ok') {
+                document.getElementById('apiJsonText').value = data.content;
+            } else {
+                document.getElementById('apiJsonText').value = '';
+                apiJsonSetStatus(data.message || 'Не удалось загрузить JSON', true);
+            }
+        })
+        .catch(function(err) {
+            document.getElementById('apiJsonText').value = '';
+            apiJsonSetStatus('Ошибка сети: ' + err, true);
+        });
+}
+
+// Сохраняет содержимое textarea в json_api/; в колбэк передаётся успех
+function apiJsonSave(onSaved) {
+    apiJsonSetStatus('Сохранение...');
+    fetch('api.php?action=save_api_json', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            file: apiJsonCurrentFile,
+            content: document.getElementById('apiJsonText').value
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'ok') {
+            document.getElementById('apiJsonText').value = data.content;
+            apiJsonSetStatus('Сохранено');
+            if (onSaved) onSaved();
+        } else {
+            apiJsonSetStatus(data.message || 'Ошибка сохранения', true);
+        }
+    })
+    .catch(function(err) {
+        apiJsonSetStatus('Ошибка сети: ' + err, true);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('apiJsonModal');
+    if (!modal) return;
+
+    document.getElementById('apiJsonClose').addEventListener('click', function() {
+        modal.style.display = 'none';
+    });
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) modal.style.display = 'none';
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') modal.style.display = 'none';
+    });
+
+    document.getElementById('apiJsonSave').addEventListener('click', function() {
+        apiJsonSave(null);
+    });
+
+    document.getElementById('apiJsonSend').addEventListener('click', function() {
+        apiJsonSave(function() {
+            apiJsonSetStatus('Отправка в 1С...');
+            fetch('api.php?action=resend', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file: apiJsonCurrentFile, source: 'api'})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                apiJsonSetStatus(
+                    (data.status === 'ok' ? 'Отправлено: ' : 'Ошибка: ') + (data.message || ''),
+                    data.status !== 'ok'
+                );
+            })
+            .catch(function(err) {
+                apiJsonSetStatus('Ошибка сети: ' + err, true);
+            });
+        });
+    });
+});
     </script>
     <script>
 document.addEventListener('DOMContentLoaded', function() {

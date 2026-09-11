@@ -23,9 +23,6 @@ class Utils
     /** Права на создаваемые папки: rwxrwxr-x */
     const DIR_MODE = 0775;
 
-    /** @var bool Предупреждение о непроставленных правах пишется раз за запуск */
-    private static $ownershipWarned = false;
-
     /**
      * Генерирует уникальный идентификатор UUID версии 4 (RFC 4122).
      * 
@@ -75,15 +72,11 @@ class Utils
             $mode = is_dir($path) ? self::DIR_MODE : self::FILE_MODE;
         }
 
+        // Ошибки не логируются: под bitrix chown запрещён штатно, и запись
+        // об этом на каждый файл засоряла бы app.log
         $ownerOk = @chown($path, self::FILE_OWNER);
         $groupOk = @chgrp($path, self::FILE_GROUP);
-        $modeOk  = @chmod($path, $mode);
-
-        // Неудачный chown — штатная ситуация. Файл становится недоступным
-        // для правки руками, только если сорвались группа или права.
-        if (!$groupOk || !$modeOk) {
-            self::warnOwnershipFailure($path, $groupOk, $modeOk);
-        }
+        @chmod($path, $mode);
 
         return $ownerOk && $groupOk;
     }
@@ -104,50 +97,6 @@ class Utils
         }
         self::ensureOwnership($dir, $permissions);
         return true;
-    }
-
-    /**
-     * Пишет в logs/app.log предупреждение о непроставленных правах — один раз
-     * за запуск, чтобы не залить лог. Логгер здесь не используется: он сам
-     * вызывает ensureOwnership(), получилась бы рекурсия.
-     *
-     * @param string $path — путь, на котором сорвалась установка прав
-     * @param bool $groupOk — удался ли chgrp
-     * @param bool $modeOk — удался ли chmod
-     * @return void
-     */
-    private static function warnOwnershipFailure($path, $groupOk, $modeOk)
-    {
-        if (self::$ownershipWarned) {
-            return;
-        }
-        self::$ownershipWarned = true;
-
-        $failed = array();
-        if (!$groupOk) {
-            $failed[] = 'группу ' . self::FILE_GROUP;
-        }
-        if (!$modeOk) {
-            $failed[] = 'права доступа';
-        }
-
-        $user = 'неизвестен';
-        if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
-            $info = @posix_getpwuid(posix_geteuid());
-            if (is_array($info) && isset($info['name'])) {
-                $user = $info['name'];
-            }
-        }
-
-        $message = '[' . date('Y-m-d H:i:s') . '] [WARNING] Не удалось выставить '
-            . implode(' и ', $failed) . ' для ' . $path . ' (PHP работает от «' . $user
-            . '»): файл может оказаться недоступен для правки под ' . self::FILE_OWNER
-            . '. Остальные файлы этого запуска не проверяются.' . PHP_EOL;
-
-        $logFile = dirname(__DIR__) . '/logs/app.log';
-        if (is_dir(dirname($logFile))) {
-            @file_put_contents($logFile, $message, FILE_APPEND | LOCK_EX);
-        }
     }
 
     /**

@@ -36,6 +36,10 @@ input/demo_hotel/Error/*
 json/*
 !json/.gitkeep
 
+# === JSON ровно в том виде, в каком уходит в 1С ===
+json_api/*
+!json_api/.gitkeep
+
 # === Логи ===
 logs/*
 !logs/.gitkeep

@@ -14,8 +14,10 @@
  * - action=run          — запустить обработку файлов вручную (POST)
  * - action=settings     — получить настройки (GET) или сохранить (POST)
  * - action=clear_logs   — очистить файл логов (POST)
- * - action=clear_json   — удалить все JSON-файлы из json/ (POST)
- * - action=resend       — повторная отправка JSON в API 1С (POST)
+ * - action=clear_json   — удалить все JSON-файлы из json/ и json_api/ (POST)
+ * - action=resend       — повторная отправка JSON в API 1С (POST: file, source=json|api)
+ * - action=api_json     — payload в формате 1С из json_api/ (GET: file)
+ * - action=save_api_json — сохранить отредактированный payload (POST: file, content)
  * - action=data_rows    — порция строк таблицы по поставщику (GET: supplier, offset, limit, sort, dir)
  * - action=import_references — импорт справочников из references/import/ (POST)
  * 
@@ -208,12 +210,16 @@ switch ($action) {
             break;
         }
 
-        $jsonDir = BASE_DIR . '/json';
+        // json/ — заказы для таблицы, json_api/ — их копии в формате 1С.
+        // Считаем только заказы, чтобы число совпадало со строками таблицы
         $deleted = 0;
-        if (is_dir($jsonDir)) {
-            $files = glob($jsonDir . '/*.json');
-            foreach ($files as $file) {
-                if (is_file($file) && unlink($file)) {
+        foreach (array(BASE_DIR . '/json', BASE_DIR . '/json_api') as $jsonDir) {
+            if (!is_dir($jsonDir)) {
+                continue;
+            }
+            $isOrdersDir = (basename($jsonDir) === 'json');
+            foreach (glob($jsonDir . '/*.json') as $file) {
+                if (is_file($file) && unlink($file) && $isOrdersDir) {
                     $deleted++;
                 }
             }
@@ -228,9 +234,11 @@ switch ($action) {
 
     /**
      * ПОВТОРНАЯ ОТПРАВКА JSON В API 1С
-     * 
-     * Читает ранее сохранённый JSON-файл из json/ и отправляет
-     * его повторно в API 1С. Используется кнопкой 🔄 на странице data.php.
+     *
+     * source = json (по умолчанию) — берётся заказ из json/, payload собирается
+     * заново и обновляется копия в json_api/. Кнопка 🔄 на странице data.php.
+     * source = api — отправляется json_api/ как есть (то, что видно и правится
+     * в окне «JSON для 1С»); prepareForApi() на готовом payload идемпотентен.
      */
     case 'resend':
         if ($method !== 'POST') {
@@ -244,6 +252,7 @@ switch ($action) {
 
         $input = json_decode(file_get_contents('php://input'), true);
         $jsonFile = isset($input['file']) ? $input['file'] : '';
+        $fromApiDir = (isset($input['source']) && $input['source'] === 'api');
 
         if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
             http_response_code(400);
@@ -254,7 +263,7 @@ switch ($action) {
             break;
         }
 
-        $jsonPath = BASE_DIR . '/json/' . $jsonFile;
+        $jsonPath = BASE_DIR . ($fromApiDir ? '/json_api/' : '/json/') . $jsonFile;
         if (!file_exists($jsonPath)) {
             http_response_code(404);
             echo json_encode(array(
@@ -277,7 +286,13 @@ switch ($action) {
         require_once BASE_DIR . '/core/ApiSender.php';
         $resendSettings = json_decode(file_get_contents($configFile), true);
         $apiConfig = isset($resendSettings['api']) ? $resendSettings['api'] : array();
-        $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log');
+        $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log', BASE_DIR . '/json_api');
+
+        // Отправка из json/ — копия в json_api/ должна показывать последнее
+        // отправленное; отредактированный payload перезаписывать не нужно
+        if (!$fromApiDir) {
+            $apiSender->writeApiPayload($orderData, $jsonFile);
+        }
 
         $sourceXml = isset($orderData['SOURCE_FILE']) ? $orderData['SOURCE_FILE'] : '';
         $sendResult = $apiSender->send($orderData, $jsonFile, $sourceXml);
@@ -286,6 +301,114 @@ switch ($action) {
             'status' => $sendResult['success'] ? 'ok' : 'error',
             'message' => $sendResult['message'],
             'http_code' => $sendResult['http_code']
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * JSON В ФОРМАТЕ 1С (окно «JSON для 1С» на странице data.php)
+     *
+     * GET  ?file=… — отдаёт json_api/<file>. Для заказов, обработанных до
+     *                появления папки, payload собирается из json/<file>.
+     * POST {file, content} — сохраняет отредактированный payload.
+     */
+    case 'api_json':
+        $jsonFile = isset($_GET['file']) ? $_GET['file'] : '';
+        if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
+            http_response_code(400);
+            echo json_encode(array('status' => 'error', 'message' => 'Некорректное имя файла'), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $apiJsonPath = BASE_DIR . '/json_api/' . $jsonFile;
+        if (file_exists($apiJsonPath)) {
+            echo json_encode(array(
+                'status'  => 'ok',
+                'file'    => $jsonFile,
+                'content' => file_get_contents($apiJsonPath)
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $orderPath = BASE_DIR . '/json/' . $jsonFile;
+        if (!file_exists($orderPath)) {
+            http_response_code(404);
+            echo json_encode(array('status' => 'error', 'message' => 'Файл не найден: ' . $jsonFile), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $orderData = json_decode(file_get_contents($orderPath), true);
+        if (!is_array($orderData)) {
+            http_response_code(400);
+            echo json_encode(array('status' => 'error', 'message' => 'Невалидный JSON заказа'), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        require_once BASE_DIR . '/core/ApiSender.php';
+        $apiJsonSettings = json_decode(file_get_contents($configFile), true);
+        $apiConfig = isset($apiJsonSettings['api']) ? $apiJsonSettings['api'] : array();
+        $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log', BASE_DIR . '/json_api');
+        $apiSender->writeApiPayload($orderData, $jsonFile);
+
+        if (!file_exists($apiJsonPath)) {
+            http_response_code(500);
+            echo json_encode(array('status' => 'error', 'message' => 'Не удалось создать payload для ' . $jsonFile), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        echo json_encode(array(
+            'status'  => 'ok',
+            'file'    => $jsonFile,
+            'content' => file_get_contents($apiJsonPath)
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * СОХРАНЕНИЕ ОТРЕДАКТИРОВАННОГО JSON ДЛЯ 1С
+     */
+    case 'save_api_json':
+        if ($method !== 'POST') {
+            http_response_code(405);
+            echo json_encode(array('status' => 'error', 'message' => 'Требуется POST-запрос'), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $jsonFile = isset($input['file']) ? $input['file'] : '';
+        $content = isset($input['content']) ? (string)$input['content'] : '';
+
+        if (empty($jsonFile) || !preg_match('/^[\w\-\.]+\.json$/', $jsonFile)) {
+            http_response_code(400);
+            echo json_encode(array('status' => 'error', 'message' => 'Некорректное имя файла'), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $decoded = json_decode($content, true);
+        if (!is_array($decoded)) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'JSON не разобран: ' . json_last_error_msg()
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $apiJsonDir = BASE_DIR . '/json_api';
+        Utils::ensureDirectory($apiJsonDir);
+        $apiJsonPath = $apiJsonDir . '/' . $jsonFile;
+
+        // Перезаписываем нормализованным JSON: отступы и кириллица как у парсера
+        $normalized = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (file_put_contents($apiJsonPath, $normalized, LOCK_EX) === false) {
+            http_response_code(500);
+            echo json_encode(array('status' => 'error', 'message' => 'Не удалось записать ' . $jsonFile), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+        Utils::ensureOwnership($apiJsonPath);
+
+        echo json_encode(array(
+            'status'  => 'ok',
+            'message' => 'Сохранено',
+            'content' => $normalized
         ), JSON_UNESCAPED_UNICODE);
         break;
 

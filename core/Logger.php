@@ -29,6 +29,9 @@ class Logger
     /** @var int Максимальный размер файла логов в байтах (5 МБ) */
     private $maxFileSize = 5242880;
 
+    /** @var bool Права на файл лога уже проверялись в этом запросе */
+    private $ownershipChecked = false;
+
     /**
      * Создание логгера.
      * 
@@ -122,7 +125,10 @@ class Logger
         // LOCK_EX — блокируем файл на время записи, чтобы не было конфликтов
         file_put_contents($this->logFile, $logLine, FILE_APPEND | LOCK_EX);
 
-        if ($isNewFile) {
+        // Права проверяем на новом файле и один раз за запрос: старый лог мог
+        // остаться с прежними правами, а chmod на каждую строку — лишняя работа
+        if ($isNewFile || !$this->ownershipChecked) {
+            $this->ownershipChecked = true;
             Utils::ensureOwnership($this->logFile);
         }
     }

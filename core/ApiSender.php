@@ -33,18 +33,65 @@ class ApiSender
     /** @var string Путь к файлу лога отправок (logs/api_send.log) */
     private $logFile;
 
+    /** @var bool Права на файл лога уже проверялись в этом запросе */
+    private $logOwnershipChecked = false;
+
+    /** @var string|null Папка json_api/ для payload-копий (null — не сохранять) */
+    private $apiJsonDir;
+
     /**
      * Создание отправителя.
      *
-     * @param array  $apiConfig — настройки из settings.json (api)
-     * @param string $logFile   — путь к файлу лога (JSON Lines)
+     * @param array  $apiConfig  — настройки из settings.json (api)
+     * @param string $logFile    — путь к файлу лога (JSON Lines)
+     * @param string|null $apiJsonDir — папка json_api/ для копий payload
      */
-    public function __construct($apiConfig, $logFile)
+    public function __construct($apiConfig, $logFile, $apiJsonDir = null)
     {
         $this->config = $apiConfig;
         $this->logFile = $logFile;
         $logDir = dirname($logFile);
         Utils::ensureDirectory($logDir);
+
+        $this->apiJsonDir = $apiJsonDir;
+        if ($this->apiJsonDir !== null) {
+            Utils::ensureDirectory($this->apiJsonDir);
+        }
+    }
+
+    /**
+     * Собирает payload для 1С и сохраняет его в json_api/ под тем же именем,
+     * что и ORDER в json/. Файл нужен, чтобы видеть и править в браузере
+     * ровно то, что уходит в 1С.
+     *
+     * @param array  $orderData    — ORDER после enrich()
+     * @param string $jsonFileName — имя файла (как в json/)
+     * @return array|null — payload или null, если папка не задана / запись не удалась
+     */
+    public function writeApiPayload($orderData, $jsonFileName)
+    {
+        if ($this->apiJsonDir === null) {
+            return null;
+        }
+
+        $payload = $this->prepareForApi($orderData);
+        $content = json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+
+        if ($content === false) {
+            return null;
+        }
+
+        $filePath = $this->apiJsonDir . DIRECTORY_SEPARATOR . $jsonFileName;
+        if (file_put_contents($filePath, $content, LOCK_EX) === false) {
+            return null;
+        }
+
+        Utils::ensureOwnership($filePath);
+
+        return $payload;
     }
 
     /**
@@ -500,7 +547,10 @@ class ApiSender
         $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
 
-        if ($isNewFile) {
+        // Права — на новом файле и один раз за запрос (старый лог мог остаться
+        // с прежними правами, а chmod на каждую строку не нужен)
+        if ($isNewFile || !$this->logOwnershipChecked) {
+            $this->logOwnershipChecked = true;
             Utils::ensureOwnership($this->logFile);
         }
     }

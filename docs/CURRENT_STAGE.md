@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-11
-**Обновлено после:** ORDER.CLIENT = null; alias агента 055; NUMBER без кода авиакомпании и CODE «Тариф» в payload; chmod в ensureOwnership; агент-заглушка 045; uid_profile = test
+**Обновлено после:** папка json_api/ с payload для 1С + окно «JSON для 1С» в data.php (правка и повторная отправка); убраны WARNING по service_classes и по правам доступа; права на существующие логи
 
 ---
 
@@ -81,13 +81,14 @@ parser_v5/
 │   ├── SmartTravelParser.php — SmartTravel (ЖД) — PUSH + PULL в одном парсере
 │   └── DemoHotelParser.php   — шаблон отелей
 ├── input/{supplier}/         — XML/JSON (подпапки Processed/, Error/). Поставщики: moyagent, smarttravel, demo_hotel
-├── json/                     — результаты ({folder}_{name}_{Ymd_His}.json); в git только .gitkeep
+├── json/                     — результаты после enrich() ({folder}_{name}_{Ymd_His}.json), источник таблицы data.php; в git только .gitkeep
+├── json_api/                 — те же имена файлов, но payload ровно в том виде, в каком уходит в 1С (после prepareForApi()); в git только .gitkeep
 ├── logs/                     — app.log + api_send.log + sftp_sync.log + pull_sync.log + webhook.log
 ├── tests/fixtures/           — 7 XML + 1 JSON фикстура для MoyAgent и SmartTravel
 ├── index.php                 — панель управления (app.js, AJAX)
 ├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows/sync_references/import_references)
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
@@ -139,8 +140,8 @@ Parser    Parser       Parser     Parser
 ┌───────┼────────┐
 ▼                ▼
 json/*.json      ApiSender→1С
-│
-api_send.log
+│                ├── json_api/*.json (prepareForApi(), то же имя файла)
+│                └── api_send.log
 
 
 
@@ -152,8 +153,10 @@ index.php ─── assets/app.js ─── assets/style.css
 │  fetch('api.php?action=clear_logs')  → app.log
 
 data.php ─── серверный рендеринг + JS ─── style.css
-│  fetch('api.php?action=resend')       → повторная отправка
-│  fetch('api.php?action=clear_json')   → удаление всех JSON из json/
+│  fetch('api.php?action=resend')       → повторная отправка (source=json — из json/, source=api — из json_api/)
+│  fetch('api.php?action=clear_json')   → удаление всех JSON из json/ и json_api/
+│  fetch('api.php?action=api_json')     → payload для 1С в окне «JSON для 1С» (клик по имени файла)
+│  fetch('api.php?action=save_api_json')→ сохранение отредактированного payload в json_api/
 
 api_logs.php ─── встроенный JS ─── style.css
 │  AJAX к самому себе (?action=get_logs/clear_logs/get_settings)
@@ -443,6 +446,11 @@ json
 - у AGENT/BOOKING_AGENT снимается UID (в 1С его нет)
 - купоны: собираются DEPARTURE_DATETIME / ARRIVAL_DATETIME из DATE+TIME; убираются DATE/TIME, AIRLINE, SERVICE_CLASS, CLASS_NAME, TYPE_ID*, SEGMENT_STATUS*
 В файлах json/ полный ORDER с объектами сохраняется — для data.php.
+Результат prepareForApi() дополнительно пишется в json_api/ под тем же именем файла
+(ApiSender::writeApiPayload(), вызывается из Processor даже при выключенном API) — чтобы
+в браузере было видно и можно было править ровно то, что уходит в 1С. prepareForApi()
+идемпотентен: повторный прогон готового payload ничего не меняет, поэтому
+отредактированный json_api/ отправляется как есть (resend с source=api).
 Профиль UID: references.uid_profile = "prod"|"test" — при test подставляется uid_test из справочника (если задан). В репозитории стоит test; рядом лежит ключ-подсказка _uid_profile_hint.
 SSL: верификация отключена
 7.3. Проверка доступности
@@ -455,7 +463,19 @@ json
 
 {"timestamp":"2026-02-26 13:30:00","file":"order.json","source_xml":"order.xml","status":"success","http_code":200,"response":"OK","duration":0.45}
 7.5. Повторная отправка (resend)
-api.php?action=resend (POST) → читает JSON из json/, удаляет служебные поля, отправляет в ApiSender.
+api.php?action=resend (POST, {file, source}) → читает JSON и отправляет через ApiSender.
+- source отсутствует или "json" (кнопка 🔄 в таблице): берётся заказ из json/, payload собирается
+  заново, копия в json_api/ обновляется.
+- source = "api" (кнопка «Сохранить и отправить в 1С» в окне «JSON для 1С»): отправляется
+  json_api/<file> как есть, без перезаписи.
+
+7.6. Окно «JSON для 1С» (data.php)
+Клик по имени файла в таблице открывает модальное окно с payload из json_api/.
+- api.php?action=api_json (GET, file) — отдаёт json_api/<file>; если файла нет (заказ обработан
+  до появления папки), payload собирается на месте из json/<file> и сохраняется.
+- api.php?action=save_api_json (POST, {file, content}) — проверяет JSON через json_decode
+  (ошибка → HTTP 400 с json_last_error_msg()), пишет нормализованный вариант в json_api/.
+Правка в этом окне меняет только payload; таблица строится по json/ и не меняется.
 
 8. SFTP-синхронизатор
 8.1. Назначение
@@ -609,8 +629,10 @@ rstls	РС ТЛС ООО	63a8bcb0-9b69-11e9-b97d-0050569c2148	clients.json
 Поэтому: сначала точное совпадение (по name и aliases, с нормализацией),
 затем — вхождение всех слов заказа в ФИО из 1С. Несколько кандидатов → WARNING, подстановки нет.
 
-Незаполненные справочники (service_classes) дают WARNING в app.log,
-но НЕ переводят файл в Error/ — обработка считается успешной.
+Незаполненные справочники НЕ переводят файл в Error/ — обработка считается успешной.
+service_classes вообще не ищется по справочнику: SERVICE_CLASS собирается как
+{UID:"", CODE:код, NAME:код} (в 1С поле не уходит, prepareForApi() его снимает), поэтому
+WARNING'ов по классам обслуживания в app.log больше нет.
 
 Что подставляет enrich() (ReferenceManager):
 - CLIENT (корень заказа) — null (ТЗ допускает), контрагент проставляет 1С.
@@ -741,8 +763,10 @@ logs	GET	Последние N строк app.log
 run	POST	runSftpSync + runPullSync + runProcessing (SFTP + PULL + обработка, force=true)
 settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
-clear_json	POST	Удаление всех *.json из json/
-resend	POST	Повторная отправка JSON в 1С
+clear_json	POST	Удаление всех *.json из json/ и json_api/
+resend	POST	Повторная отправка JSON в 1С (file, source=json|api)
+api_json	GET	Payload для 1С из json_api/ (file); при отсутствии собирается из json/
+save_api_json	POST	Сохранение отредактированного payload в json_api/ (file, content)
 data_rows	GET	Строки таблицы заказов для data.php
 sync_references	POST	Синхронизация справочников через API 1С
 import_references	POST	Импорт справочников из references/import/ (ReferenceImporter)
@@ -754,6 +778,7 @@ import_references	POST	Импорт справочников из references/imp
 ✅ Отправка в API 1С (HTTP POST, Basic Auth)
 ✅ Веб-интерфейс (панель, таблица 60 колонок, логи API, тесты)
 ✅ Повторная отправка (кнопка 🔄), очистка JSON (кнопка «Очистить таблицу»)
+✅ Окно «JSON для 1С» в data.php: просмотр, правка и отправка payload из json_api/ (клик по имени файла)
 ✅ Resizable-столбцы в data.php
 ✅ Автотесты (test.php, 8 фикстур, 247 assertions — MoyAgent + SmartTravel)
 ✅ SFTP-синхронизатор встроен в обработку — при «Запустить» и автообработке (cURL+SFTP)
@@ -765,15 +790,17 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ Retry при отправке в 1С опционален (api.retry_attempts); при 0 — одна попытка
 ⚠️ data.php — серверный рендеринг — может быть медленным
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
-⚠️ service_classes.json не импортируется — в выгрузке КлассыАвиаЖДбилетов.txt нет поля UID
+⚠️ service_classes.json не импортируется — в выгрузке КлассыАвиаЖДбилетов.txt нет поля UID (UID и не нужен: в 1С поле не уходит)
 ⚠️ CARRIER у SmartTravel — наименование перевозчика («ЗАО ТК "ГСЭ"»), а не IATA-код, поэтому UID из airlines не находится (WARNING)
 ⚠️ Колонка «Клиент» в data.php пустая — после enrich() CLIENT = null (контрагента определяет 1С)
 ⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-11	Папка json_api/ с payload в формате 1С (ApiSender::writeApiPayload) + окно «JSON для 1С» в data.php по клику на имя файла: просмотр, правка, «Сохранить и отправить в 1С» (resend source=api); clear_json чистит обе папки	core/ApiSender.php, core/Processor.php, api.php, data.php, .gitignore, json_api/.gitkeep
+2026-09-11	Убраны WARNING по service_classes (SERVICE_CLASS собирается без поиска UID) и по неудачной установке прав; логгеры выставляют права и на уже существующие файлы	core/ReferenceManager.php, core/Utils.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php
 2026-09-11	Ненайденный агент уходит как 045 «Агент не найден» вместо ФИО; uid_profile = test + ключ-подсказка _uid_profile_hint	core/ReferenceManager.php, config/settings.json
-2026-09-11	NUMBER/RELATED_TICKET_NUMBER в POST без кода авиакомпании; пустой CODE таксы → «Тариф»; ensureOwnership делает chmod 660/775 и логирует неудачный chown	core/ApiSender.php, core/Utils.php
+2026-09-11	NUMBER/RELATED_TICKET_NUMBER в POST без кода авиакомпании; пустой CODE таксы → «Тариф»; ensureOwnership делает chmod 660/775	core/ApiSender.php, core/Utils.php
 2026-09-11	ORDER.CLIENT = null вместо UID «РС ТЛС ООО» (удалены CLIENT_CODE и resolveClientUid); кириллический alias для агента 055 «Elena Shishkina»	core/ReferenceManager.php, core/ApiSender.php, core/ReferenceImporter.php, references/agents.json
 2026-09-10	prepareForApi: DEPARTURE_DATETIME/ARRIVAL_DATETIME из DATE+TIME; uid_test у moyagent + references.uid_profile (prod/test)	core/ApiSender.php, core/ReferenceManager.php, core/ReferenceImporter.php, references/suppliers.json, config/settings.json
 2026-09-10	ApiSender::prepareForApi — перед POST в 1С справочники CLIENT/SUPPLIER/CARRIER/CURRENCY/аэропорты сворачиваются в плоский UID (как в *_export.json); из купонов убираются AIRLINE/SERVICE_CLASS; возвращён json/.gitkeep	core/ApiSender.php, json/.gitkeep
@@ -816,7 +843,7 @@ JSON: JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
 CSS: BEM-нотация
 JS: ES5 (совместимость), fetch API
 13. Безопасность и деплой
-input/ и json/ — в .gitignore
+input/, json/ и json_api/ — в .gitignore (кроме .gitkeep)
 config/settings.json — модифицируется автоматически (last_run), содержит пароли
 config/sftp_last_run.txt — модифицируется автоматически
 API и SFTP пароли хранятся в settings.json открытым текстом
@@ -826,7 +853,7 @@ ext-curl обязателен (с поддержкой SFTP/libssh2 для си�
 14. Контекст для AI-ассистента
 Критические правила
 Документация: при изменении `docs/SisPrompt.md`, `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md` или `docs/structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `docs/*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
-Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`, права 660 (файлы) / 775 (папки). Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`. chmod выполняется всегда, даже если chown недоступен (под bitrix это норма — доступ даёт общая группа). Если сорвался chgrp или chmod, в `logs/app.log` пишется одно WARNING за запуск. На Windows ensureOwnership() ничего не делает.
+Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`, права 660 (файлы) / 775 (папки). Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`. chmod выполняется всегда, даже если chown недоступен (под bitrix это норма — доступ даёт общая группа). Неудачи не логируются: под bitrix chown запрещён штатно, и запись об этом засоряла app.log. На Windows ensureOwnership() ничего не делает. Логгеры (Logger, ApiSender, SftpSync, PullSync, webhook.php) вызывают ensureOwnership() на новом файле и один раз за запрос — чтобы права подтянулись и у логов, созданных до этого правила.
 UUID — только Utils::generateUUID(), require core/Utils.php
 Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
 Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php
@@ -844,7 +871,7 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
 Справочники: CLIENT в ORDER — всегда null (ТЗ допускает), код из файла поставщика отбрасывается; clients.json остаётся справочно
-Справочники: в json/ после enrich() поля справочников — объекты {UID,CODE,NAME}; в HTTP POST в 1С ApiSender::prepareForApi() сворачивает их в плоский UID (CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT)
+Справочники: в json/ после enrich() поля справочников — объекты {UID,CODE,NAME}; в HTTP POST в 1С ApiSender::prepareForApi() сворачивает их в плоский UID (CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT). Ровно то, что уходит в 1С, лежит в json_api/ — эту папку и надо смотреть при разборе отказов 1С, json/ для таблицы
 Справочники: suppliers.json и clients.json собираются из Контрагенты.txt по белому списку ReferenceImporter::getContractorRefMap(); полный contractors.json не создаётся (файл ~24 МБ)
 Справочники: чтобы добавить поставщика — дописать в suppliers.json запись с code (папка парсера), name (наименование из 1С) и пустым uid; при следующем импорте UID подставится сам, ручные поля не затираются
 Справочники: первая запись suppliers.json / clients.json — подсказка без поля code, findByCode() её игнорирует

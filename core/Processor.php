@@ -74,7 +74,8 @@ class Processor
         $settings = $this->loadSettings();
         $apiConfig = isset($settings['api']) ? $settings['api'] : array();
         $apiLogFile = dirname($this->configFile) . '/../logs/api_send.log';
-        $this->apiSender = new ApiSender($apiConfig, $apiLogFile);
+        $apiJsonDir = dirname($this->outputDir) . DIRECTORY_SEPARATOR . 'json_api';
+        $this->apiSender = new ApiSender($apiConfig, $apiLogFile, $apiJsonDir);
 
         // Инициализируем менеджер справочников
         $referencesDir = dirname($this->configFile) . '/../references';
@@ -201,6 +202,10 @@ class Processor
                         $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                         $savedJsonFiles[] = $jsonFileName;
 
+                        // Копия payload в json_api/ — пишем всегда, даже если
+                        // API выключен: по ней видно, что уходит в 1С
+                        $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
+
                         // Отправка в 1С происходит ВСЕГДА, даже без UID
                         if ($apiAvailable) {
                             try {
@@ -306,6 +311,8 @@ class Processor
 
                 $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                 $result['json_files'][] = $jsonFileName;
+
+                $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
 
                 if ($apiAvailable) {
                     try {

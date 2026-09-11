@@ -436,11 +436,15 @@ class ReferenceManager
                         );
                     }
 
-                    // SERVICE_CLASS — создаём из coupon CLASS
+                    // SERVICE_CLASS — создаём из coupon CLASS. UID не ищем:
+                    // service_classes.json пустой (в выгрузке 1С нет UID),
+                    // да и в 1С поле не уходит — prepareForApi() его снимает
                     $classCode = isset($coupon['CLASS']) ? (string)$coupon['CLASS'] : '';
                     if ($classCode !== '') {
-                        $order['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS'] = $this->buildRefObject(
-                            'service_classes', $classCode, $fileName, $warnings
+                        $order['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS'] = array(
+                            'UID'  => '',
+                            'CODE' => $classCode,
+                            'NAME' => $classCode
                         );
                     }
                 }
