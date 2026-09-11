@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-11
-**Обновлено после:** папка json_api/ с payload для 1С + окно «JSON для 1С» в data.php (правка и повторная отправка); убраны WARNING по service_classes и по правам доступа; права на существующие логи
+**Обновлено после:** PAYMENTS.INVOICE = fare+taxes продукта (не сумма заказа из XML) — иначе 1С дважды учитывала service_fee
 
 ---
 
@@ -351,6 +351,7 @@ findRelatedProdIds()	V4	Все связанные prod_id (для возврат
 buildCouponsFromGroup()	V4	Купоны из группы с дедупликацией
 buildTaxesFromGroup()	V4	Таксы из группы с дедупликацией
 buildCommissions()	V1	service_fee + fees/fee[@type=commission]
+buildPaymentsFromXml()	V5	INVOICE = fare+taxes продукта; сумма заказа из XML не копируется (там уже есть service_fee, он уходит в COMMISSIONS)
 extractPenalty()	V1	Сумма air_tax[@code=PEN]
 analyzeOrderType()	V1	Определяет TKT/REF/RFND/CANX
 formatDateTime()	V1	"2025-10-13 12:16:00" → "20251013121600"
@@ -797,6 +798,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-11	PAYMENTS.INVOICE = fare+taxes продукта, а не payment@amount заказа: иначе 1С прибавляла service_fee из COMMISSIONS поверх платежа, в котором сбор уже был	parsers/MoyAgentParser.php
 2026-09-11	Папка json_api/ с payload в формате 1С (ApiSender::writeApiPayload) + окно «JSON для 1С» в data.php по клику на имя файла: просмотр, правка, «Сохранить и отправить в 1С» (resend source=api); clear_json чистит обе папки	core/ApiSender.php, core/Processor.php, api.php, data.php, .gitignore, json_api/.gitkeep
 2026-09-11	Убраны WARNING по service_classes (SERVICE_CLASS собирается без поиска UID) и по неудачной установке прав; логгеры выставляют права и на уже существующие файлы	core/ReferenceManager.php, core/Utils.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php
 2026-09-11	Ненайденный агент уходит как 045 «Агент не найден» вместо ФИО; uid_profile = test + ключ-подсказка _uid_profile_hint	core/ReferenceManager.php, config/settings.json
@@ -866,6 +868,7 @@ AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_pr
 BOOKING_AGENT берётся из reservation[@bookingAgent]
 RESERVATION_NUMBER берётся из reservation[@rloc] через getMainReservation()
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
+PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
 Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references)
 Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 045 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)

@@ -1154,8 +1154,13 @@ class MoyAgentParser implements ParserInterface
      * Строит PAYMENTS из XML payments или fallback на INVOICE.
      * При tkt_fop = ПК/БИЛЕТ/ТКЕТ/TKT/EXCH — TYPE=TICKET, RELATED_TICKET_NUMBER.
      *
+     * Сумма INVOICE — всегда $defaultAmount (fare+taxes этого продукта), а не
+     * payment@amount из XML: там сумма всего заказа уже с service_fee, а сбор
+     * уходит отдельно в COMMISSIONS. Иначе 1С прибавляет сбор второй раз.
+     * TYPE=TICKET (зачёт при обмене) берёт сумму из XML как есть.
+     *
      * @param \SimpleXMLElement $xml
-     * @param float $defaultAmount сумма по умолчанию (fare+taxes)
+     * @param float $defaultAmount fare+taxes продукта (без service_fee)
      * @param string $refundTicketNumber номер возвращённого билета (для обмена)
      * @return array PAYMENTS
      */
@@ -1163,7 +1168,7 @@ class MoyAgentParser implements ParserInterface
     {
         $ticketCreditFop = MoyAgentConstants::getTicketCreditFopCodes();
         $payments = array();
-        $amountInvoice = 0;
+        $hasInvoice = false;
         $amountTicket = 0;
         $relatedTicket = null;
 
@@ -1186,16 +1191,16 @@ class MoyAgentParser implements ParserInterface
                         $relatedTicket = $tktNum !== '' ? $tktNum : $refundTicketNumber;
                     }
                 } else {
-                    $amountInvoice += $amount;
+                    $hasInvoice = true;
                 }
             }
         }
 
-        if ($amountInvoice > 0) {
+        if ($hasInvoice && $defaultAmount > 0) {
             $payments[] = array(
                 'TYPE' => 'INVOICE',
-                'AMOUNT' => $amountInvoice,
-                'EQUIVALENT_AMOUNT' => $amountInvoice,
+                'AMOUNT' => $defaultAmount,
+                'EQUIVALENT_AMOUNT' => $defaultAmount,
                 'RELATED_TICKET_NUMBER' => null
             );
         }
