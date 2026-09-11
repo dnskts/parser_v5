@@ -17,11 +17,11 @@ require_once __DIR__ . '/Utils.php';
 
 class ReferenceManager
 {
-    /**
-     * Код записи в clients.json, чей UID подставляется в ORDER.CLIENT.
-     * Все заказы оформляются в 1С от лица «РС ТЛС ООО».
-     */
-    const CLIENT_CODE = 'rstls';
+    /** Код МОМ агента-заглушки: уходит в 1С, когда агента нет в agents.json */
+    const UNKNOWN_AGENT_CODE = '045';
+
+    /** Имя агента-заглушки в ORDER */
+    const UNKNOWN_AGENT_NAME = 'Агент не найден';
 
     /** @var string Путь к папке references/ */
     private $referencesDir;
@@ -288,6 +288,8 @@ class ReferenceManager
      *
      * В отличие от остальных справочников UID не подставляется — в выгрузке 1С
      * его нет. В CODE попадает код агента из 1С, в NAME остаётся ФИО из заказа.
+     * Если агента в справочнике нет, уходит заглушка UNKNOWN_AGENT_CODE: ФИО
+     * в CODE 1С не принимает — ищет по нему агента и отклоняет заказ.
      *
      * @param array $agent — исходный объект AGENT или BOOKING_AGENT из заказа
      * @param string $fileName — имя файла (для лога)
@@ -302,7 +304,7 @@ class ReferenceManager
             : $fio;
 
         if ($fio === '') {
-            return array('CODE' => '', 'NAME' => $name);
+            return array('CODE' => self::UNKNOWN_AGENT_CODE, 'NAME' => self::UNKNOWN_AGENT_NAME);
         }
 
         $ambiguous = false;
@@ -313,36 +315,14 @@ class ReferenceManager
         }
 
         $msg = $ambiguous
-            ? "Справочник agents: несколько совпадений для '{$fio}', код не подставлен (файл: {$fileName})"
-            : "Справочник agents: код не найден для '{$fio}' (файл: {$fileName})";
+            ? "Справочник agents: несколько совпадений для '{$fio}', уходит код "
+                . self::UNKNOWN_AGENT_CODE . " (файл: {$fileName})"
+            : "Справочник agents: код не найден для '{$fio}', уходит код "
+                . self::UNKNOWN_AGENT_CODE . " (файл: {$fileName})";
         $this->logger->warning($msg);
         $warnings[] = $msg;
 
-        return array('CODE' => $fio, 'NAME' => $name);
-    }
-
-    /**
-     * UID контрагента-клиента («РС ТЛС ООО») для поля ORDER.CLIENT.
-     * Берётся из clients.json по коду CLIENT_CODE.
-     *
-     * @param string $fileName — имя файла (для лога)
-     * @param array &$warnings — массив предупреждений (по ссылке)
-     * @return string — UID или пустая строка, если справочник не заполнен
-     */
-    private function resolveClientUid($fileName, &$warnings)
-    {
-        $found = $this->findByCode('clients', self::CLIENT_CODE);
-
-        if ($found !== null && $found['uid'] !== '') {
-            return $found['uid'];
-        }
-
-        $msg = 'Справочник clients: UID не найден для code \'' . self::CLIENT_CODE
-            . '\' (РС ТЛС ООО), CLIENT остался пустым (файл: ' . $fileName . ')';
-        $this->logger->warning($msg);
-        $warnings[] = $msg;
-
-        return '';
+        return array('CODE' => self::UNKNOWN_AGENT_CODE, 'NAME' => self::UNKNOWN_AGENT_NAME);
     }
 
     /**
@@ -359,9 +339,9 @@ class ReferenceManager
 
         // --- CLIENT ---
         // Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName
-        // у SmartTravel) в 1С не используется: заказы оформляются от лица
-        // «РС ТЛС ООО», поэтому в CLIENT уходит UID этого контрагента.
-        $order['CLIENT'] = $this->resolveClientUid($fileName, $warnings);
+        // у SmartTravel) в 1С не используется. Контрагент заказа определяется
+        // на стороне 1С, поэтому по ТЗ передаём null (поле его допускает).
+        $order['CLIENT'] = null;
 
         if (!isset($order['PRODUCTS']) || !is_array($order['PRODUCTS'])) {
             return array('order' => $order, 'warnings' => $warnings);

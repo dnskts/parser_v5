@@ -103,7 +103,7 @@ class ReferenceImporter
                 array('code' => 'moyagent',    'name' => 'Мой Агент ООО'),
                 array('code' => 'smarttravel', 'name' => 'РЖД - ЦИФРОВЫЕ ПАССАЖИРСКИЕ РЕШЕНИЯ'),
             ),
-            // Все заказы уходят в 1С от лица «РС ТЛС ООО» (см. ReferenceManager::CLIENT_CODE)
+            // Справочный UID «РС ТЛС ООО»; в ORDER.CLIENT не подставляется (там null)
             'clients' => array(
                 array('code' => 'rstls', 'name' => 'РС ТЛС ООО'),
             ),
@@ -594,7 +594,7 @@ class ReferenceImporter
     {
         $what = $type === 'clients' ? 'клиента' : 'поставщика';
         $codeHint = $type === 'clients'
-            ? 'code = условный код клиента (для ORDER.CLIENT используется rstls)'
+            ? 'code = условный код клиента (rstls — «РС ТЛС ООО», справочно)'
             : 'code = имя папки парсера в input/ (moyagent, smarttravel, ...)';
 
         return array(

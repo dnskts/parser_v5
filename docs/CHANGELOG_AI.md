@@ -2,6 +2,90 @@
 
 ---
 
+## 2026-09-11 — Агент-заглушка 045 + uid_profile = test
+
+**Запрос пользователя:** когда агента нет в справочнике, в CODE уходит ФИО и 1С отклоняет заказ — слать код МОМ `045` с именем «Агент не найден». В `config/settings.json` сразу поставить профиль `test` и пояснить это прямо в файле.
+
+### Что было сделано
+
+**`core/ReferenceManager.php`:**
+- Константы `UNKNOWN_AGENT_CODE = '045'` и `UNKNOWN_AGENT_NAME = 'Агент не найден'`.
+- `buildAgentObject()` возвращает эту заглушку, если агент не найден, если совпадений несколько или если ФИО в заказе пустое (у ЖД-продуктов SmartTravel агент пустой, а по ТЗ AGENT и BOOKING_AGENT обязательны). WARNING в лог остался, текст дополнен кодом, который ушёл вместо ФИО.
+
+**`config/settings.json`:**
+- `references.uid_profile` = `"test"`.
+- Рядом добавлен ключ-подсказка `_uid_profile_hint` — JSON комментариев не поддерживает, а лишние ключи код игнорирует и при сохранении настроек из UI не теряет.
+
+### Проверка
+- Смоук enrich: «Elena Shakhnina» → `{"CODE":"045","NAME":"Агент не найден"}` + WARNING, пустой BOOKING_AGENT → та же заглушка, «Elena Shishkina» → `055`, SUPPLIER берёт `uid_test` (`8cb5239c-…`).
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, `config/settings.json`
+- docs
+
+---
+
+## 2026-09-11 — NUMBER без кода авиакомпании, CODE «Тариф», права 660
+
+**Запрос пользователя:** доделать согласованное по ТЗ (`docs/17. Заказы парсера МА.md`) и починить права на файлах — Processed XML остаются `bitrix:bitrix 600`, их нельзя поправить руками.
+
+### Что было сделано
+
+**`core/ApiSender.php` — prepareForApi:**
+- `stripTicketPrefix()` срезает трёхзначный код авиакомпании: `5552379660766` (и вариант с дефисом) → `2379660766`. Применяется к `PRODUCTS[].NUMBER`, `PRODUCTS[].RELATED_TICKET_NUMBER` и `PAYMENTS[].RELATED_TICKET_NUMBER`. ЖД-бланки (14 цифр) и прочие форматы не трогаются.
+- Такса с пустым `CODE` (это тариф) уходит с `CODE = "Тариф"` — константа `ApiSender::FARE_TAX_CODE`. В `json/` пустой код сохраняется как был.
+
+**`core/Utils.php` — ensureOwnership:**
+- Кроме `chown`/`chgrp` делает `chmod`: 660 файлам, 775 папкам (константы `FILE_MODE` / `DIR_MODE`). chmod выполняется независимо от результата chown — PHP работает от `bitrix` и владельцем файла является, поэтому права проставятся даже там, где chown запрещён.
+- Проверяет существование пути, принимает необязательный `$mode`.
+- Появился WARNING в `logs/app.log` (один раз за запуск, с путём и именем пользователя PHP) — но только если сорвался `chgrp` или `chmod`. Неудачный `chown` под `bitrix` штатен и лог не засоряет: доступ `ext_kuritsyn` обеспечивают общая группа и режим 660. Логгер намеренно не используется — он сам вызывает `ensureOwnership()`, вышла бы рекурсия.
+- На Windows (локальная разработка) метод сразу выходит: POSIX-прав там нет.
+- `ensureDirectory()` передаёт свои права дальше в `ensureOwnership()`.
+
+### На сервере
+Уже лежащие файлы новых прав не получат — разово поправить: `chmod 660` на `input/*/Processed/*` и `json/*`, `chmod 775` на папки.
+
+### Проверка
+- Смоук prepareForApi: `5552379660766` → `2379660766`, `555-2379660767` → `2379660767`, ЖД `71234567890000` без изменений, `CODE: ""` → `CODE: "Тариф"`, `null` в PAYMENTS остаётся null.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`, `core/Utils.php`
+- docs
+
+---
+
+## 2026-09-11 — ORDER.CLIENT = null + alias агента 055
+
+**Запрос пользователя:** проверить, что у Шишкиной уходит МОМ-код 055; в CLIENT вместо UID «РС ТЛС ООО» передавать null (ТЗ это допускает).
+
+### Что было сделано
+
+**`core/ReferenceManager.php`:**
+- `enrich()` ставит `CLIENT = null` — контрагента определяет 1С.
+- Удалены константа `CLIENT_CODE` и метод `resolveClientUid()` (стали не нужны).
+
+**`core/ApiSender.php` — prepareForApi:**
+- `CLIENT` в payload всегда присутствует; объект справочника сворачивается в UID, пустая строка и отсутствие поля превращаются в `null`.
+
+**`references/agents.json`:**
+- У записи `055` («Elena Shishkina») добавлен alias «Шишкина Елена» — раньше совпадение было только по латинице.
+
+**`core/ReferenceImporter.php`:** комментарии про `clients.json` приведены в соответствие (справочник собирается, но в ORDER не подставляется).
+
+### Проверка
+- `findAgentByName()` отдаёт `055` для «Elena Shishkina», «ELENA SHISHKINA», «Шишкина Елена», «Елена Шишкина».
+- `enrich()` → `CLIENT = null`, `AGENT = {"CODE":"055","NAME":"Elena Shishkina"}`; `prepareForApi()` → `"CLIENT":null` в JSON.
+- `php -l` по изменённым файлам — без ошибок.
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, `core/ApiSender.php`, `core/ReferenceImporter.php`
+- `references/agents.json`
+- docs
+
+---
+
 ## 2026-09-10 — DEPARTURE_DATETIME для 1С + uid_test Мой агент
 
 **Запрос пользователя:** HTTP 400 от 1С — «Поле объекта не обнаружено (DEPARTURE_DATETIME)»; добавить тестовый UID для Мой агент.

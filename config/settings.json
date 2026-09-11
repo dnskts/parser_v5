@@ -48,7 +48,8 @@
         "api_login": "",
         "api_password": "",
         "api_timeout": 30,
-        "uid_profile": "prod",
+        "_uid_profile_hint": "Какие UID подставлять в заказ: prod — боевые (поле uid справочника), test — тестовой базы 1С (поле uid_test, сейчас задан только у moyagent). При установке на прод поставить prod.",
+        "uid_profile": "test",
         "types": {
             "suppliers": {
                 "endpoint": "\/suppliers",

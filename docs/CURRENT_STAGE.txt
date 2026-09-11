@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-09-10
-**Обновлено после:** DEPARTURE_DATETIME в payload 1С; uid_test для Мой агент (references.uid_profile)
+**Последнее обновление:** 2026-09-11
+**Обновлено после:** ORDER.CLIENT = null; alias агента 055; NUMBER без кода авиакомпании и CODE «Тариф» в payload; chmod в ensureOwnership; агент-заглушка 045; uid_profile = test
 
 ---
 
@@ -53,7 +53,7 @@ parser_v5/
 ├── references/               — справочники для подстановки UID (заполняются импортом из 1С, вручную или через API 1С)
 │   ├── import/               — выгрузки 1С «как есть» (кладутся вручную раз в месяц, в .gitignore)
 │   ├── suppliers.json        — поставщики (2 записи из Контрагенты.txt + подсказка для ручного дополнения)
-│   ├── clients.json          — клиент «РС ТЛС ООО» (code=rstls), его UID уходит в ORDER.CLIENT
+│   ├── clients.json          — клиент «РС ТЛС ООО» (code=rstls), справочно: в ORDER.CLIENT уходит null
 │   ├── agents.json           — агенты (AGENT + BOOKING_AGENT), code вместо UID
 │   ├── airports.json         — аэропорты и ЖД-вокзалы (IATA / код станции)
 │   ├── airlines.json         — авиакомпании (IATA)
@@ -71,7 +71,7 @@ parser_v5/
 │   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
 │   ├── PullSync.php          — PULL-синхронизатор SmartTravel: GET + Basic Auth + HTTP-прокси
-│   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership(), ensureDirectory()
+│   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership() (chown+chgrp+chmod), ensureDirectory()
 │   └── DataTableHelpers.php — buildRowsFromJsonFile(), formatRstlsDate(), formatAgent() для data.php и api data_rows
 ├── parsers/
 │   ├── constants/
@@ -212,7 +212,7 @@ updateLastRunTime() → settings.json.last_run = time()
   "UID": "8fd8578c-c002-4e73-891d-278373b59ef4",
   "INVOICE_NUMBER": "125359005865",
   "INVOICE_DATA": "20260226155022",
-  "CLIENT": "63a8bcb0-9b69-11e9-b97d-0050569c2148",
+  "CLIENT": null,
   "SOURCE_FILE": "125359005865.xml",
   "PARSED_AT": "2026-03-03 12:19:06",
   "PRODUCTS": [
@@ -265,18 +265,18 @@ updateLastRunTime() → settings.json.last_run = time()
 Корень	UID	UUID v4	Уникальный ID заказа
 Корень	INVOICE_NUMBER	string	Номер заказа
 Корень	INVOICE_DATA	YYYYMMDDHHmmss	Дата заказа
-Корень	CLIENT	UUID	UID контрагента «РС ТЛС ООО» из clients.json (подставляется в enrich() вместо кода из файла поставщика)
+Корень	CLIENT	null	Всегда null: контрагент определяется на стороне 1С (ТЗ допускает null), код клиента из файла поставщика отбрасывается
 Корень	PRODUCTS	array	Массив продуктов (≥1)
 Product	UID	UUID v4	Уникальный ID продукта
 Product	PRODUCT_TYPE	{NAME, CODE}	Тип продукта
-Product	NUMBER	string	Номер билета (as-is из XML)
+Product	NUMBER	string	Номер билета (as-is из XML; в POST в 1С код авиакомпании срезается)
 Product	STATUS	string	продажа / возврат / обмен
 Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
 Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
 Product	CARRIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника airlines (до enrich — строка IATA)
 Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
-Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
-Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет
+Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 045 / «Агент не найден»
+Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 045 / «Агент не найден»
 Product	TAXES	array	Первый (CODE="") = тариф
 Product	PAYMENTS	array	Платежи
 5.3. Служебные поля (удаляются перед отправкой в 1С)
@@ -436,11 +436,14 @@ json
 Заголовки: Content-Type: application/json; charset=utf-8, Accept: application/json
 Тело: JSON ORDER после prepareForApi():
 - удаляются SOURCE_FILE, PARSED_AT
-- CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT → плоский UID (строка), не объект {UID,CODE,NAME}
+- SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT → плоский UID (строка), не объект {UID,CODE,NAME}
+- CLIENT — null (пустое значение тоже превращается в null, ТЗ его допускает)
+- NUMBER / RELATED_TICKET_NUMBER (продукт и PAYMENTS) — 13-значный номер режется до 10: «5552379660766» → «2379660766» (ЖД-бланки из 14 цифр не трогаются)
+- TAXES: такса с пустым CODE (тариф) получает CODE = «Тариф» (ApiSender::FARE_TAX_CODE)
 - у AGENT/BOOKING_AGENT снимается UID (в 1С его нет)
 - купоны: собираются DEPARTURE_DATETIME / ARRIVAL_DATETIME из DATE+TIME; убираются DATE/TIME, AIRLINE, SERVICE_CLASS, CLASS_NAME, TYPE_ID*, SEGMENT_STATUS*
 В файлах json/ полный ORDER с объектами сохраняется — для data.php.
-Профиль UID: references.uid_profile = "prod"|"test" — при test в SUPPLIER/CLIENT подставляется uid_test из справочника (если задан).
+Профиль UID: references.uid_profile = "prod"|"test" — при test подставляется uid_test из справочника (если задан). В репозитории стоит test; рядом лежит ключ-подсказка _uid_profile_hint.
 SSL: верификация отключена
 7.3. Проверка доступности
 isAvailable() — HEAD-запрос, timeout 2с. Вызывается перед циклом обработки. Результат кешируется на весь цикл.
@@ -610,11 +613,11 @@ rstls	РС ТЛС ООО	63a8bcb0-9b69-11e9-b97d-0050569c2148	clients.json
 но НЕ переводят файл в Error/ — обработка считается успешной.
 
 Что подставляет enrich() (ReferenceManager):
-- CLIENT (корень заказа) — UID «РС ТЛС ООО» из clients.json по коду CLIENT_CODE='rstls'.
+- CLIENT (корень заказа) — null (ТЗ допускает), контрагент проставляет 1С.
   Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName у SmartTravel) в 1С не уходит.
 - SUPPLIER — {UID, CODE, NAME} из suppliers.json по folder парсера
 - CARRIER — {UID, CODE, NAME} из airlines.json (парсеры отдают строку IATA)
-- AGENT / BOOKING_AGENT — {CODE, NAME} без UID
+- AGENT / BOOKING_AGENT — {CODE, NAME} без UID; агента нет в справочнике или ФИО пустое → заглушка {CODE: «045», NAME: «Агент не найден»} + WARNING
 - CURRENCY, DEPARTURE_AIRPORT / ARRIVAL_AIRPORT, AIRLINE, SERVICE_CLASS
 - cities и countries только импортируются: полей CITY/COUNTRY в ORDER нет
 
@@ -764,10 +767,14 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ SFTP-сервер 10.4.175.11 недоступен с сервера парсера (все порты timeout)
 ⚠️ service_classes.json не импортируется — в выгрузке КлассыАвиаЖДбилетов.txt нет поля UID
 ⚠️ CARRIER у SmartTravel — наименование перевозчика («ЗАО ТК "ГСЭ"»), а не IATA-код, поэтому UID из airlines не находится (WARNING)
-⚠️ Колонка «Клиент» в data.php показывает UID «РС ТЛС ООО» — после enrich() в ORDER остаётся только он
+⚠️ Колонка «Клиент» в data.php пустая — после enrich() CLIENT = null (контрагента определяет 1С)
 ⚠️ agents.json без UID — в выгрузке 1С его нет, в ORDER подставляется код агента
+⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-11	Ненайденный агент уходит как 045 «Агент не найден» вместо ФИО; uid_profile = test + ключ-подсказка _uid_profile_hint	core/ReferenceManager.php, config/settings.json
+2026-09-11	NUMBER/RELATED_TICKET_NUMBER в POST без кода авиакомпании; пустой CODE таксы → «Тариф»; ensureOwnership делает chmod 660/775 и логирует неудачный chown	core/ApiSender.php, core/Utils.php
+2026-09-11	ORDER.CLIENT = null вместо UID «РС ТЛС ООО» (удалены CLIENT_CODE и resolveClientUid); кириллический alias для агента 055 «Elena Shishkina»	core/ReferenceManager.php, core/ApiSender.php, core/ReferenceImporter.php, references/agents.json
 2026-09-10	prepareForApi: DEPARTURE_DATETIME/ARRIVAL_DATETIME из DATE+TIME; uid_test у moyagent + references.uid_profile (prod/test)	core/ApiSender.php, core/ReferenceManager.php, core/ReferenceImporter.php, references/suppliers.json, config/settings.json
 2026-09-10	ApiSender::prepareForApi — перед POST в 1С справочники CLIENT/SUPPLIER/CARRIER/CURRENCY/аэропорты сворачиваются в плоский UID (как в *_export.json); из купонов убираются AIRLINE/SERVICE_CLASS; возвращён json/.gitkeep	core/ApiSender.php, json/.gitkeep
 2026-09-10	Города/страны в импорте, suppliers и clients из Контрагенты.txt потоковым чтением (белый список + мерж ручных правок + подсказка в файле), CLIENT = UID «РС ТЛС ООО», CARRIER → объект {UID,CODE,NAME}, исправлен баг `[object Object]` в колонке «Перевозчик»	core/ReferenceImporter.php, core/ReferenceManager.php, core/DataTableHelpers.php
@@ -819,7 +826,7 @@ ext-curl обязателен (с поддержкой SFTP/libssh2 для си�
 14. Контекст для AI-ассистента
 Критические правила
 Документация: при изменении `docs/SisPrompt.md`, `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md` или `docs/structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `docs/*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
-Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
+Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`, права 660 (файлы) / 775 (папки). Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`. chmod выполняется всегда, даже если chown недоступен (под bitrix это норма — доступ даёт общая группа). Если сорвался chgrp или chmod, в `logs/app.log` пишется одно WARNING за запуск. На Windows ensureOwnership() ничего не делает.
 UUID — только Utils::generateUUID(), require core/Utils.php
 Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
 Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php
@@ -833,10 +840,10 @@ BOOKING_AGENT берётся из reservation[@bookingAgent]
 RESERVATION_NUMBER берётся из reservation[@rloc] через getMainReservation()
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
 Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references)
-Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет)
+Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 045 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
-Справочники: CLIENT в ORDER — всегда UID «РС ТЛС ООО» из clients.json (ReferenceManager::CLIENT_CODE), код из файла поставщика отбрасывается
+Справочники: CLIENT в ORDER — всегда null (ТЗ допускает), код из файла поставщика отбрасывается; clients.json остаётся справочно
 Справочники: в json/ после enrich() поля справочников — объекты {UID,CODE,NAME}; в HTTP POST в 1С ApiSender::prepareForApi() сворачивает их в плоский UID (CLIENT, SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT)
 Справочники: suppliers.json и clients.json собираются из Контрагенты.txt по белому списку ReferenceImporter::getContractorRefMap(); полный contractors.json не создаётся (файл ~24 МБ)
 Справочники: чтобы добавить поставщика — дописать в suppliers.json запись с code (папка парсера), name (наименование из 1С) и пустым uid; при следующем импорте UID подставится сам, ручные поля не затираются

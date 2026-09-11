@@ -24,6 +24,9 @@ require_once __DIR__ . '/Utils.php';
 
 class ApiSender
 {
+    /** Код таксы «тариф» в 1С: парсеры отдают эту строку с пустым CODE */
+    const FARE_TAX_CODE = 'Тариф';
+
     /** @var array Настройки API: url, login, password, timeout, enabled */
     private $config;
 
@@ -200,9 +203,13 @@ class ApiSender
         unset($data['SOURCE_FILE']);
         unset($data['PARSED_AT']);
 
-        // CLIENT после enrich() уже строка-UID; если вдруг объект — берём UID
+        // CLIENT после enrich() — null; если пришёл объект справочника,
+        // берём UID. Пустое значение отправляем как null: ТЗ его допускает.
         if (isset($data['CLIENT'])) {
-            $data['CLIENT'] = $this->flattenRefToUid($data['CLIENT']);
+            $uid = $this->flattenRefToUid($data['CLIENT']);
+            $data['CLIENT'] = $uid !== '' ? $uid : null;
+        } else {
+            $data['CLIENT'] = null;
         }
 
         if (!isset($data['PRODUCTS']) || !is_array($data['PRODUCTS'])) {
@@ -210,6 +217,34 @@ class ApiSender
         }
 
         foreach ($data['PRODUCTS'] as $pIdx => $product) {
+            // 1С ждёт номер билета без трёхзначного кода авиакомпании
+            if (isset($product['NUMBER'])) {
+                $data['PRODUCTS'][$pIdx]['NUMBER'] = $this->stripTicketPrefix($product['NUMBER']);
+            }
+            if (isset($product['RELATED_TICKET_NUMBER'])) {
+                $data['PRODUCTS'][$pIdx]['RELATED_TICKET_NUMBER'] = $this->stripTicketPrefix(
+                    $product['RELATED_TICKET_NUMBER']
+                );
+            }
+            if (isset($product['PAYMENTS']) && is_array($product['PAYMENTS'])) {
+                foreach ($product['PAYMENTS'] as $payIdx => $payment) {
+                    if (isset($payment['RELATED_TICKET_NUMBER'])) {
+                        $data['PRODUCTS'][$pIdx]['PAYMENTS'][$payIdx]['RELATED_TICKET_NUMBER'] =
+                            $this->stripTicketPrefix($payment['RELATED_TICKET_NUMBER']);
+                    }
+                }
+            }
+
+            // Тариф парсеры отдают таксой с пустым кодом, в 1С у него код «Тариф»
+            if (isset($product['TAXES']) && is_array($product['TAXES'])) {
+                foreach ($product['TAXES'] as $tIdx => $tax) {
+                    $code = isset($tax['CODE']) ? trim((string)$tax['CODE']) : '';
+                    if ($code === '') {
+                        $data['PRODUCTS'][$pIdx]['TAXES'][$tIdx]['CODE'] = self::FARE_TAX_CODE;
+                    }
+                }
+            }
+
             if (isset($product['SUPPLIER'])) {
                 $data['PRODUCTS'][$pIdx]['SUPPLIER'] = $this->flattenRefToUid($product['SUPPLIER']);
             }
@@ -275,6 +310,28 @@ class ApiSender
         }
 
         return $data;
+    }
+
+    /**
+     * Убирает трёхзначный код авиакомпании из номера билета:
+     * «5551234567890» / «555-1234567890» → «1234567890».
+     * Номера другого формата (ЖД-бланки, пустые значения) не трогаются.
+     *
+     * @param mixed $number — номер билета
+     * @return mixed
+     */
+    private function stripTicketPrefix($number)
+    {
+        if (!is_string($number) && !is_numeric($number)) {
+            return $number;
+        }
+
+        $value = trim((string)$number);
+        if (preg_match('/^\d{3}-?(\d{10})$/', $value, $m)) {
+            return $m[1];
+        }
+
+        return $number;
     }
 
     /**
