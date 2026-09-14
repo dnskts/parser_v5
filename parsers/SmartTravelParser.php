@@ -128,7 +128,7 @@ class SmartTravelParser implements ParserInterface
         }
 
         $order = array(
-            'UID'            => Utils::generateUUID(),
+            'UID'            => Utils::orderUID($this->getSupplierFolder(), $orderId),
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA'   => $this->formatSmartDate($createDt),
             'CLIENT'         => $client,
@@ -257,7 +257,7 @@ class SmartTravelParser implements ParserInterface
         $status = SmartTravelConstants::mapOperationType($operationType);
 
         $product = array(
-            'UID'                => Utils::generateUUID(),
+            'UID'                => Utils::productUID($this->getSupplierFolder(), $blankNumber),
             'PRODUCT_TYPE'       => array('NAME' => 'ЖД-билет', 'CODE' => '000000001'),
             'NUMBER'             => $blankNumber,
             'ISSUE_DATE'         => $this->formatSmartDate($confirmDt),
@@ -373,7 +373,7 @@ class SmartTravelParser implements ParserInterface
         $status = SmartTravelConstants::mapOperationType($operationType);
 
         $product = array(
-            'UID'                => Utils::generateUUID(),
+            'UID'                => Utils::productUID($this->getSupplierFolder(), $number),
             'PRODUCT_TYPE'       => array('NAME' => 'ЖД-билет', 'CODE' => '000000001'),
             'NUMBER'             => $number,
             'ISSUE_DATE'         => $this->formatSmartDate($confirmDt),
@@ -453,7 +453,7 @@ class SmartTravelParser implements ParserInterface
             $posSysName = isset($shortOrder['PosSysName']) ? (string)$shortOrder['PosSysName'] : '';
 
             $order = array(
-                'UID'            => Utils::generateUUID(),
+                'UID'            => Utils::orderUID($this->getSupplierFolder(), $orderId),
                 'INVOICE_NUMBER' => $orderId,
                 'INVOICE_DATA'   => $this->formatSmartDate(!empty($confirmed) && strpos($confirmed, '0001') !== 0 ? $confirmed : $created),
                 'CLIENT'         => $posSysName,
@@ -486,7 +486,7 @@ class SmartTravelParser implements ParserInterface
                 $number = !empty($itemReservation) ? $itemReservation : (isset($item['OrderItemId']) ? (string)$item['OrderItemId'] : '');
 
                 $product = array(
-                    'UID'                => Utils::generateUUID(),
+                    'UID'                => Utils::productUID($this->getSupplierFolder(), $number),
                     'PRODUCT_TYPE'       => array('NAME' => 'ЖД-билет', 'CODE' => '000000001'),
                     'NUMBER'             => $number,
                     'ISSUE_DATE'         => $this->formatSmartDate($itemConfirmDt),

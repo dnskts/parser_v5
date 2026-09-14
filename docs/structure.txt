@@ -12,7 +12,7 @@
 | `core/` | Ядро системы: логгер, менеджер парсеров, обработчик (Processor), отправка в API, SFTP-клиент, утилиты, интерфейс парсера |
 | `parsers/` | Реализации парсеров (plug-and-play). Каждый парсер — один PHP-файл, реализующий ParserInterface |
 | `parsers/constants/` | Справочники констант и маппингов для парсеров (например, типы пассажиров, пол, классы обслуживания) |
-| `input/` | Входные файлы (XML, JSON). Внутри — подпапки по поставщителям (moyagent, smarttravel, demo_hotel). В каждой: корень (новые файлы), Processed/, Error/ |
+| `input/` | Входные файлы (XML, JSON). Внутри — подпапки по поставщикам (moyagent, smarttravel, demo_hotel). В каждой: корень (новые файлы), Processed/, Error/. В корне репозитория: анонимные тесты `test.xml` (продажа) и `test_refund.xml` (возврат). |
 | `json/` | Выходные JSON-файлы после обработки (ORDER после enrich(), источник таблицы data.php). Имя: `{папка_поставщика}_{имя_xml}_{Ymd_His}.json`. Папка в git через `.gitkeep` (содержимое в .gitignore); при первом запуске Processor создаёт её через ensureDirectory. |
 | `json_api/` | Копии payload ровно в том виде, в каком они уходят в 1С (после ApiSender::prepareForApi()). Имена файлов совпадают с `json/`. Пишется всегда, даже при выключенном API; смотреть и править через окно «JSON для 1С» на data.php. Папка в git через `.gitkeep`. |
 | `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH) |
@@ -20,7 +20,7 @@
 | `assets/` | Фронтенд: общие стили (style.css), скрипт панели (app.js), библиотека для выгрузки XLSX |
 | `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. Заполняются импортом выгрузок 1С из `references/import/` (ReferenceImporter), вручную или через API 1С (syncAll). Используются ReferenceManager для обогащения ORDER. |
 | `docs/` | Документация проекта и AI-контекст: текущее состояние, changelog AI, полная структура, системный промпт; для каждого основного `.md` — UTF-8 зеркало `.txt` (обновление через `scripts/sync-docs-to-txt.php`) |
-| `.cursor/` | Настройки и скиллы Cursor IDE (в т.ч. update-structure, context-keeper) |
+| `.cursor/` | Локальные настройки Cursor IDE — в `.gitignore`, в репозиторий не попадает |
 
 ---
 
@@ -43,7 +43,7 @@
 | `core/Logger.php` | Логгер в файл logs/app.log. Уровни: info, warning, error, success. Формат строки: `[Y-m-d H:i:s] [LEVEL] message`. Ротация: при размере файла >5 МБ переименование в app.log.old. Права через Utils::ensureOwnership() — на новом файле и один раз за запрос (как и в ApiSender, SftpSync, PullSync, webhook.php). Методы: info(), warning(), error(), success(), getLastLines($lines), clear(). |
 | `core/ApiSender.php` | Отправка заказов в API 1С по HTTP. Конструктор принимает конфиг api, путь к logs/api_send.log и необязательную папку json_api/. Методы: isAvailable(); send() → prepareForApi() (плоские UID, CLIENT = null, stripTicketPrefix() для NUMBER/RELATED_TICKET_NUMBER, пустой CODE таксы → FARE_TAX_CODE «Тариф», DEPARTURE_DATETIME/ARRIVAL_DATETIME из DATE+TIME, снятие лишних полей купона и UID агентов), POST JSON, Basic Auth, лог JSON Lines; writeApiPayload($orderData, $jsonFileName) — сохраняет результат prepareForApi() в json_api/ под тем же именем (prepareForApi идемпотентен, поэтому готовый payload можно прогонять повторно). |
 | `core/SftpSync.php` | SFTP-клиент на cURL (libssh2). Конструктор: конфиг (host, port, login, password, remote_path, local_path), путь к sftp_sync.log. Методы: sync() — листинг *.xml, скачивание в local_path, перемещение на SFTP в Processed/; testConnection(), listRemoteXmlFiles(), downloadFile(), moveToProcessed(). Путь на SFTP: ~/remote_path/. Логирование и ротация лога (>5 МБ → .old). |
-| `core/Utils.php` | Утилиты. Методы: generateUUID() — UUID v4 (RFC 4122); curlWithProxy($url, $options) — универсальный cURL с поддержкой Basic Auth и HTTP-прокси; ensureOwnership($path, $mode = null) — владелец ext_kuritsyn, группа bitrix и chmod (660 файлам, 775 папкам); chown/chgrp/chmod с подавлением ошибок и без логирования (под bitrix chown запрещён штатно), на Windows не выполняется; ensureDirectory($dir, $permissions) — создание папки с установкой владельца/группы/прав. Используется парсерами (UUID), PullSync (cURL), и всеми модулями для установки прав на создаваемые файлы/папки. |
+| `core/Utils.php` | Утилиты. Методы: generateUUID() — UUID v4; generateUUIDFromKey()/orderUID()/productUID() — стабильный UUID v5 от ключа (заказ от INVOICE_NUMBER, билет от номера; продажа и возврат одного билета совпадают); normalizeTicketNumber(); curlWithProxy(); ensureOwnership(); ensureDirectory(). |
 | `core/PullSync.php` | PULL-синхронизатор SmartTravel. Запрашивает данные с API SmartTravel (GET + Basic Auth + HTTP-прокси), сохраняет ответ в input/smarttravel/pull_*.json. Аналог SftpSync для REST API. Лог: logs/pull_sync.log. |
 | `core/ReferenceManager.php` | Менеджер справочников. loadReference, findByCode (aliases + resolveEntryUid: uid или uid_test по references.uid_profile), findAgentByName, buildAgentObject (ненайденный агент → UNKNOWN_AGENT_CODE «045» / «Агент не найден»), enrich (ORDER.CLIENT = null; SERVICE_CLASS собирается без обращения к справочнику — {UID:"", CODE, NAME} по коду класса, поэтому WARNING'ов по service_classes нет), syncReference/syncAll, getAvailableTypes. |
 | `core/ReferenceImporter.php` | Импорт справочников из выгрузок 1С. Читает файлы из `references/import/` (JSON в .txt, UTF-8 с BOM или CP1251), нормализует записи в `{uid, code, name, aliases}` и перезаписывает `references/*.json`. Карта соответствия — getImportMap() (currencies, airlines, airports, agents, cities, countries), мапперы mapCurrency/mapAirline/mapAirport/mapAgent/mapCity/mapCountry. Отдельно importContractorRefs() собирает suppliers.json и clients.json из «Контрагенты.txt»: файл на десятки мегабайт читается потоково (streamJsonRows — разбор по балансу фигурных скобок), из него берутся только контрагенты из белого списка getContractorRefMap() и ручные записи с пустым uid (им UID дозаполняется); остальные записи справочника сохраняются (readReference + слияние), первым элементом пишется запись-подсказка. Пропускает записи без кода и дубликаты по коду. importAll() — все типы; cleanupImportFiles() — удаляет *.txt из import/ после успеха (вызывается из api.php). Результат по каждому справочнику: status (ok/skipped/error), file, count, skipped, message. |
@@ -153,7 +153,7 @@
 | `nextstep.md` | План улучшений и оптимизации, следующие шаги с пояснениями, подробная инструкция по подключению новых поставщиков через API. |
 | `README.md` | Краткое описание проекта для людей (если есть). |
 | `migration.md` | Документ миграции (если есть). |
-| `.gitignore` | Исключения для Git: обычно input/, json/, json_api/, логи, конфиги с паролями, .cursor/debug*.log, содержимое references/import/ (кроме .gitkeep). |
+| `.gitignore` | Исключения для Git: input/ (кроме test.xml / test_refund.xml и .gitkeep), json/, json_api/, логи, `.cursor/`, конфиги с паролями, содержимое references/import/ (кроме .gitkeep). |
 
 ---
 

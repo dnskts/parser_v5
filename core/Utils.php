@@ -52,6 +52,86 @@ class Utils
     }
 
     /**
+     * Детерминированный UUID v5 (RFC 4122) от строки-ключа.
+     * Один и тот же $key → один и тот же UUID (повторная обработка / возврат билета).
+     * Пустой ключ → случайный UUID v4 (не из чего стабилизировать).
+     *
+     * @param string $key — например moyagent|order|1253510811908
+     * @return string
+     */
+    public static function generateUUIDFromKey($key)
+    {
+        $key = trim((string)$key);
+        if ($key === '') {
+            return self::generateUUID();
+        }
+
+        // Namespace UUID проекта parser_v5 (фиксированный, не менять — сломаются UID в 1С)
+        $nsHex = '6ba7b8109dad11d180b400c04fd430c8';
+        $nsBytes = hex2bin($nsHex);
+        $hash = sha1($nsBytes . $key, true);
+        $data = substr($hash, 0, 16);
+
+        // Версия 5, вариант RFC 4122
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x50);
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+
+    /**
+     * Нормализация номера билета для ключа UID: как в ApiSender (без кода АК).
+     * «5552379660766» / «555-2379660766» → «2379660766»; иначе trim as-is.
+     *
+     * @param string|int $number
+     * @return string
+     */
+    public static function normalizeTicketNumber($number)
+    {
+        $value = trim((string)$number);
+        if ($value === '') {
+            return '';
+        }
+        if (preg_match('/^\d{3}-?(\d{10})$/', $value, $m)) {
+            return $m[1];
+        }
+        return $value;
+    }
+
+    /**
+     * UID заказа: стабильный от поставщика + номера счёта/заказа.
+     *
+     * @param string $supplierFolder — moyagent / smarttravel
+     * @param string $invoiceNumber — ord_id / OrderId
+     * @return string
+     */
+    public static function orderUID($supplierFolder, $invoiceNumber)
+    {
+        $inv = trim((string)$invoiceNumber);
+        if ($inv === '') {
+            return self::generateUUID();
+        }
+        return self::generateUUIDFromKey($supplierFolder . '|order|' . $inv);
+    }
+
+    /**
+     * UID продукта (билета): стабильный от поставщика + номера билета.
+     * Продажа и возврат одного билета дают один UID.
+     *
+     * @param string $supplierFolder
+     * @param string $ticketNumber
+     * @return string
+     */
+    public static function productUID($supplierFolder, $ticketNumber)
+    {
+        $num = self::normalizeTicketNumber($ticketNumber);
+        if ($num === '') {
+            return self::generateUUID();
+        }
+        return self::generateUUIDFromKey($supplierFolder . '|ticket|' . $num);
+    }
+
+    /**
      * Устанавливает владельца (ext_kuritsyn), группу (bitrix) и права доступа
      * для файла/папки. Ошибки подавляются (@): PHP работает от bitrix, и chown
      * ему обычно запрещён — доступ ext_kuritsyn даёт общая группа плюс права

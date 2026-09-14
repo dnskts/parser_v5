@@ -179,7 +179,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = (string)$origAirTicket['supplier'];
 
             $products[] = array(
-                'UID' => Utils::generateUUID(),
+                'UID' => Utils::productUID($this->getSupplierFolder(), $ticketNumber),
                 'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
                 'NUMBER' => $ticketNumber,
                 'ISSUE_DATE' => $issueDate,
@@ -346,7 +346,7 @@ class MoyAgentParser implements ParserInterface
                 $supplierCode = (string)$airTicket['supplier'];
 
                 $products[] = array(
-                    'UID' => Utils::generateUUID(),
+                    'UID' => Utils::productUID($this->getSupplierFolder(), $ticketNumber),
                     'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
                     'NUMBER' => $ticketNumber,
                     'ISSUE_DATE' => $issueDate,
@@ -399,7 +399,7 @@ class MoyAgentParser implements ParserInterface
 
         // ШАГ 5: Итоговый ORDER
         return array(
-            'UID' => Utils::generateUUID(),
+            'UID' => Utils::orderUID($this->getSupplierFolder(), $orderId),
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA' => $this->formatDateTime($orderTime),
             'CLIENT' => $clientCode,
@@ -654,7 +654,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = $emdAirTicket ? (string)$emdAirTicket['supplier'] : '';
 
             $products[] = array(
-                'UID' => Utils::generateUUID(),
+                'UID' => Utils::productUID($this->getSupplierFolder(), $emdDoc['tkt_number']),
                 'PRODUCT_TYPE' => array('NAME' => 'EMD', 'CODE' => '000000002'),
                 'NUMBER' => $emdDoc['tkt_number'],
                 'ISSUE_DATE' => $this->formatDateTime($emdDoc['tkt_date']),
@@ -827,7 +827,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = $emdAT ? (string)$emdAT['supplier'] : '';
 
             $products[] = array(
-                'UID'=>Utils::generateUUID(),
+                'UID'=>Utils::productUID($this->getSupplierFolder(), $emdTktNum),
                 'PRODUCT_TYPE'=>array('NAME'=>'EMD','CODE'=>'000000002'),
                 'NUMBER'=>$emdTktNum,
                 'ISSUE_DATE'=>$this->formatDateTime($emdDoc['tkt_date']),

@@ -775,8 +775,41 @@ foreach ($fixtureFiles as $fileName) {
             'Все номера билетов', $ok, $expected['all_tickets'], $actualTickets);
     }
 
+    // Стабильные UID: повторный parse того же файла даёт те же ORDER/PRODUCT UID
+    $dataAgain = $parser->parse($filePath);
+    $orderUidStable = (isset($data['UID']) && isset($dataAgain['UID']) && $data['UID'] === $dataAgain['UID']);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'ORDER.UID стабилен', $orderUidStable, $data['UID'], isset($dataAgain['UID']) ? $dataAgain['UID'] : '');
+    if (!empty($data['PRODUCTS'][0]['NUMBER'])) {
+        $pUid = isset($data['PRODUCTS'][0]['UID']) ? $data['PRODUCTS'][0]['UID'] : '';
+        $pUidAgain = isset($dataAgain['PRODUCTS'][0]['UID']) ? $dataAgain['PRODUCTS'][0]['UID'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'PRODUCT.UID стабилен', ($pUid !== '' && $pUid === $pUidAgain), $pUid, $pUidAgain);
+        $expectedProdUid = Utils::productUID('moyagent', $data['PRODUCTS'][0]['NUMBER']);
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'PRODUCT.UID от номера билета', ($pUid === $expectedProdUid), $expectedProdUid, $pUid);
+    }
+
     $results[] = $fileResult;
 }
+
+// Стабильный UID билета: номер с кодом АК и без → один UUID (продажа/возврат)
+$uidStableFile = array(
+    'file' => '_stable_uid',
+    'description' => 'Utils: стабильный PRODUCT.UID от номера билета',
+    'checks' => array(),
+    'error' => null,
+    'no_expectations' => false,
+);
+$uidA = Utils::productUID('moyagent', '5552379660766');
+$uidB = Utils::productUID('moyagent', '2379660766');
+addCheck($uidStableFile, $totalTests, $passedTests, $failedTests,
+    'normalizeTicketNumber в UID', ($uidA === $uidB), $uidA, $uidB);
+$uidOrder1 = Utils::orderUID('moyagent', '125359005865');
+$uidOrder2 = Utils::orderUID('moyagent', '125359005865');
+addCheck($uidStableFile, $totalTests, $passedTests, $failedTests,
+    'orderUID детерминирован', ($uidOrder1 === $uidOrder2), $uidOrder1, $uidOrder2);
+$results[] = $uidStableFile;
 
 // =====================================================
 // ТЕСТЫ SmartTravelParser (JSON-фикстуры)

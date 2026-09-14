@@ -1,7 +1,12 @@
+# === Cursor IDE (локально, не в репозитории) ===
+.cursor/
+
 # === Input папки ===
 # Игнорировать содержимое, но сохранить структуру
 input/*
 !input/.gitkeep
+!input/test.xml
+!input/test_refund.xml
 !input/moyagent/
 input/moyagent/*
 !input/moyagent/.gitkeep

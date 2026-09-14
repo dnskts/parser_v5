@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-09-11
-**Обновлено после:** импорт справочников: early-log/лимиты/ошибки UI, удаление *.txt из import/ после успеха, дата last_import на data.php
+**Последнее обновление:** 2026-09-14
+**Обновлено после:** тестовые анонимные XML в input/ (продажа + возврат) на базе 1253510854389.xml
 
 ---
 
@@ -71,7 +71,7 @@ parser_v5/
 │   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
 │   ├── PullSync.php          — PULL-синхронизатор SmartTravel: GET + Basic Auth + HTTP-прокси
-│   ├── Utils.php             — Utils::generateUUID() (v4), curlWithProxy(), ensureOwnership() (chown+chgrp+chmod), ensureDirectory()
+│   ├── Utils.php             — Utils::generateUUID() (v4), generateUUIDFromKey()/orderUID()/productUID() (v5, стабильные), normalizeTicketNumber(), curlWithProxy(), ensureOwnership(), ensureDirectory()
 │   └── DataTableHelpers.php — buildRowsFromJsonFile(), formatRstlsDate(), formatAgent() для data.php и api data_rows
 ├── parsers/
 │   ├── constants/
@@ -798,6 +798,8 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-14	Тестовые XML без ПДн: input/test.xml (продажа, 4 сегмента) и input/test_refund.xml (возврат того же билета 9990001112223, пассажир Тестов Тест Тестович)	input/test.xml, input/test_refund.xml
+2026-09-14	Стабильные UID: ORDER от ord_id, PRODUCT от номера билета (UUID v5); продажа и возврат одного билета → один PRODUCT.UID; повторный parse → те же UID	core/Utils.php, parsers/MoyAgentParser.php, parsers/SmartTravelParser.php, test.php
 2026-09-14	Импорт справочников: early-log API, set_time_limit/memory, try/catch и понятные HTTP-ошибки в UI; после успеха удаляются *.txt из import/ и пишется references.last_import; дата на data.php	api.php, assets/app.js, core/ReferenceImporter.php, data.php
 2026-09-11	PAYMENTS.INVOICE = fare+taxes продукта, а не payment@amount заказа: иначе 1С прибавляла service_fee из COMMISSIONS поверх платежа, в котором сбор уже был	parsers/MoyAgentParser.php
 2026-09-11	Папка json_api/ с payload в формате 1С (ApiSender::writeApiPayload) + окно «JSON для 1С» в data.php по клику на имя файла: просмотр, правка, «Сохранить и отправить в 1С» (resend source=api); clear_json чистит обе папки	core/ApiSender.php, core/Processor.php, api.php, data.php, .gitignore, json_api/.gitkeep
@@ -839,7 +841,7 @@ import_references	POST	Импорт справочников из references/imp
 2026-02-26	Resizable-столбцы, ext-curl	data.php, style.css
 12. Соглашения по коду
 PHP: 7.0 синтаксис — array() вместо [], без type hints
-UUID: только через Utils::generateUUID(), require core/Utils.php
+UUID: только через Utils (generateUUID / orderUID / productUID), require core/Utils.php
 Комментарии: на русском
 JSON: JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
 Новый парсер: parsers/XxxParser.php implements ParserInterface + input/folder/
@@ -857,7 +859,8 @@ ext-curl обязателен (с поддержкой SFTP/libssh2 для си�
 Критические правила
 Документация: при изменении `docs/SisPrompt.md`, `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md` или `docs/structure.md` выполнять в корне `php scripts/sync-docs-to-txt.php` — обновляются одноимённые `docs/*.txt` (UTF-8, содержимое совпадает с `.md`; удобно для сред, где нужен plain text).
 Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`, права 660 (файлы) / 775 (папки). Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`. chmod выполняется всегда, даже если chown недоступен (под bitrix это норма — доступ даёт общая группа). Неудачи не логируются: под bitrix chown запрещён штатно, и запись об этом засоряла app.log. На Windows ensureOwnership() ничего не делает. Логгеры (Logger, ApiSender, SftpSync, PullSync, webhook.php) вызывают ensureOwnership() на новом файле и один раз за запрос — чтобы права подтянулись и у логов, созданных до этого правила.
-UUID — только Utils::generateUUID(), require core/Utils.php
+UUID — только Utils::generateUUID() / generateUUIDFromKey() / orderUID() / productUID(); require core/Utils.php
+ORDER.UID = orderUID(папка_поставщика, INVOICE_NUMBER); PRODUCTS[].UID = productUID(папка, номер_билета) — детерминированно (продажа и возврат одного билета совпадают)
 Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
 Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php
 app.js обслуживает только index.php; data.php и api_logs.php имеют встроенные скрипты

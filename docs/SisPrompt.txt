@@ -28,7 +28,7 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 Критические правила
 - В начале: читай docs/CURRENT_STAGE.md и docs/structure.md. После изменений: обновляй docs/CURRENT_STAGE.md, docs/CHANGELOG_AI.md, docs/structure.md; затем `php scripts/sync-docs-to-txt.php`.
 - Новый парсер: parsers/XxxParser.php implements ParserInterface + input/folder/
-- UUID только Utils::generateUUID()
+- UUID через Utils::generateUUID() / orderUID() / productUID()
 - Processor привязан к glob(*.xml)
 - Retry 1С: api.retry_attempts (0=без повторов), retry_delay_sec; переотправка через 🔄 в data.php
 - app.js только для index.php; data.php/api_logs.php — встроенные скрипты
