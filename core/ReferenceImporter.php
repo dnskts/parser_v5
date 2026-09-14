@@ -141,6 +141,42 @@ class ReferenceImporter
     }
 
     /**
+     * Удаляет файлы выгрузки *.txt из references/import/ после успешного импорта.
+     * .gitkeep и прочие не-.txt файлы не трогает.
+     *
+     * @return int — сколько файлов удалено
+     */
+    public function cleanupImportFiles()
+    {
+        $deleted = 0;
+        if (!is_dir($this->importDir)) {
+            return 0;
+        }
+
+        $files = glob($this->importDir . DIRECTORY_SEPARATOR . '*.txt');
+        if (!is_array($files)) {
+            return 0;
+        }
+
+        foreach ($files as $file) {
+            if (!is_file($file)) {
+                continue;
+            }
+            if (@unlink($file)) {
+                $deleted++;
+            } else {
+                $this->logger->warning('Импорт: не удалось удалить ' . basename($file));
+            }
+        }
+
+        if ($deleted > 0) {
+            $this->logger->info('Импорт: удалено файлов выгрузки из import/: ' . $deleted);
+        }
+
+        return $deleted;
+    }
+
+    /**
      * Импорт одного справочника.
      *
      * @param string $type — тип справочника (currencies, airlines, airports, agents)

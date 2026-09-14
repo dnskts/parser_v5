@@ -8,6 +8,7 @@
 
 $suppliers = array();
 $settings = array();
+$refsLastImportLabel = 'Справочники: не загружались';
 
 // Читаем настройки из config/settings.json (tab_order и др.)
 $configFile = __DIR__ . '/config/settings.json';
@@ -17,6 +18,9 @@ if (file_exists($configFile) && is_readable($configFile)) {
         $decoded = json_decode($settingsJson, true);
         if (is_array($decoded)) {
             $settings = $decoded;
+            if (!empty($decoded['references']['last_import'])) {
+                $refsLastImportLabel = 'Справочники: ' . $decoded['references']['last_import'];
+            }
         }
     }
 }
@@ -81,6 +85,7 @@ $suppliersJson = json_encode($suppliers, JSON_UNESCAPED_UNICODE);
                     <div class="panel__title-text">
                         <h2 class="panel__title panel__title--inline">Данные из JSON-файлов</h2>
                         <span id="panelCount" class="panel__count">Загрузка...</span>
+                        <span class="panel__count" title="Дата последнего импорта из references/import/"><?php echo htmlspecialchars($refsLastImportLabel); ?></span>
                     </div>
                     <div class="panel__toolbar-filter">
                         <input type="text" id="filterInput" class="panel__toolbar-input" placeholder="Поиск по всем колонкам...">

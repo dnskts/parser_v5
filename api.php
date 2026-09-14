@@ -509,6 +509,8 @@ switch ($action) {
      *
      * Читает файлы выгрузки из references/import/ и нормализует их
      * в references/*.json. Принимает только POST-запросы.
+     * После успешного импорта удаляет *.txt из import/ и пишет
+     * references.last_import в settings.json.
      */
     case 'import_references':
         if ($method !== 'POST') {
@@ -520,13 +522,31 @@ switch ($action) {
             break;
         }
 
+        // Сразу в лог — если этой строки нет, клик до PHP не дошёл
+        $logger->info('API: запрос import_references');
+
+        // Контрагенты.txt ~25 МБ: без лимита прокси/PHP часто рвут запрос молча
+        @set_time_limit(300);
+        @ini_set('memory_limit', '512M');
+
         require_once BASE_DIR . '/core/ReferenceImporter.php';
         $importer = new ReferenceImporter(
             BASE_DIR . '/references/import',
             BASE_DIR . '/references',
             $logger
         );
-        $importResult = $importer->importAll();
+
+        try {
+            $importResult = $importer->importAll();
+        } catch (Exception $e) {
+            $logger->error('API: import_references — ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Ошибка импорта: ' . $e->getMessage()
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
         // Короткая сводка для строки статуса в интерфейсе
         $importedTypes = 0;
@@ -541,17 +561,47 @@ switch ($action) {
             }
         }
 
+        $cleaned = 0;
+        $lastImport = null;
+        if ($importedTypes > 0) {
+            // Выгрузки больше не нужны — снимаем, чтобы не импортировать повторно по ошибке
+            $cleaned = $importer->cleanupImportFiles();
+
+            $lastImport = date('Y-m-d H:i:s');
+            if (file_exists($configFile) && is_readable($configFile)) {
+                $settingsData = json_decode(file_get_contents($configFile), true);
+                if (!is_array($settingsData)) {
+                    $settingsData = array();
+                }
+                if (!isset($settingsData['references']) || !is_array($settingsData['references'])) {
+                    $settingsData['references'] = array();
+                }
+                $settingsData['references']['last_import'] = $lastImport;
+                $encoded = json_encode($settingsData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                if ($encoded !== false && file_put_contents($configFile, $encoded, LOCK_EX) !== false) {
+                    Utils::ensureOwnership($configFile);
+                } else {
+                    $logger->warning('API: import_references — не удалось записать references.last_import');
+                }
+            }
+        }
+
         $importMessage = "Справочников обновлено: {$importedTypes}, записей: {$importedRows}";
+        if ($cleaned > 0) {
+            $importMessage .= ", удалено файлов выгрузки: {$cleaned}";
+        }
         if (!empty($failedTypes)) {
             $importMessage .= '. Ошибки: ' . implode(', ', $failedTypes);
         }
 
         echo json_encode(array(
-            'status'   => 'ok',
-            'message'  => $importMessage,
-            'imported' => $importedTypes,
-            'rows'     => $importedRows,
-            'results'  => $importResult
+            'status'      => 'ok',
+            'message'     => $importMessage,
+            'imported'    => $importedTypes,
+            'rows'        => $importedRows,
+            'cleaned'     => $cleaned,
+            'last_import' => $lastImport,
+            'results'     => $importResult
         ), JSON_UNESCAPED_UNICODE);
         break;
 

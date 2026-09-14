@@ -341,24 +341,54 @@ document.addEventListener('DOMContentLoaded', function() {
     
     /**
      * Читает файлы выгрузки 1С из references/import/ и обновляет
-     * справочники references/*.json. Файлы кладутся в папку вручную.
+     * справочники references/*.json. После успеха сервер удаляет *.txt.
      */
     function importReferences() {
         btnImportRefs.disabled = true;
         setStatus('running', 'Загрузка справочников...');
 
         fetch('api.php?action=import_references', { method: 'POST' })
-            .then(function(response) { return response.json(); })
-            .then(function(data) {
-                if (data.status === 'ok') {
-                    setStatus('success', data.message);
+            .then(function(response) {
+                return response.text().then(function(text) {
+                    var data = null;
+                    try {
+                        data = text ? JSON.parse(text) : null;
+                    } catch (e) {
+                        data = null;
+                    }
+                    return { httpStatus: response.status, ok: response.ok, data: data, raw: text };
+                });
+            })
+            .then(function(result) {
+                if (!result.ok) {
+                    var hint = '';
+                    if (result.data && result.data.message) {
+                        hint = result.data.message;
+                    } else if (result.raw) {
+                        hint = result.raw.replace(/\s+/g, ' ').substring(0, 180);
+                    }
+                    setStatus(
+                        'error',
+                        'Ошибка HTTP ' + result.httpStatus
+                            + (hint ? ': ' + hint : ' (часто таймаут прокси на Контрагенты.txt)')
+                    );
+                    loadLogs();
+                    return;
+                }
+                if (!result.data) {
+                    setStatus('error', 'Сервер вернул не-JSON (HTTP ' + result.httpStatus + ')');
+                    loadLogs();
+                    return;
+                }
+                if (result.data.status === 'ok') {
+                    setStatus('success', result.data.message || 'Справочники обновлены');
                 } else {
-                    setStatus('error', data.message || 'Ошибка загрузки справочников');
+                    setStatus('error', result.data.message || 'Ошибка загрузки справочников');
                 }
                 loadLogs();
             })
             .catch(function(error) {
-                setStatus('error', 'Ошибка связи с сервером');
+                setStatus('error', 'Ошибка связи с сервером: ' + (error && error.message ? error.message : error));
                 console.error('Ошибка загрузки справочников:', error);
             })
             .finally(function() {

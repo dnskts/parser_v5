@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-11
-**Обновлено после:** PAYMENTS.INVOICE = fare+taxes продукта (не сумма заказа из XML) — иначе 1С дважды учитывала service_fee
+**Обновлено после:** импорт справочников: early-log/лимиты/ошибки UI, удаление *.txt из import/ после успеха, дата last_import на data.php
 
 ---
 
@@ -86,7 +86,7 @@ parser_v5/
 ├── logs/                     — app.log + api_send.log + sftp_sync.log + pull_sync.log + webhook.log
 ├── tests/fixtures/           — 7 XML + 1 JSON фикстура для MoyAgent и SmartTravel
 ├── index.php                 — панель управления (app.js, AJAX)
-├── data.php                  — таблица заказов: вкладки по парсерам, загрузка через api data_rows, «Загрузить ещё», 70 колонок
+├── data.php                  — таблица заказов: вкладки по парсерам, data_rows, «Загрузить ещё», 70 колонок; дата references.last_import
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
 ├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
@@ -582,7 +582,7 @@ php sftp_sync.php --force
 Назначение: подстановка UID из 1С в JSON ORDER (ReferenceManager::enrich()).
 
 Три способа заполнения references/*.json:
-1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на index.php вызывает api.php?action=import_references → ReferenceImporter::importAll()
+1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на index.php вызывает api.php?action=import_references → ReferenceImporter::importAll(); при успехе *.txt из import/ удаляются, в settings.json пишется references.last_import (показывается на data.php)
 2. Вручную — правка references/*.json
 3. Через API 1С — syncReferences() при references.auto_sync=true (api_url пока пуст)
 
@@ -770,7 +770,7 @@ api_json	GET	Payload для 1С из json_api/ (file); при отсутстви
 save_api_json	POST	Сохранение отредактированного payload в json_api/ (file, content)
 data_rows	GET	Строки таблицы заказов для data.php
 sync_references	POST	Синхронизация справочников через API 1С
-import_references	POST	Импорт справочников из references/import/ (ReferenceImporter)
+import_references	POST	Импорт справочников из references/import/; при успехе чистит *.txt и пишет references.last_import
 10. Текущее состояние
 Реализовано (✅)
 ✅ Ядро: Processor, ParserManager, Logger, ParserInterface, Utils
@@ -798,6 +798,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-14	Импорт справочников: early-log API, set_time_limit/memory, try/catch и понятные HTTP-ошибки в UI; после успеха удаляются *.txt из import/ и пишется references.last_import; дата на data.php	api.php, assets/app.js, core/ReferenceImporter.php, data.php
 2026-09-11	PAYMENTS.INVOICE = fare+taxes продукта, а не payment@amount заказа: иначе 1С прибавляла service_fee из COMMISSIONS поверх платежа, в котором сбор уже был	parsers/MoyAgentParser.php
 2026-09-11	Папка json_api/ с payload в формате 1С (ApiSender::writeApiPayload) + окно «JSON для 1С» в data.php по клику на имя файла: просмотр, правка, «Сохранить и отправить в 1С» (resend source=api); clear_json чистит обе папки	core/ApiSender.php, core/Processor.php, api.php, data.php, .gitignore, json_api/.gitkeep
 2026-09-11	Убраны WARNING по service_classes (SERVICE_CLASS собирается без поиска UID) и по неудачной установке прав; логгеры выставляют права и на уже существующие файлы	core/ReferenceManager.php, core/Utils.php, core/Logger.php, core/ApiSender.php, core/SftpSync.php, core/PullSync.php, webhook.php
@@ -868,7 +869,9 @@ AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_pr
 BOOKING_AGENT берётся из reservation[@bookingAgent]
 RESERVATION_NUMBER берётся из reservation[@rloc] через getMainReservation()
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
-Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references)
+PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
+Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references); после успеха *.txt удаляются, дата — references.last_import (data.php)
+Если после клика в app.log нет строки «API: запрос import_references» — запрос не дошёл до PHP (прокси/таймаут/старый фронт); при HTTP-ошибке статус на панели покажет код
 Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 045 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
