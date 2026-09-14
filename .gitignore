@@ -6,7 +6,6 @@
 input/*
 !input/.gitkeep
 !input/test.xml
-!input/test_refund.xml
 !input/moyagent/
 input/moyagent/*
 !input/moyagent/.gitkeep

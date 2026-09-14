@@ -18,7 +18,7 @@ require_once __DIR__ . '/Utils.php';
 class ReferenceManager
 {
     /** Код МОМ агента-заглушки: уходит в 1С, когда агента нет в agents.json */
-    const UNKNOWN_AGENT_CODE = '045';
+    const UNKNOWN_AGENT_CODE = '999';
 
     /** Имя агента-заглушки в ORDER */
     const UNKNOWN_AGENT_NAME = 'Агент не найден';

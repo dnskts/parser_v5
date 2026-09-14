@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-14
-**Обновлено после:** тестовые анонимные XML в input/ (продажа + возврат) на базе 1253510854389.xml
+**Обновлено после:** push: test.xml, структура input/moyagent, заглушка агента 999
 
 ---
 
@@ -278,8 +278,8 @@ Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
 Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
 Product	CARRIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника airlines (до enrich — строка IATA)
 Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
-Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 045 / «Агент не найден»
-Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 045 / «Агент не найден»
+Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 999 / «Агент не найден»
+Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 999 / «Агент не найден»
 Product	TAXES	array	Первый (CODE="") = тариф
 Product	PAYMENTS	array	Платежи
 5.3. Служебные поля (удаляются перед отправкой в 1С)
@@ -640,7 +640,7 @@ WARNING'ов по классам обслуживания в app.log больш�
   Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName у SmartTravel) в 1С не уходит.
 - SUPPLIER — {UID, CODE, NAME} из suppliers.json по folder парсера
 - CARRIER — {UID, CODE, NAME} из airlines.json (парсеры отдают строку IATA)
-- AGENT / BOOKING_AGENT — {CODE, NAME} без UID; агента нет в справочнике или ФИО пустое → заглушка {CODE: «045», NAME: «Агент не найден»} + WARNING
+- AGENT / BOOKING_AGENT — {CODE, NAME} без UID; агента нет в справочнике или ФИО пустое → заглушка {CODE: «999», NAME: «Агент не найден»} + WARNING
 - CURRENCY, DEPARTURE_AIRPORT / ARRIVAL_AIRPORT, AIRLINE, SERVICE_CLASS
 - cities и countries только импортируются: полей CITY/COUNTRY в ORDER нет
 
@@ -798,6 +798,8 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-14	В git: обновлённый input/test.xml; структура input/moyagent (+ .gitkeep); удалён test_refund.xml; заглушка агента 999	input/, .gitignore, core/ReferenceManager.php
+2026-09-14	Заглушка ненайденного агента: код 045 → 999 («Агент не найден»)	core/ReferenceManager.php
 2026-09-14	Тестовые XML без ПДн: input/test.xml (продажа, 4 сегмента) и input/test_refund.xml (возврат того же билета 9990001112223, пассажир Тестов Тест Тестович)	input/test.xml, input/test_refund.xml
 2026-09-14	Стабильные UID: ORDER от ord_id, PRODUCT от номера билета (UUID v5); продажа и возврат одного билета → один PRODUCT.UID; повторный parse → те же UID	core/Utils.php, parsers/MoyAgentParser.php, parsers/SmartTravelParser.php, test.php
 2026-09-14	Импорт справочников: early-log API, set_time_limit/memory, try/catch и понятные HTTP-ошибки в UI; после успеха удаляются *.txt из import/ и пишется references.last_import; дата на data.php	api.php, assets/app.js, core/ReferenceImporter.php, data.php
@@ -875,7 +877,7 @@ RESERVATION_NUMBER берётся из reservation[@rloc] через getMainRese
 PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
 Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references); после успеха *.txt удаляются, дата — references.last_import (data.php)
 Если после клика в app.log нет строки «API: запрос import_references» — запрос не дошёл до PHP (прокси/таймаут/старый фронт); при HTTP-ошибке статус на панели покажет код
-Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 045 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
+Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 999 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)
 Справочники: поле aliases — дополнительные написания для поиска («руб.» ↔ RUB, латиница у агентов)
 Справочники: CLIENT в ORDER — всегда null (ТЗ допускает), код из файла поставщика отбрасывается; clients.json остаётся справочно

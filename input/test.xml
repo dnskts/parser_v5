@@ -1,54 +1,69 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <order_snapshot>
-  <header ord_id="9990000000001" currency="RUB" time="2026-03-01 10:00:00" site="NEWMA"/>
-  <customer email="test@example.com" phone="+79000000000" name="TESTOV" client_code="TEST01"/>
-  <payments>
-    <payment pay_oper="PAY" pay_id="9990000000001" psp_pay_id="9990000000001" amount="198500" pay_time="2026-03-01 10:00:00" tkt_fop="НАЛ" psp_code="BLNC" pay_system="297"/>
-  </payments>
-  <reservations>
-    <reservation rloc="TEST01" rsrv_id="90000001" crs="31" crs_currency="RUB" crs_currency_rate="1" supplier="555_EC" crs_name="NDC_Aeroflot"/>
-  </reservations>
-  <products>
-    <product>
-      <air_ticket_prod prod_id="0" origin="KWL" supplier="555_EC" destination="SVO" validating_carrier="SU" psg_type="adt" issuingAgent="1" discount="0" crs_fare="150000" crs_taxes="48000" crs_service_fee="500" fare="150000" taxes="48000" service_fee="500">
-        <air_seg segment_id="0" departure_airport="KWL" arrival_airport="PVG" departure_datetime="2026-04-10 08:00:00" arrival_datetime="2026-04-10 10:30:00" carrier="MU" flight_number="5302" bag_allowance="1P23K" class="Y" fare_basis="YTEST">
-          <air_tax passenger_id="90000001" code="CN" currency="RUB" amount="1200" crs_amount="1200"/>
-          <air_tax passenger_id="90000001" code="YQ" currency="RUB" amount="8500" crs_amount="8500"/>
-          <air_tax passenger_id="90000001" code="RI" currency="RUB" amount="2300" crs_amount="2300"/>
-        </air_seg>
-        <air_seg segment_id="1" departure_airport="PVG" arrival_airport="SVO" departure_datetime="2026-04-10 14:00:00" arrival_datetime="2026-04-10 18:40:00" carrier="SU" flight_number="209" bag_allowance="1P23K" class="Y" fare_basis="YTEST">
-          <air_tax passenger_id="90000001" code="YR" currency="RUB" amount="4500" crs_amount="4500"/>
-          <air_tax passenger_id="90000001" code="RI" currency="RUB" amount="3100" crs_amount="3100"/>
-        </air_seg>
-        <air_seg segment_id="2" departure_airport="SVO" arrival_airport="PVG" departure_datetime="2026-04-20 21:00:00" arrival_datetime="2026-04-21 10:15:00" carrier="SU" flight_number="208" bag_allowance="1P23K" class="Y" fare_basis="YTEST">
-          <air_tax passenger_id="90000001" code="YR" currency="RUB" amount="5200" crs_amount="5200"/>
-          <air_tax passenger_id="90000001" code="RI" currency="RUB" amount="2800" crs_amount="2800"/>
-        </air_seg>
-        <air_seg segment_id="3" departure_airport="PVG" arrival_airport="KWL" departure_datetime="2026-04-21 13:30:00" arrival_datetime="2026-04-21 16:00:00" carrier="MU" flight_number="5303" bag_allowance="1P23K" class="Y" fare_basis="YTEST">
-          <air_tax passenger_id="90000001" code="CN" currency="RUB" amount="1500" crs_amount="1500"/>
-          <air_tax passenger_id="90000001" code="YQ" currency="RUB" amount="18900" crs_amount="18900"/>
-        </air_seg>
-        <fees>
-          <fee code="КОМГА_ФМ" type="commission" amount="1"/>
-          <fee code="ЗАРАБОТОК1" type="commission" amount="500"/>
-          <fee code="МАРКАП" type="commission" amount="0"/>
-          <fee code="КОМСА_САЙТ" type="commission" amount="1"/>
-        </fees>
-      </air_ticket_prod>
-      <dop_info>
-        <dop><code>РЕГИОН_ОФИС</code><value>TEST</value></dop>
-      </dop_info>
-    </product>
-  </products>
-  <travel_docs>
-    <travel_doc>
-      <air_ticket_doc prod_id="0" psgr_id="90000001" tkt_oper="TKT" tkt_number="9990001112223" tkt_date="2026-03-01 10:00:00" tkt_date_timestamp="1772359200" tkt_charter="0" issuingAgent="1" rsrv_id="90000001"/>
-    </travel_doc>
-  </travel_docs>
-  <passengers>
-    <passenger psgr_id="90000001" psgr_type="adt" first_name="Тест" name="Тестов" gender="M" middle_name="Тестович" birth_date="1990-01-15" doc_type="P" doc_number="9999999999" doc_country="RU" doc_expire="2035-01-01"/>
-  </passengers>
-  <agents>
-    <agent id="1" name="Тестовый Агент" login="test.agent"/>
-  </agents>
+	<header ord_id="1253510854389" currency="RUB" time="2026-09-14 14:47:06" site="NEWMA"/>
+	<customer email="avia@rstls.ru" phone="+79139858314" name="SHCHERBAKOV" client_code="MA1PA6"/>
+	<payments>
+		<payment pay_oper="PAY" pay_id="1253510854389" psp_pay_id="1253510854389" amount="357513.4" pay_time="2026-09-14 14:46:56" tkt_fop="НАЛ" psp_code="BLNC" pay_system="297"/>
+	</payments>
+	<reservations>
+		<reservation rloc="J2MFYV" rsrv_id="22091382" crs="36" crs_currency="KZT" crs_currency_rate="0.19409999" supplier="MA" bookingAgent="Ольга Никифорова"/>
+	</reservations>
+	<products>
+		<product>
+			<air_ticket_prod prod_id="0" origin="KWL" supplier="781" destination="SVO" validating_carrier="MU" psg_type="adt" issuingAgent="1" discount="0" crs_fare="757250" crs_taxes="162156" crs_service_fee="300" fare="146982.23" taxes="31474.47" service_fee="300">
+				<air_seg segment_id="0" departure_airport="KWL" arrival_airport="PVG" departure_datetime="2026-09-16 07:00:00" arrival_datetime="2026-09-16 09:25:00" carrier="MU" flight_number="5390" bag_allowance="2P32K" class="J" fare_basis="Q1S0BDJA">
+					<air_tax passenger_id="54325121" code="CN" currency="RUB" amount="1824.35" crs_amount="162156"/>
+					<air_tax passenger_id="54325121" code="RI" currency="RUB" amount="1806.1"/>
+					<air_tax passenger_id="54325121" code="YQ" currency="RUB" amount="27844.02"/>
+				</air_seg>
+				<air_seg segment_id="1" departure_airport="PVG" arrival_airport="SVO" departure_datetime="2026-09-16 12:05:00" arrival_datetime="2026-09-16 17:00:00" carrier="MU" flight_number="591" bag_allowance="2P32K" class="Q" fare_basis="Q1S0BDJA"/>
+				<fees>
+					<fee code="КОМСА_САЙТ" type="commission" amount="1"/>
+				</fees>
+			</air_ticket_prod>
+			<dop_info>
+				<dop>
+					<code>РЕГИОН_ОФИС</code>
+					<value>1QEW</value>
+				</dop>
+			</dop_info>
+		</product>
+		<product>
+			<service_prod prod_id="1" main_ticket_prod_id="0" offer_type="СБ_ПК" psgr_id="54325121" price="0"/>
+		</product>
+		<product>
+			<air_ticket_prod prod_id="2" origin="KWL" supplier="781" destination="SVO" validating_carrier="MU" psg_type="adt" issuingAgent="1" discount="0" crs_fare="757250" crs_taxes="162156" crs_service_fee="300" fare="146982.23" taxes="31474.47" service_fee="300">
+				<air_seg segment_id="0" departure_airport="KWL" arrival_airport="PVG" departure_datetime="2026-09-16 07:00:00" arrival_datetime="2026-09-16 09:25:00" carrier="MU" flight_number="5390" bag_allowance="2P32K" class="J" fare_basis="Q1S0BDJA">
+					<air_tax passenger_id="54325122" code="CN" currency="RUB" amount="1824.35" crs_amount="162156"/>
+					<air_tax passenger_id="54325122" code="RI" currency="RUB" amount="1806.1"/>
+					<air_tax passenger_id="54325122" code="YQ" currency="RUB" amount="27844.02"/>
+				</air_seg>
+				<air_seg segment_id="1" departure_airport="PVG" arrival_airport="SVO" departure_datetime="2026-09-16 12:05:00" arrival_datetime="2026-09-16 17:00:00" carrier="MU" flight_number="591" bag_allowance="2P32K" class="Q" fare_basis="Q1S0BDJA"/>
+				<fees>
+					<fee code="КОМСА_САЙТ" type="commission" amount="1"/>
+				</fees>
+			</air_ticket_prod>
+			<dop_info>
+				<dop>
+					<code>РЕГИОН_ОФИС</code>
+					<value>1QEW</value>
+				</dop>
+			</dop_info>
+		</product>
+		<product>
+			<service_prod prod_id="3" main_ticket_prod_id="2" offer_type="СБ_ПК" psgr_id="54325122" price="0"/>
+		</product>
+	</products>
+	<travel_docs>
+		<travel_doc>
+			<air_ticket_doc prod_id="0" psgr_id="54325121" tkt_oper="TKT" tkt_number="9995283166828" tkt_date="2026-09-14 14:46:56" tkt_date_timestamp="1789386416" tkt_charter="0" issuingAgent="Ольга Никифорова" rsrv_id="22091382"/>
+		</travel_doc>
+		<travel_doc>
+			<air_ticket_doc prod_id="2" psgr_id="54325122" tkt_oper="TKT" tkt_number="9995283166829" tkt_date="2026-09-14 14:46:56" tkt_date_timestamp="1789386416" tkt_charter="0" issuingAgent="Ольга Никифорова" rsrv_id="22091382"/>
+		</travel_doc>
+	</travel_docs>
+	<passengers>
+		<passenger psgr_id="54325121" psgr_type="adt" first_name="Testov" name="Test" gender="F" birth_date="2003-10-25" doc_type="P" doc_number="12345678" doc_country="RU" doc_expire="2036-08-28"/>
+		<passenger psgr_id="54325122" psgr_type="adt" first_name="Testov2" name="Test2" gender="F" birth_date="2003-11-18" doc_type="A" doc_number="YD9876543" doc_country="IT" doc_expire="2036-06-14"/>
+	</passengers>
 </order_snapshot>
