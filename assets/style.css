@@ -409,6 +409,26 @@ body {
     color: #1a1a2e;
 }
 
+.logs__split {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+}
+
+.logs__pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.logs__pane-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+
 .logs__container {
     background: #1a1a2e;
     border-radius: 6px;
@@ -418,6 +438,7 @@ body {
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 13px;
     line-height: 0.7;
+    flex: 1;
 }
 
 .logs__placeholder {
@@ -875,6 +896,10 @@ body {
 
     .btn {
         justify-content: center;
+    }
+
+    .logs__split {
+        flex-direction: column;
     }
 
     .logs__container {

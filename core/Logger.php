@@ -135,29 +135,110 @@ class Logger
 
     /**
      * Читает последние N строк из файла логов.
-     * 
-     * Используется для отображения логов на веб-странице.
-     * Возвращает строки в хронологическом порядке (от старых к новым).
-     * 
+     *
      * @param int $lines — количество строк, которые нужно вернуть
      * @return array — массив строк лога
      */
     public function getLastLines($lines = 100)
     {
-        // Если файл логов не существует — возвращаем пустой массив
-        if (!file_exists($this->logFile)) {
+        $chunk = $this->getLinesChunk(0, $lines);
+        return isset($chunk['lines']) ? $chunk['lines'] : array();
+    }
+
+    /**
+     * Читает чанк строк с конца файла (без загрузки всего файла в память).
+     *
+     * @param int $offsetFromEnd — сколько строк пропустить с конца (0 = самые новые)
+     * @param int $limit — сколько строк вернуть
+     * @return array — array('lines'=>array(...), 'has_more'=>bool, 'offset'=>int, 'limit'=>int)
+     *                 lines в хронологическом порядке (старые → новые)
+     */
+    public function getLinesChunk($offsetFromEnd = 0, $limit = 100)
+    {
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+
+        $empty = array(
+            'lines' => array(),
+            'has_more' => false,
+            'offset' => $offsetFromEnd,
+            'limit' => $limit
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $empty;
+        }
+
+        $need = $offsetFromEnd + $limit + 1; // +1 чтобы узнать has_more
+        $collected = $this->readLastNonEmptyLines($need);
+
+        $totalCollected = count($collected);
+        $hasMore = $totalCollected > ($offsetFromEnd + $limit);
+
+        // collected: newest first (index 0 = newest)
+        // skip offsetFromEnd newest, then take limit, then reverse to chronological
+        $slice = array_slice($collected, $offsetFromEnd, $limit);
+        $slice = array_reverse($slice);
+
+        return array(
+            'lines' => $slice,
+            'has_more' => $hasMore,
+            'offset' => $offsetFromEnd,
+            'limit' => $limit
+        );
+    }
+
+    /**
+     * Читает с конца файла до $need непустых строк. Возвращает newest-first.
+     *
+     * @param int $need
+     * @return array
+     */
+    private function readLastNonEmptyLines($need)
+    {
+        $need = max(1, (int)$need);
+        $fh = @fopen($this->logFile, 'rb');
+        if ($fh === false) {
             return array();
         }
 
-        // Читаем весь файл и разбиваем на строки
-        $content = file($this->logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        
-        if ($content === false) {
-            return array();
+        $buffer = '';
+        $lines = array();
+        $chunkSize = 8192;
+        $pos = filesize($this->logFile);
+
+        while ($pos > 0 && count($lines) < $need) {
+            $read = ($pos >= $chunkSize) ? $chunkSize : $pos;
+            $pos -= $read;
+            fseek($fh, $pos);
+            $chunk = fread($fh, $read);
+            if ($chunk === false) {
+                break;
+            }
+            $buffer = $chunk . $buffer;
+
+            $parts = preg_split("/\r\n|\n|\r/", $buffer);
+            // first element may be incomplete (start of file mid-line) — keep in buffer
+            $buffer = array_shift($parts);
+
+            for ($i = count($parts) - 1; $i >= 0; $i--) {
+                $line = $parts[$i];
+                if ($line === '') {
+                    continue;
+                }
+                $lines[] = $line;
+                if (count($lines) >= $need) {
+                    break 2;
+                }
+            }
         }
 
-        // Возвращаем только последние N строк
-        return array_slice($content, -$lines);
+        if ($buffer !== '' && count($lines) < $need) {
+            $lines[] = $buffer;
+        }
+
+        fclose($fh);
+        return $lines;
     }
 
     /**

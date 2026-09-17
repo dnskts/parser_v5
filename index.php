@@ -91,9 +91,7 @@
         </section>
 
         <!-- ============================================ -->
-        <!-- БЛОК ЛОГОВ                                   -->
-        <!-- Здесь отображаются записи из журнала событий -->
-        <!-- Логи обновляются автоматически каждые 3 сек  -->
+        <!-- БЛОК ЛОГОВ: два окна в ряд                    -->
         <!-- ============================================ -->
         <section class="logs">
             <div class="logs__header">
@@ -102,8 +100,19 @@
                     ↻ Обновить
                 </button>
             </div>
-            <div id="logs-container" class="logs__container">
-                <p class="logs__placeholder">Загрузка логов...</p>
+            <div class="logs__split">
+                <div class="logs__pane">
+                    <div class="logs__pane-title">События</div>
+                    <div id="logs-main" class="logs__container">
+                        <p class="logs__placeholder">Загрузка логов...</p>
+                    </div>
+                </div>
+                <div class="logs__pane">
+                    <div class="logs__pane-title">Служебные</div>
+                    <div id="logs-service" class="logs__container">
+                        <p class="logs__placeholder">Загрузка логов...</p>
+                    </div>
+                </div>
             </div>
         </section>
     </main>

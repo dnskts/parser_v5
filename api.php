@@ -61,15 +61,19 @@ switch ($action) {
 
     /**
      * ПОЛУЧЕНИЕ ЛОГОВ
-     * 
-     * Возвращает последние 200 строк из файла логов.
-     * Используется для отображения на веб-странице.
+     *
+     * Чанк с конца app.log. GET: offset (пропуск с конца, 0=новые), limit (1..500).
      */
     case 'logs':
-        $lines = $logger->getLastLines(200);
+        $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
+        $chunk = $logger->getLinesChunk($offset, $limit);
         echo json_encode(array(
-            'status' => 'ok',
-            'logs'   => $lines
+            'status'   => 'ok',
+            'logs'     => $chunk['lines'],
+            'offset'   => $chunk['offset'],
+            'limit'    => $chunk['limit'],
+            'has_more' => $chunk['has_more']
         ), JSON_UNESCAPED_UNICODE);
         break;
 

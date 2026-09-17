@@ -64,13 +64,7 @@ if (isset($_GET['action'])) {
         .api-tbl th{position:sticky;top:0;background:#1e293b;color:#fff;padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap}
         .api-tbl td{padding:6px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top}
         .api-tbl tr:hover{background:#f8fafc}
-        .api-tbl tr.api-row--done{background:#e5e7eb !important;color:#6b7280}
-        .api-tbl tr.api-row--done:hover{background:#d1d5db !important}
         .api-tbl tr.api-row--done .api-badge--error{background:#d1d5db;color:#4b5563}
-        .api-tbl tr.api-row--done .api-http--err{color:#6b7280}
-        .api-tbl tr.api-row--done .api-msg,
-        .api-tbl tr.api-row--done .api-file,
-        .api-tbl tr.api-row--done .api-resp{color:#6b7280}
         .api-done{white-space:nowrap;text-align:center}
         .api-done label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;user-select:none}
         .api-done input{cursor:pointer}

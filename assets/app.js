@@ -45,8 +45,9 @@ document.addEventListener('DOMContentLoaded', function() {
     /** Кнопка обновления логов */
     var btnRefreshLogs = document.getElementById('btn-refresh-logs');
     
-    /** Контейнер для отображения логов */
-    var logsContainer = document.getElementById('logs-container');
+    /** Контейнеры журнала: события (лево) и служебные (право) */
+    var logsMain = document.getElementById('logs-main');
+    var logsService = document.getElementById('logs-service');
     
     /** Текст статуса (Ожидание / Обработка / Успех / Ошибка) */
     var statusText = document.getElementById('status-text');
@@ -72,6 +73,16 @@ document.addEventListener('DOMContentLoaded', function() {
     
     /** AbortController для прерывания fetch при уходе со страницы */
     var runAbortController = null;
+
+    /** Сколько строк уже загружено с конца файла (курсор истории) */
+    var logsLoadedFromEnd = 0;
+    var logsPageSize = 100;
+    var logsHasMore = true;
+    var logsLoadingOlder = false;
+    var logsPollPaused = false;
+    /** Последняя известная самая новая строка (для append при poll) */
+    var logsNewestLine = '';
+    var knownLogLines = {};
 
     // -------------------------------------------------------
     // ЗАГРУЗКА НАСТРОЕК ПРИ ОТКРЫТИИ СТРАНИЦЫ
@@ -110,36 +121,125 @@ document.addEventListener('DOMContentLoaded', function() {
     // -------------------------------------------------------
     // ЗАГРУЗКА И ОТОБРАЖЕНИЕ ЛОГОВ
     // -------------------------------------------------------
-    
+
+    function isServiceLogLine(line) {
+        var l = (line || '').toLowerCase();
+        if (l.indexOf('нет новых файлов') !== -1) return true;
+        if (l.indexOf('import_references') !== -1) return true;
+        if (l.indexOf('referenceimporter') !== -1) return true;
+        if (l.indexOf('references.last_import') !== -1) return true;
+        if (l.indexOf('справочник') !== -1) return true;
+        if (l.indexOf('parsermanager') !== -1) return true;
+        if (l.indexOf('зарегистрирован') !== -1 && l.indexOf('парсер') !== -1) return true;
+        if (l.indexOf('загружен') !== -1 && l.indexOf('парсер') !== -1) return true;
+        if (l.indexOf('обнаружен парсер') !== -1) return true;
+        return false;
+    }
+
+    function clearLogPanes() {
+        logsMain.innerHTML = '';
+        logsService.innerHTML = '';
+        knownLogLines = {};
+        logsNewestLine = '';
+        logsLoadedFromEnd = 0;
+        logsHasMore = true;
+    }
+
+    function showLogsEmpty(msg) {
+        clearLogPanes();
+        logsMain.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
+        logsService.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
+    }
+
+    function createLogLineEl(line) {
+        var div = document.createElement('div');
+        div.className = 'log-line ' + getLogLineClass(line);
+        div.textContent = line;
+        div.setAttribute('data-line', line);
+        return div;
+    }
+
+    function appendLogLine(line) {
+        if (knownLogLines[line]) return false;
+        knownLogLines[line] = 1;
+        var el = createLogLineEl(line);
+        var pane = isServiceLogLine(line) ? logsService : logsMain;
+        var ph = pane.querySelector('.logs__placeholder');
+        if (ph) pane.innerHTML = '';
+        pane.appendChild(el);
+        return true;
+    }
+
+    function prependLogLine(line) {
+        if (knownLogLines[line]) return false;
+        knownLogLines[line] = 1;
+        var el = createLogLineEl(line);
+        var pane = isServiceLogLine(line) ? logsService : logsMain;
+        var ph = pane.querySelector('.logs__placeholder');
+        if (ph) pane.innerHTML = '';
+        if (pane.firstChild) {
+            pane.insertBefore(el, pane.firstChild);
+        } else {
+            pane.appendChild(el);
+        }
+        return true;
+    }
+
+    function isNearBottom(el) {
+        return (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+    }
+
+    function scrollPanesToBottom() {
+        logsMain.scrollTop = logsMain.scrollHeight;
+        logsService.scrollTop = logsService.scrollHeight;
+    }
+
     /**
-     * Загружает последние записи лога с сервера и отображает их
-     * в контейнере на странице. Каждая строка окрашивается
-     * в зависимости от уровня (INFO, ERROR, SUCCESS, WARNING).
+     * Первичная загрузка / полный refresh: последние N строк.
      */
-    function loadLogs() {
-        fetch('api.php?action=logs')
+    function loadLogs(fullReset) {
+        if (fullReset) {
+            clearLogPanes();
+        }
+        var url = 'api.php?action=logs&offset=0&limit=' + logsPageSize;
+        fetch(url)
             .then(function(response) { return response.json(); })
             .then(function(data) {
-                if (data.status === 'ok') {
-                    if (data.logs.length === 0) {
-                        logsContainer.innerHTML = '<p class="logs__placeholder">Логи пусты</p>';
-                        return;
+                if (data.status !== 'ok') return;
+                if (!data.logs || data.logs.length === 0) {
+                    if (logsLoadedFromEnd === 0) {
+                        showLogsEmpty('Логи пусты');
                     }
+                    return;
+                }
 
-                    // Преобразуем каждую строку лога в HTML-элемент с нужным цветом
-                    var html = '';
+                if (fullReset || logsLoadedFromEnd === 0) {
+                    clearLogPanes();
                     for (var i = 0; i < data.logs.length; i++) {
-                        var line = data.logs[i];
-                        var cssClass = getLogLineClass(line);
-                        // Экранируем HTML-символы для безопасности
-                        var safeLine = escapeHtml(line);
-                        html += '<div class="log-line ' + cssClass + '">' + safeLine + '</div>';
+                        appendLogLine(data.logs[i]);
                     }
-                    
-                    logsContainer.innerHTML = html;
+                    logsLoadedFromEnd = data.logs.length;
+                    logsHasMore = !!data.has_more;
+                    logsNewestLine = data.logs[data.logs.length - 1] || '';
+                    scrollPanesToBottom();
+                    return;
+                }
 
-                    // Прокручиваем контейнер вниз, чтобы были видны последние записи
-                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                // poll: append только новые строки в хвосте
+                var stickMain = isNearBottom(logsMain);
+                var stickService = isNearBottom(logsService);
+                var added = 0;
+                for (var j = 0; j < data.logs.length; j++) {
+                    if (appendLogLine(data.logs[j])) {
+                        added++;
+                    }
+                }
+                if (data.logs.length) {
+                    logsNewestLine = data.logs[data.logs.length - 1];
+                }
+                if (added > 0) {
+                    if (stickMain) logsMain.scrollTop = logsMain.scrollHeight;
+                    if (stickService) logsService.scrollTop = logsService.scrollHeight;
                 }
             })
             .catch(function(error) {
@@ -147,9 +247,45 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    function loadOlderLogs() {
+        if (logsLoadingOlder || !logsHasMore) return;
+        logsLoadingOlder = true;
+        var prevMainHeight = logsMain.scrollHeight;
+        var prevServiceHeight = logsService.scrollHeight;
+        var url = 'api.php?action=logs&offset=' + logsLoadedFromEnd + '&limit=' + logsPageSize;
+        fetch(url)
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                logsLoadingOlder = false;
+                if (data.status !== 'ok' || !data.logs || data.logs.length === 0) {
+                    logsHasMore = false;
+                    return;
+                }
+                // data.logs chronological old→new; prepend from newest of chunk to oldest
+                // so visual order stays chronological
+                for (var i = data.logs.length - 1; i >= 0; i--) {
+                    prependLogLine(data.logs[i]);
+                }
+                logsLoadedFromEnd += data.logs.length;
+                logsHasMore = !!data.has_more;
+                logsMain.scrollTop = logsMain.scrollHeight - prevMainHeight;
+                logsService.scrollTop = logsService.scrollHeight - prevServiceHeight;
+            })
+            .catch(function(error) {
+                logsLoadingOlder = false;
+                console.error('Ошибка подгрузки логов:', error);
+            });
+    }
+
+    function onLogScroll(ev) {
+        var el = ev.target;
+        if (el.scrollTop <= 8) {
+            loadOlderLogs();
+        }
+    }
+
     /**
      * Определяет CSS-класс для строки лога по её содержимому.
-     * Это нужно для окраски строк разным цветом.
      * 
      * @param {string} line — строка лога
      * @returns {string} — CSS-класс
@@ -164,7 +300,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /**
      * Экранирует HTML-символы в строке, чтобы избежать XSS-атак.
-     * Например, символ < превращается в &lt;
      * 
      * @param {string} text — исходный текст
      * @returns {string} — безопасный текст
@@ -412,7 +547,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(response) { return response.json(); })
             .then(function(data) {
                 if (data.status === 'ok') {
-                    logsContainer.innerHTML = '<p class="logs__placeholder">Логи очищены</p>';
+                    showLogsEmpty('Логи очищены');
                     setStatus('success', 'Логи очищены');
                 }
             })
@@ -430,29 +565,36 @@ document.addEventListener('DOMContentLoaded', function() {
     btnSaveInterval.addEventListener('click', saveInterval);
     btnImportRefs.addEventListener('click', importReferences);
     btnClearLogs.addEventListener('click', clearLogs);
-    btnRefreshLogs.addEventListener('click', loadLogs);
+    btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
+
+    logsMain.addEventListener('scroll', onLogScroll);
+    logsService.addEventListener('scroll', onLogScroll);
+
+    function pauseLogPoll() {
+        logsPollPaused = true;
+        clearInterval(logsTimer);
+        logsTimer = null;
+    }
+    function resumeLogPoll() {
+        logsPollPaused = false;
+        if (logsTimer) clearInterval(logsTimer);
+        logsTimer = setInterval(function() { loadLogs(false); }, 3000);
+    }
+    logsMain.addEventListener('mouseenter', pauseLogPoll);
+    logsService.addEventListener('mouseenter', pauseLogPoll);
+    logsMain.addEventListener('mouseleave', resumeLogPoll);
+    logsService.addEventListener('mouseleave', resumeLogPoll);
 
     // -------------------------------------------------------
     // ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
     // -------------------------------------------------------
     
-    // Загружаем настройки и логи сразу при открытии
     loadSettings();
-    loadLogs();
+    loadLogs(true);
 
-    // Прерываем fetch при уходе со страницы — браузер не будет блокировать навигацию
     window.addEventListener('beforeunload', function() {
         if (runAbortController) runAbortController.abort();
     });
 
-        // Запускаем автоматическое обновление логов каждые 3 секунды
-        logsTimer = setInterval(loadLogs, 3000);
-
-        // Пауза обновления при наведении мыши (чтобы можно было скопировать текст)
-        logsContainer.addEventListener('mouseenter', function() {
-            clearInterval(logsTimer);
-        });
-        logsContainer.addEventListener('mouseleave', function() {
-            logsTimer = setInterval(loadLogs, 3000);
-        });
+    logsTimer = setInterval(function() { loadLogs(false); }, 3000);
 });

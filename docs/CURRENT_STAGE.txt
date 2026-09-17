@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-09-17
-**Обновлено после:** AGENT=null в payload 1С; галочка «Обработано» в api_logs.php
+**Обновлено после:** два окна журнала + infinite scroll; пояснения ошибок 1С; мягкая отметка «Обработано»
 
 ---
 
@@ -798,6 +798,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-17	Журнал: два окна (События / Служебные), подгрузка истории при скролле; api_logs — мягкая отметка ERROR; пояснения ошибок 1С (UID и др.)	index.php, assets/app.js, assets/style.css, core/Logger.php, api.php, core/ApiSender.php, api_logs.php
 2026-09-17	В payload 1С AGENT всегда null; в api_logs.php у ERROR — галочка «Обработано» (localStorage, серая строка)	core/ApiSender.php, api_logs.php
 2026-09-14	В git: обновлённый input/test.xml; структура input/moyagent (+ .gitkeep); удалён test_refund.xml; заглушка агента 999	input/, .gitignore, core/ReferenceManager.php
 2026-09-14	Заглушка ненайденного агента: код 045 → 999 («Агент не найден»)	core/ReferenceManager.php

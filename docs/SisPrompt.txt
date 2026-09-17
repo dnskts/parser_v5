@@ -11,10 +11,10 @@ parsers/ — MoyAgentParser(авиа TKT/REF/RFND/CANX, конъюнкции+с�
 input/{supplier}/ — XML + Processed/ + Error/
 json/ — результаты JSON
 logs/ — app.log + api_send.log(JSON Lines) + sftp_sync.log
-index.php — панель управления (app.js, AJAX к api.php, автообработка в localStorage)
+index.php — панель (два окна журнала: События / Служебные; infinite scroll логов)
 data.php — вкладки по парсерам, загрузка через data_rows + «Загрузить ещё», 60 колонок, resend 🔄, фильтр, сортировка, XLSX
-api_logs.php — логи API (HTML + AJAX к себе; у ERROR галочка «Обработано» в localStorage)
-api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows)
+api_logs.php — логи API (HTML + AJAX; у ERROR галочка «Обработано» — приглушён бейдж; пояснения 1С)
+api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows; logs?offset&limit)
 process.php — pipeline: runSftpSync + Processor (CLI cron + require из api.php)
 sftp_sync.php — SFTP standalone (CLI + браузер, для отдельного запуска)
 test.php — автотесты (glob фикстур, нет ожиданий = предупреждение; 7 фикстур MoyAgentParser)

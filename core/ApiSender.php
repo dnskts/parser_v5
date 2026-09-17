@@ -208,7 +208,18 @@ class ApiSender
             }
 
             if ($httpCode >= 200 && $httpCode < 300) {
-                $explanation = "Успешно отправлено (HTTP {$httpCode}). Ответ: " . $this->truncate($response, 500);
+                $bodyExplain = $this->explainOneCResponse($response);
+                if ($bodyExplain !== null) {
+                    $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $bodyExplain);
+                    return array('success' => false, 'message' => $bodyExplain, 'http_code' => $httpCode);
+                }
+                if ($this->looksLikeOneCErrorText($response)) {
+                    $msg = '1С вернула ошибку в теле ответа при HTTP ' . $httpCode
+                        . '. Смотрите колонку «Ответ сервера» и сверьте json_api.';
+                    $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $msg);
+                    return array('success' => false, 'message' => $msg, 'http_code' => $httpCode);
+                }
+                $explanation = "Успешно отправлено (HTTP {$httpCode}).";
                 $this->writeLog('OK', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
                 return array('success' => true, 'message' => $explanation, 'http_code' => $httpCode);
             }
@@ -424,6 +435,10 @@ class ApiSender
      */
     private function explanationForHttpCode($httpCode, $url, $response)
     {
+        $bodyExplain = $this->explainOneCResponse($response);
+        if ($bodyExplain !== null) {
+            return $bodyExplain . " (HTTP {$httpCode}).";
+        }
         if ($httpCode === 401) {
             return "Ошибка аутентификации (HTTP 401). Неверный логин/пароль. Проверьте api.login и api.password в config/settings.json.";
         }
@@ -434,12 +449,97 @@ class ApiSender
             return "Эндпоинт не найден (HTTP 404). URL {$url} не существует. Проверьте api.url — возможно неверный путь или сервис не опубликован.";
         }
         if ($httpCode === 500) {
-            return "Внутренняя ошибка 1С (HTTP 500). Ответ: " . $this->truncate($response, 500) . ". Обратитесь к разработчику 1С.";
+            return "Внутренняя ошибка 1С (HTTP 500). Смотрите колонку «Ответ сервера»; часто это пустой UID или неверный тип поля. Обратитесь к разработчику 1С при необходимости.";
         }
         if ($httpCode === 502 || $httpCode === 503) {
             return "Сервер 1С временно недоступен (HTTP {$httpCode}). Повторите позже.";
         }
-        return "Неожиданный HTTP-код: {$httpCode}. Ответ: " . $this->truncate($response, 500);
+        return "Неожиданный HTTP-код: {$httpCode}. Смотрите колонку «Ответ сервера».";
+    }
+
+    /**
+     * Человекочитаемое пояснение по телу ответа 1С.
+     * Возвращает null, если явной ошибки в тексте не распознано.
+     *
+     * @param string|null $response
+     * @return string|null
+     */
+    public function explainOneCResponse($response)
+    {
+        if ($response === null || trim((string)$response) === '') {
+            return null;
+        }
+        $text = (string)$response;
+
+        if (stripos($text, 'УникальныйИдентификатор') !== false
+            || (stripos($text, 'Недопустимое значение параметра') !== false
+                && stripos($text, 'параметр') !== false)
+        ) {
+            return 'Ошибка UID в 1С: в какой-то строке payload пустой или отсутствующий обязательный UID '
+                . '(конструктор УникальныйИдентификатор получил недопустимое значение). '
+                . 'Проверьте в json_api поля SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT и другие UID.';
+        }
+        if (mb_stripos($text, 'агент') !== false && mb_stripos($text, 'не найден') !== false) {
+            return '1С не нашла агента по CODE. Проверьте BOOKING_AGENT.CODE в payload и справочник агентов в 1С.';
+        }
+        if (stripos($text, 'timeout') !== false || mb_stripos($text, 'таймаут') !== false
+            || mb_stripos($text, 'время ожидания') !== false
+        ) {
+            return 'Таймаут на стороне 1С или сети. Повторите отправку; при повторении увеличьте api.timeout.';
+        }
+        return null;
+    }
+
+    /**
+     * Нужно ли переписать message для уже сохранённой записи лога.
+     *
+     * @param array $entry
+     * @return array
+     */
+    public function enrichLogEntryMessage($entry)
+    {
+        if (!is_array($entry)) {
+            return $entry;
+        }
+        $response = isset($entry['response']) ? $entry['response'] : '';
+        $message = isset($entry['message']) ? $entry['message'] : '';
+        $explained = $this->explainOneCResponse($response);
+        $status = isset($entry['status']) ? strtoupper((string)$entry['status']) : '';
+        $dup = ($message !== '' && $response !== '' && strpos($message, (string)$response) !== false);
+        $successWithError = (strpos($message, 'Успешно отправлено') !== false)
+            && ($explained !== null || $this->looksLikeOneCErrorText($response));
+        $generic500 = (strpos($message, 'Внутренняя ошибка 1С') !== false && strpos($message, 'Ответ:') !== false);
+
+        if ($explained !== null && ($dup || $successWithError || $generic500 || $status === 'ERROR')) {
+            $entry['message'] = $explained;
+            if ($successWithError) {
+                $entry['status'] = 'ERROR';
+            }
+            return $entry;
+        }
+        if ($successWithError && $explained === null) {
+            $entry['status'] = 'ERROR';
+            $entry['message'] = '1С вернула ошибку в теле ответа при HTTP 2xx. Смотрите колонку «Ответ сервера» и сверьте json_api.';
+        }
+        return $entry;
+    }
+
+    /**
+     * Грубая эвристика: тело ответа похоже на ошибку 1С.
+     *
+     * @param string|null $response
+     * @return bool
+     */
+    private function looksLikeOneCErrorText($response)
+    {
+        if ($response === null || trim((string)$response) === '') {
+            return false;
+        }
+        $text = (string)$response;
+        return (mb_stripos($text, 'ошибка') !== false
+            || stripos($text, 'Error') !== false
+            || stripos($text, 'Exception') !== false
+            || mb_stripos($text, 'Недопустимое') !== false);
     }
 
     /**
@@ -582,7 +682,9 @@ class ApiSender
         $entries = array();
         foreach ($lines as $line) {
             $entry = json_decode($line, true);
-            if (is_array($entry)) $entries[] = $entry;
+            if (is_array($entry)) {
+                $entries[] = $this->enrichLogEntryMessage($entry);
+            }
         }
         return $entries;
     }
