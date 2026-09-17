@@ -302,12 +302,8 @@ class ApiSender
                 $data['PRODUCTS'][$pIdx]['CURRENCY'] = $this->flattenRefToUid($product['CURRENCY']);
             }
 
-            // AGENT / BOOKING_AGENT: в 1С нет UID агентов — оставляем {CODE, NAME}
-            if (isset($product['AGENT']) && is_array($product['AGENT'])) {
-                $agent = $product['AGENT'];
-                unset($agent['UID']);
-                $data['PRODUCTS'][$pIdx]['AGENT'] = $agent;
-            }
+            // AGENT в 1С всегда null (определяется на стороне 1С); BOOKING_AGENT — {CODE, NAME}
+            $data['PRODUCTS'][$pIdx]['AGENT'] = null;
             if (isset($product['BOOKING_AGENT']) && is_array($product['BOOKING_AGENT'])) {
                 $booking = $product['BOOKING_AGENT'];
                 unset($booking['UID']);

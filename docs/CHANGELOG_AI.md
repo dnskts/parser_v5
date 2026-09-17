@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-09-17 — AGENT=null в 1С + «Обработано» в api_logs
+
+**Запрос пользователя:** в AGENT всегда передавать null; в api_logs.php на ошибках — галочка «Обработано» с серой подсветкой просмотренных строк.
+
+### Что сделано
+- `ApiSender::prepareForApi()`: `PRODUCTS[].AGENT = null` (BOOKING_AGENT без изменений).
+- `api_logs.php`: колонка «Обработано» для status=ERROR; отметки в `localStorage` (`api_logs_done`); класс `api-row--done` (серый фон).
+
+### Изменённые файлы
+- `core/ApiSender.php`, `api_logs.php`, docs
+
+---
+
 ## 2026-09-14 — Git: test.xml + структура moyagent + агент 999
 
 **Запрос пользователя:** залить актуальный `input/test.xml`, папку `moyagent` и остальные изменения (в т.ч. код заглушки агента 999).

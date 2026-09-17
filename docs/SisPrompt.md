@@ -13,7 +13,7 @@ json/ — результаты JSON
 logs/ — app.log + api_send.log(JSON Lines) + sftp_sync.log
 index.php — панель управления (app.js, AJAX к api.php, автообработка в localStorage)
 data.php — вкладки по парсерам, загрузка через data_rows + «Загрузить ещё», 60 колонок, resend 🔄, фильтр, сортировка, XLSX
-api_logs.php — логи API (HTML + AJAX к себе)
+api_logs.php — логи API (HTML + AJAX к себе; у ERROR галочка «Обработано» в localStorage)
 api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows)
 process.php — pipeline: runSftpSync + Processor (CLI cron + require из api.php)
 sftp_sync.php — SFTP standalone (CLI + браузер, для отдельного запуска)
@@ -35,7 +35,7 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 - SFTP встроен в runProcessing(); sftp_sync.php — standalone
 - settings.json: секции api и sftp, модифицируется автоматически
 - Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
-- MoyAgent: SUPPLIER — getSupplierName(); AGENT — air_ticket_doc[@issuingAgent]; BOOKING_AGENT — reservation[@bookingAgent]; RESERVATION_NUMBER — reservation[@rloc] через getMainReservation()
+- MoyAgent: SUPPLIER — getSupplierName(); AGENT/BOOKING_AGENT в json/ из issuingAgent/bookingAgent; в payload 1С AGENT всегда null (prepareForApi), BOOKING_AGENT остаётся {CODE,NAME}; RESERVATION_NUMBER — reservation[@rloc] через getMainReservation()
 - Конъюнкции: emd_ticket_doc[@main_prod_id] + скрытые (fare=0, seg_count=0, tkt_number ±1..9)
 - data.php formatAgent(): CODE===NAME → одно значение. Даты — все сегменты через запятую
 - EMD без номера и суммой 0 пропускаются

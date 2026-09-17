@@ -64,6 +64,16 @@ if (isset($_GET['action'])) {
         .api-tbl th{position:sticky;top:0;background:#1e293b;color:#fff;padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap}
         .api-tbl td{padding:6px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top}
         .api-tbl tr:hover{background:#f8fafc}
+        .api-tbl tr.api-row--done{background:#e5e7eb !important;color:#6b7280}
+        .api-tbl tr.api-row--done:hover{background:#d1d5db !important}
+        .api-tbl tr.api-row--done .api-badge--error{background:#d1d5db;color:#4b5563}
+        .api-tbl tr.api-row--done .api-http--err{color:#6b7280}
+        .api-tbl tr.api-row--done .api-msg,
+        .api-tbl tr.api-row--done .api-file,
+        .api-tbl tr.api-row--done .api-resp{color:#6b7280}
+        .api-done{white-space:nowrap;text-align:center}
+        .api-done label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;user-select:none}
+        .api-done input{cursor:pointer}
         .api-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:600;font-size:11px;text-transform:uppercase}
         .api-badge--ok{background:#e8f5e9;color:#2e7d32}
         .api-badge--error{background:#ffebee;color:#c62828}
@@ -121,10 +131,11 @@ if (isset($_GET['action'])) {
                             <th>Исходный XML</th>
                             <th>Пояснение</th>
                             <th>Ответ сервера</th>
+                            <th>Обработано</th>
                         </tr>
                     </thead>
                     <tbody id="api-body">
-                        <tr><td colspan="7" class="api-empty">Загрузка...</td></tr>
+                        <tr><td colspan="8" class="api-empty">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -137,6 +148,7 @@ if (isset($_GET['action'])) {
 
     <script>
     (function(){
+        var STORAGE_KEY='api_logs_done';
         var body=document.getElementById('api-body');
         var count=document.getElementById('api-count');
         var stBlock=document.getElementById('api-status');
@@ -160,6 +172,21 @@ if (isset($_GET['action'])) {
             if(!c)return'';
             return c>=200&&c<300?'api-http--ok':'api-http--err';
         }
+        function entryKey(e){
+            return [e.timestamp||'',e.status||'',e.json_file||'',e.source_xml||'',e.http_code||'',e.message||''].join('|');
+        }
+        function loadDoneMap(){
+            try{
+                var raw=localStorage.getItem(STORAGE_KEY);
+                var obj=raw?JSON.parse(raw):{};
+                return (obj&&typeof obj==='object')?obj:{};
+            }catch(err){
+                return {};
+            }
+        }
+        function saveDoneMap(map){
+            try{localStorage.setItem(STORAGE_KEY,JSON.stringify(map));}catch(err){}
+        }
         function loadSettings(){
             fetch('api_logs.php?action=get_settings')
             .then(function(r){return r.json()})
@@ -179,15 +206,26 @@ if (isset($_GET['action'])) {
             .then(function(r){return r.json()})
             .then(function(d){
                 if(!d.success||!d.entries||d.entries.length===0){
-                    body.innerHTML='<tr><td colspan="7" class="api-empty">Логов пока нет. Записи появятся после обработки файлов.</td></tr>';
+                    body.innerHTML='<tr><td colspan="8" class="api-empty">Логов пока нет. Записи появятся после обработки файлов.</td></tr>';
                     count.textContent='0 записей';
                     return;
                 }
                 count.textContent=d.entries.length+' записей';
+                var doneMap=loadDoneMap();
                 var h='';
                 for(var i=0;i<d.entries.length;i++){
                     var e=d.entries[i];
-                    h+='<tr>'
+                    var isError=((e.status||'')+'').toUpperCase()==='ERROR';
+                    var key=entryKey(e);
+                    var isDone=!!doneMap[key];
+                    var rowCls=isDone?' api-row--done':'';
+                    var doneCell='<td class="api-done">—</td>';
+                    if(isError){
+                        doneCell='<td class="api-done"><label>'
+                            +'<input type="checkbox" class="api-done-cb" data-key="'+esc(key)+'"'+(isDone?' checked':'')+'>'
+                            +'<span>Обработано</span></label></td>';
+                    }
+                    h+='<tr class="'+rowCls.trim()+'" data-key="'+esc(key)+'">'
                         +'<td style="white-space:nowrap">'+esc(e.timestamp)+'</td>'
                         +'<td><span class="api-badge '+badgeCls(e.status)+'">'+esc(e.status)+'</span></td>'
                         +'<td class="api-http '+httpCls(e.http_code)+'">'+(e.http_code?e.http_code:'—')+'</td>'
@@ -195,14 +233,30 @@ if (isset($_GET['action'])) {
                         +'<td class="api-file" title="'+esc(e.source_xml)+'">'+esc(e.source_xml)+'</td>'
                         +'<td class="api-msg">'+esc(e.message)+'</td>'
                         +'<td class="api-resp" title="Нажмите для раскрытия">'+esc(e.response||'')+'</td>'
+                        +doneCell
                         +'</tr>';
                 }
                 body.innerHTML=h;
             })
             .catch(function(err){
-                body.innerHTML='<tr><td colspan="7" class="api-empty">Ошибка: '+esc(err.message)+'</td></tr>';
+                body.innerHTML='<tr><td colspan="8" class="api-empty">Ошибка: '+esc(err.message)+'</td></tr>';
             });
         }
+        body.addEventListener('change',function(ev){
+            var t=ev.target;
+            if(!t||!t.classList||!t.classList.contains('api-done-cb'))return;
+            var key=t.getAttribute('data-key')||'';
+            if(!key)return;
+            var map=loadDoneMap();
+            if(t.checked){map[key]=1;}else{delete map[key];}
+            saveDoneMap(map);
+            var row=t.parentNode;
+            while(row&&row.tagName!=='TR'){row=row.parentNode;}
+            if(row){
+                if(t.checked){row.classList.add('api-row--done');}
+                else{row.classList.remove('api-row--done');}
+            }
+        });
         document.getElementById('btn-refresh').addEventListener('click',function(){loadLogs();loadSettings()});
         document.getElementById('btn-clear').addEventListener('click',function(){
             if(!confirm('Очистить все логи отправки API?'))return;

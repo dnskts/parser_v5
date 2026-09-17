@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-09-14
-**Обновлено после:** push: test.xml, структура input/moyagent, заглушка агента 999
+**Последнее обновление:** 2026-09-17
+**Обновлено после:** AGENT=null в payload 1С; галочка «Обработано» в api_logs.php
 
 ---
 
@@ -640,7 +640,7 @@ WARNING'ов по классам обслуживания в app.log больш�
   Код клиента из файла поставщика (MA1PA6 у «Мой агент», PosSysName у SmartTravel) в 1С не уходит.
 - SUPPLIER — {UID, CODE, NAME} из suppliers.json по folder парсера
 - CARRIER — {UID, CODE, NAME} из airlines.json (парсеры отдают строку IATA)
-- AGENT / BOOKING_AGENT — {CODE, NAME} без UID; агента нет в справочнике или ФИО пустое → заглушка {CODE: «999», NAME: «Агент не найден»} + WARNING
+- AGENT / BOOKING_AGENT — в json/ после enrich() оба {CODE, NAME} (не найден → 999 «Агент не найден»); в payload 1С (prepareForApi / json_api/) AGENT всегда null, BOOKING_AGENT остаётся {CODE, NAME}
 - CURRENCY, DEPARTURE_AIRPORT / ARRIVAL_AIRPORT, AIRLINE, SERVICE_CLASS
 - cities и countries только импортируются: полей CITY/COUNTRY в ORDER нет
 
@@ -798,6 +798,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-17	В payload 1С AGENT всегда null; в api_logs.php у ERROR — галочка «Обработано» (localStorage, серая строка)	core/ApiSender.php, api_logs.php
 2026-09-14	В git: обновлённый input/test.xml; структура input/moyagent (+ .gitkeep); удалён test_refund.xml; заглушка агента 999	input/, .gitignore, core/ReferenceManager.php
 2026-09-14	Заглушка ненайденного агента: код 045 → 999 («Агент не найден»)	core/ReferenceManager.php
 2026-09-14	Тестовые XML без ПДн: input/test.xml (продажа, 4 сегмента) и input/test_refund.xml (возврат того же билета 9990001112223, пассажир Тестов Тест Тестович)	input/test.xml, input/test_refund.xml
