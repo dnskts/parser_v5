@@ -133,7 +133,10 @@ class MoyAgentParser implements ParserInterface
                 throw new Exception("Не найден air_ticket_prod для возврата");
             }
 
-            $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+            $reservationNumber = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $psgId = $refundDoc ? $refundDoc['psgr_id'] : '';
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = $this->buildTravellerName($passenger);
@@ -317,7 +320,10 @@ class MoyAgentParser implements ParserInterface
                 }
 
                 $travelDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
-                $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+                $reservationNumber = $this->buildReservationNumber(
+                    $mainReservation ? $mainReservation['rloc'] : '',
+                    $orderId
+                );
                 $issuingAgentName = $travelDoc ? $travelDoc['issuingAgent'] : '';
                 $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
                 $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
@@ -579,7 +585,10 @@ class MoyAgentParser implements ParserInterface
                 $carrier = (string)$mainAirTicket['validating_carrier'];
             }
 
-            $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+            $reservationNumber = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
             $emdFare = $emdAirTicket ? (float)(string)$emdAirTicket['fare'] : 0;
@@ -746,7 +755,10 @@ class MoyAgentParser implements ParserInterface
                 $carrier = (string)$origAirTicket['validating_carrier'];
             }
 
-            $resNum = $mainReservation ? $mainReservation['rloc'] : '';
+            $resNum = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $bookAgent = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
             $emdFare = $emdAT ? (float)(string)$emdAT['fare'] : 0;
@@ -1373,6 +1385,27 @@ class MoyAgentParser implements ParserInterface
         if ($fn !== '') { $parts[] = $fn; }
         if ($mn !== '') { $parts[] = $mn; }
         return trim(implode(' ', $parts));
+    }
+
+    /**
+     * PNR (rloc) и номер заказа поставщика (ord_id) через « - ».
+     * Пример: GYM76H - 1253510898178
+     *
+     * @param string $rloc
+     * @param string $orderId
+     * @return string
+     */
+    private function buildReservationNumber($rloc, $orderId)
+    {
+        $rloc = trim((string)$rloc);
+        $orderId = trim((string)$orderId);
+        if ($rloc !== '' && $orderId !== '') {
+            return $rloc . ' - ' . $orderId;
+        }
+        if ($rloc !== '') {
+            return $rloc;
+        }
+        return $orderId;
     }
 
     private function extractSegmentCarriersAndBaggageFromAirTicket($airTicket)

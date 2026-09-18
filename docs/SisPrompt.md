@@ -35,7 +35,7 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 - SFTP встроен в runProcessing(); sftp_sync.php — standalone
 - settings.json: секции api и sftp, модифицируется автоматически
 - Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
-- MoyAgent: SUPPLIER — getSupplierName(); AGENT/BOOKING_AGENT в json/ из issuingAgent/bookingAgent; в payload 1С AGENT всегда null (prepareForApi), BOOKING_AGENT остаётся {CODE,NAME}; RESERVATION_NUMBER — reservation[@rloc] через getMainReservation()
+- MoyAgent: SUPPLIER — getSupplierName(); AGENT/BOOKING_AGENT в json/ из issuingAgent/bookingAgent; в payload 1С AGENT всегда null (prepareForApi), BOOKING_AGENT остаётся {CODE,NAME}; RESERVATION_NUMBER — `{rloc} - {ord_id}` (buildReservationNumber)
 - Конъюнкции: emd_ticket_doc[@main_prod_id] + скрытые (fare=0, seg_count=0, tkt_number ±1..9)
 - data.php formatAgent(): CODE===NAME → одно значение. Даты — все сегменты через запятую
 - EMD без номера и суммой 0 пропускаются

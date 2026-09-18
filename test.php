@@ -67,7 +67,7 @@ $expectations = array(
         'has_refund'         => false,
         // V5: новые проверки
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8C37F9',
+        'reservation_number' => '8C37F9 - 125358843227',
         'conj_count'         => 1,
         // Даты первого и последнего купона
         'first_dep_dt'       => '20260210180500',
@@ -112,7 +112,7 @@ $expectations = array(
         'has_refund'         => false,
         // V5
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8XGWB4',
+        'reservation_number' => '8XGWB4 - 125358829987',
         'conj_count'         => 1,
         // Все 3 пассажира и билета
         'all_travellers'     => array(
@@ -157,7 +157,7 @@ $expectations = array(
         'bag_allowance'      => '1P23K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'FV2R0F',
+        'reservation_number' => 'FV2R0F - 125358832021',
         'conj_count'         => 1,
         'first_dep_dt'       => '20260207113500',
         'first_arr_dt'       => '20260207131000',
@@ -195,7 +195,7 @@ $expectations = array(
         'penalty'            => 3500.0,
         // V5
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8XMK4C',
+        'reservation_number' => '8XMK4C - 125358832769',
         // REFUND.AMOUNT = fare + taxes - penalty = 138300 + 1502 - 3500 = 136302
         'refund_amount'      => 136302.0,
     ),
@@ -229,7 +229,7 @@ $expectations = array(
         'bag_allowance'      => '1P40K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'G1ZXKP',
+        'reservation_number' => 'G1ZXKP - 125359005865',
         'booking_agent'      => 'Валерия Подунай',
         'agent'              => 'Валерия Подунай',
         'conj_count'         => 1,
@@ -287,7 +287,7 @@ $expectations = array(
         'penalty'            => 5060.0,
         'refund_amount'      => 16526.0,
         'supplier'           => 'МА авиа',
-        'reservation_number' => '93261Z',
+        'reservation_number' => '93261Z - 125358954718',
         'booking_agent'      => 'Ольга Никифорова',
         'agent'              => 'Ольга Никифорова',
     ),
@@ -328,7 +328,7 @@ $expectations = array(
         'has_refund'         => false,
         // V6: скрытая конъюнкция — 2 air_ticket_prod → 1 PRODUCT
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'TMZJ3A',
+        'reservation_number' => 'TMZJ3A - 125359052102',
         'booking_agent'      => 'Инна Дмитриева',
         'agent'              => 'Инна Дмитриева',
         'conj_count'         => 2,

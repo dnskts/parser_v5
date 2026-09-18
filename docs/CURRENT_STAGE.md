@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-09-17
-**Обновлено после:** два окна журнала + infinite scroll; пояснения ошибок 1С; мягкая отметка «Обработано»
+**Последнее обновление:** 2026-09-18
+**Обновлено после:** RESERVATION_NUMBER = PNR + ord_id (MoyAgent)
 
 ---
 
@@ -277,7 +277,7 @@ Product	STATUS	string	продажа / возврат / обмен
 Product	TRAVELLER	string	ФАМИЛИЯ ИМЯ
 Product	SUPPLIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника suppliers
 Product	CARRIER	{UID,CODE,NAME}	После enrich() — объект с UID из справочника airlines (до enrich — строка IATA)
-Product	RESERVATION_NUMBER	string	PNR из reservation[@rloc]
+Product	RESERVATION_NUMBER	string	PNR (rloc) и номер заказа: `{rloc} - {ord_id}` (MoyAgent)
 Product	BOOKING_AGENT	{CODE,NAME}	ФИО из reservation[@bookingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 999 / «Агент не найден»
 Product	AGENT	{CODE,NAME}	ФИО из air_ticket_doc[@issuingAgent]; после enrich() CODE — код агента из agents.json, NAME — ФИО из заказа. UID нет. Не найден → 999 / «Агент не найден»
 Product	TAXES	array	Первый (CODE="") = тариф
@@ -318,7 +318,7 @@ parse($xmlFilePath)	array	Массив ORDER. При ошибке — Exception
 
 JSON-поле	Источник в XML
 SUPPLIER	getSupplierName() → "Мой агент"
-RESERVATION_NUMBER	reservation[@rloc] через getMainReservation()
+RESERVATION_NUMBER	`{rloc} - {ord_id}` через buildReservationNumber(); INVOICE_NUMBER = ord_id отдельно
 BOOKING_AGENT	reservation[@bookingAgent]
 AGENT	air_ticket_doc[@issuingAgent]
 CARRIER	air_ticket_prod[@validating_carrier]
@@ -798,6 +798,7 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-09-18	MoyAgent: RESERVATION_NUMBER = «PNR - ord_id» (пример GYM76H - 1253510898178); INVOICE_NUMBER без изменений	parsers/MoyAgentParser.php, test.php
 2026-09-17	Журнал: два окна (События / Служебные), подгрузка истории при скролле; api_logs — мягкая отметка ERROR; пояснения ошибок 1С (UID и др.)	index.php, assets/app.js, assets/style.css, core/Logger.php, api.php, core/ApiSender.php, api_logs.php
 2026-09-17	В payload 1С AGENT всегда null; в api_logs.php у ERROR — галочка «Обработано» (localStorage, серая строка)	core/ApiSender.php, api_logs.php
 2026-09-14	В git: обновлённый input/test.xml; структура input/moyagent (+ .gitkeep); удалён test_refund.xml; заглушка агента 999	input/, .gitignore, core/ReferenceManager.php
@@ -874,7 +875,7 @@ settings.json модифицируется автоматически (last_run)
 SUPPLIER берётся из getSupplierName(), НЕ из air_ticket_prod[@supplier]
 AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_prod[@issuingAgent]
 BOOKING_AGENT берётся из reservation[@bookingAgent]
-RESERVATION_NUMBER берётся из reservation[@rloc] через getMainReservation()
+RESERVATION_NUMBER = `{rloc} - {ord_id}` через buildReservationNumber(); INVOICE_NUMBER = ord_id отдельно
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
 PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
 Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references); после успеха *.txt удаляются, дата — references.last_import (data.php)
