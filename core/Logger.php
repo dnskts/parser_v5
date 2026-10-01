@@ -189,6 +189,103 @@ class Logger
     }
 
     /**
+     * Читает чанк строк с конца файла, оставляя только подходящие по подстрокам.
+     *
+     * Нужен для журнала на странице setup.php: события настроек в app.log
+     * редкие, поэтому глубина просмотра ограничена $maxScanLines — иначе
+     * каждый опрос перечитывал бы весь лог (до 5 МБ до ротации).
+     *
+     * @param array $needles — подстроки для отбора (регистр не важен); пусто — все строки
+     * @param int $offsetFromEnd — сколько подходящих строк пропустить с конца (0 = самые новые)
+     * @param int $limit — сколько строк вернуть
+     * @param int $maxScanLines — сколько строк лога просмотреть с конца
+     * @return array — array('lines'=>array(...), 'has_more'=>bool, 'offset'=>int, 'limit'=>int, 'scanned'=>int)
+     *                 lines в хронологическом порядке (старые → новые)
+     */
+    public function getFilteredLinesChunk($needles, $offsetFromEnd = 0, $limit = 100, $maxScanLines = 4000)
+    {
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+        $maxScanLines = max($limit, min(50000, (int)$maxScanLines));
+
+        $result = array(
+            'lines'    => array(),
+            'has_more' => false,
+            'offset'   => $offsetFromEnd,
+            'limit'    => $limit,
+            'scanned'  => 0
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $result;
+        }
+
+        // Иглы приводим к нижнему регистру один раз, строки лога — по мере чтения
+        $lowerNeedles = array();
+        if (is_array($needles)) {
+            foreach ($needles as $needle) {
+                $needle = trim((string)$needle);
+                if ($needle !== '') {
+                    $lowerNeedles[] = $this->toLower($needle);
+                }
+            }
+        }
+
+        $scanned = $this->readLastNonEmptyLines($maxScanLines);
+        $result['scanned'] = count($scanned);
+
+        // Отбираем подходящие строки, сохраняя порядок newest-first
+        $matched = array();
+        foreach ($scanned as $line) {
+            if (empty($lowerNeedles) || $this->lineMatchesNeedles($line, $lowerNeedles)) {
+                $matched[] = $line;
+            }
+        }
+
+        // Срез как в getLinesChunk: пропускаем offsetFromEnd новых, берём limit
+        $slice = array_slice($matched, $offsetFromEnd, $limit);
+        $result['lines'] = array_reverse($slice);
+
+        // Либо подходящие строки ещё остались, либо лог просмотрен не до конца
+        $result['has_more'] = (count($matched) > ($offsetFromEnd + $limit))
+            || ($result['scanned'] >= $maxScanLines);
+
+        return $result;
+    }
+
+    /**
+     * Содержит ли строка лога хотя бы одну из подстрок (уже в нижнем регистре).
+     *
+     * @param string $line
+     * @param array $lowerNeedles
+     * @return bool
+     */
+    private function lineMatchesNeedles($line, $lowerNeedles)
+    {
+        $haystack = $this->toLower($line);
+        foreach ($lowerNeedles as $needle) {
+            if (strpos($haystack, $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Нижний регистр с учётом кириллицы (mbstring может быть отключён).
+     *
+     * @param string $text
+     * @return string
+     */
+    private function toLower($text)
+    {
+        if (function_exists('mb_strtolower')) {
+            return mb_strtolower($text, 'UTF-8');
+        }
+        return strtolower($text);
+    }
+
+    /**
      * Читает с конца файла до $need непустых строк. Возвращает newest-first.
      *
      * @param int $need

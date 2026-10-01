@@ -36,9 +36,6 @@ document.addEventListener('DOMContentLoaded', function() {
     /** Кнопка включения/выключения автообработки */
     var btnToggleAuto = document.getElementById('btn-toggle-auto');
     
-    /** Кнопка импорта справочников из выгрузки 1С */
-    var btnImportRefs = document.getElementById('btn-import-refs');
-    
     /** Кнопка очистки логов */
     var btnClearLogs = document.getElementById('btn-clear-logs');
     
@@ -292,8 +289,10 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     function getLogLineClass(line) {
         if (line.indexOf('[ERROR]') !== -1)   return 'log-line--error';
-        if (line.indexOf('[SUCCESS]') !== -1) return 'log-line--success';
         if (line.indexOf('[WARNING]') !== -1) return 'log-line--warning';
+        // изменения галок отправки со страницы Setup — своим цветом
+        if (line.indexOf('Setup: ') !== -1)   return 'log-line--setup';
+        if (line.indexOf('[SUCCESS]') !== -1) return 'log-line--success';
         if (line.indexOf('=====') !== -1)     return 'log-line--separator';
         return 'log-line--info';
     }
@@ -471,67 +470,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // -------------------------------------------------------
-    // ИМПОРТ СПРАВОЧНИКОВ ИЗ ВЫГРУЗКИ 1С
-    // -------------------------------------------------------
-    
-    /**
-     * Читает файлы выгрузки 1С из references/import/ и обновляет
-     * справочники references/*.json. После успеха сервер удаляет *.txt.
-     */
-    function importReferences() {
-        btnImportRefs.disabled = true;
-        setStatus('running', 'Загрузка справочников...');
-
-        fetch('api.php?action=import_references', { method: 'POST' })
-            .then(function(response) {
-                return response.text().then(function(text) {
-                    var data = null;
-                    try {
-                        data = text ? JSON.parse(text) : null;
-                    } catch (e) {
-                        data = null;
-                    }
-                    return { httpStatus: response.status, ok: response.ok, data: data, raw: text };
-                });
-            })
-            .then(function(result) {
-                if (!result.ok) {
-                    var hint = '';
-                    if (result.data && result.data.message) {
-                        hint = result.data.message;
-                    } else if (result.raw) {
-                        hint = result.raw.replace(/\s+/g, ' ').substring(0, 180);
-                    }
-                    setStatus(
-                        'error',
-                        'Ошибка HTTP ' + result.httpStatus
-                            + (hint ? ': ' + hint : ' (часто таймаут прокси на Контрагенты.txt)')
-                    );
-                    loadLogs();
-                    return;
-                }
-                if (!result.data) {
-                    setStatus('error', 'Сервер вернул не-JSON (HTTP ' + result.httpStatus + ')');
-                    loadLogs();
-                    return;
-                }
-                if (result.data.status === 'ok') {
-                    setStatus('success', result.data.message || 'Справочники обновлены');
-                } else {
-                    setStatus('error', result.data.message || 'Ошибка загрузки справочников');
-                }
-                loadLogs();
-            })
-            .catch(function(error) {
-                setStatus('error', 'Ошибка связи с сервером: ' + (error && error.message ? error.message : error));
-                console.error('Ошибка загрузки справочников:', error);
-            })
-            .finally(function() {
-                btnImportRefs.disabled = false;
-            });
-    }
-
-    // -------------------------------------------------------
     // ОЧИСТКА ЛОГОВ
     // -------------------------------------------------------
     
@@ -563,7 +501,6 @@ document.addEventListener('DOMContentLoaded', function() {
     btnRun.addEventListener('click', runProcessing);
     btnToggleAuto.addEventListener('click', toggleAutoProcessing);
     btnSaveInterval.addEventListener('click', saveInterval);
-    btnImportRefs.addEventListener('click', importReferences);
     btnClearLogs.addEventListener('click', clearLogs);
     btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
 

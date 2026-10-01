@@ -67,13 +67,19 @@
                         <button id="btn-toggle-auto" class="btn btn--outline">
                             ⏱ Вкл. автообработку
                         </button>
-                        <button id="btn-import-refs" class="btn btn--secondary"
-                                title="Прочитать выгрузку 1С из references/import/ и обновить справочники">
-                            📚 Загрузить справочники
-                        </button>
                         <button id="btn-clear-logs" class="btn btn--danger">
                             🗑 Очистить логи
                         </button>
+                    </div>
+                </div>
+
+                <!-- Настройки: отдельная страница Setup, прижата к правому краю -->
+                <div class="control-group control-group--right">
+                    <div class="control-group__buttons">
+                        <a href="setup.php" class="btn btn--outline btn--icon"
+                           title="Setup — загрузка справочников и отправка в 1С по поставщикам">
+                            ⚙
+                        </a>
                     </div>
                 </div>
             </div>

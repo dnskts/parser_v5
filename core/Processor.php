@@ -26,6 +26,7 @@ require_once __DIR__ . '/ParserManager.php';
 require_once __DIR__ . '/ApiSender.php';
 require_once __DIR__ . '/Utils.php';
 require_once __DIR__ . '/ReferenceManager.php';
+require_once __DIR__ . '/SendPolicy.php';
 
 class Processor
 {
@@ -49,6 +50,9 @@ class Processor
 
     /** @var ReferenceManager Менеджер справочников */
     private $referenceManager;
+
+    /** @var SendPolicy Разрешения на отправку в 1С по типам услуг */
+    private $sendPolicy;
 
     /**
      * Создание обработчика.
@@ -81,6 +85,10 @@ class Processor
         $referencesDir = dirname($this->configFile) . '/../references';
         $refSettings = isset($settings['references']) ? $settings['references'] : array();
         $this->referenceManager = new ReferenceManager($referencesDir, $this->logger, $refSettings);
+
+        // Галки «продажи / возвраты / обмены» по поставщикам со страницы setup.php
+        $setupConfig = isset($settings['setup']) ? $settings['setup'] : array();
+        $this->sendPolicy = new SendPolicy($setupConfig);
     }
 
     /**
@@ -206,8 +214,17 @@ class Processor
                         // API выключен: по ней видно, что уходит в 1С
                         $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
 
-                        // Отправка в 1С происходит ВСЕГДА, даже без UID
-                        if ($apiAvailable) {
+                        // Галки поставщика на странице Setup могут запрещать
+                        // отправку отдельных типов услуг (например, возвратов)
+                        $policy = $this->sendPolicy->checkOrder($folder, $singleOrder);
+
+                        if (!$policy['allowed']) {
+                            $skipMessage = "отправка отключена для типа «{$policy['blocked_status']}»"
+                                . " (поставщик {$folder}, страница Setup)";
+                            $this->logger->info("API 1С: {$skipMessage}");
+                            $this->apiSender->logSkipped($jsonFileName, $fileName, $skipMessage);
+                        } elseif ($apiAvailable) {
+                            // Отправка в 1С происходит ВСЕГДА, даже без UID
                             try {
                                 $apiResult = $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
                                 if ($apiResult['success']) {
@@ -314,7 +331,15 @@ class Processor
 
                 $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
 
-                if ($apiAvailable) {
+                // Галки поставщика на странице Setup
+                $policy = $this->sendPolicy->checkOrder($folder, $singleOrder);
+
+                if (!$policy['allowed']) {
+                    $skipMessage = "отправка отключена для типа «{$policy['blocked_status']}»"
+                        . " (поставщик {$folder}, страница Setup)";
+                    $this->logger->info("API 1С (single): {$skipMessage}");
+                    $this->apiSender->logSkipped($jsonFileName, $fileName, $skipMessage);
+                } elseif ($apiAvailable) {
                     try {
                         $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
                     } catch (Exception $apiEx) {

@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-09-18
-**Обновлено после:** RESERVATION_NUMBER = PNR + ord_id (MoyAgent)
+**Последнее обновление:** 2026-10-01
+**Обновлено после:** страница Setup: пароль, перенос загрузки справочников, галки отправки в 1С по поставщикам + журнал настроек
 
 ---
 
@@ -10,9 +10,9 @@
 **XML Parser v5** — система обработки файлов от поставщиков туристических услуг (авиабилеты, ЖД, отели) с преобразованием в единый JSON-формат **ORDER** по спецификации **RSTLS** и отправкой во внешний API **1С:Предприятие**.
 
 **Статистика проекта:**
-- 22 PHP-файла, ~5 800 строк PHP-кода
-- 2 фронтенд-файла (JS + CSS), ~920 строк
-- Итого: ~6 400 строк кода
+- 24 PHP-файла, ~6 200 строк PHP-кода
+- 2 фронтенд-файла (JS + CSS), ~980 строк
+- Итого: ~6 900 строк кода
 - 3 парсера (MoyAgent — авиа, SmartTravel — ЖД, DemoHotel — шаблон)
 - 8 тестовых fixture-файлов (7 XML + 1 JSON) в `tests/fixtures/`
 
@@ -23,6 +23,7 @@
 - Группировка конъюнкционных бланков (emd_ticket_doc + air_ticket_doc)
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
+- **Страница Setup (пароль):** загрузка справочников + галки «продажи / возвраты / обмены» по каждому поставщику — отключённый тип в 1С не отправляется
 - **SFTP-синхронизация встроена в обработку:** загрузка XML с сервера поставщика при каждом запуске (кнопка «Запустить» и автообработка)
 - **SmartTravel PUSH+PULL:** приём ЖД-данных от SmartTravel (РЖД-ЦПР) через webhook (PUSH) и REST API с прокси (PULL), единый парсер для обоих режимов
 - Данные документов пассажиров: дата рождения, пол, тип документа, номер документа, **страна и срок действия**, отчество
@@ -48,7 +49,7 @@
 parser_v5/
 ├── docs/                     — контекст для людей и AI: CURRENT_STAGE, CHANGELOG_AI, structure, SisPrompt (.md + зеркала .txt)
 ├── config/
-│   ├── settings.json         — интервал, last_run, api, sftp, references, tab_order, data_column_order (все настройки)
+│   ├── settings.json         — интервал, last_run, api, sftp, references, setup (пароль + галки отправки), tab_order, data_column_order (все настройки)
 │   └── sftp_last_run.txt     — timestamp последней SFTP-синхронизации
 ├── references/               — справочники для подстановки UID (заполняются импортом из 1С, вручную или через API 1С)
 │   ├── import/               — выгрузки 1С «как есть» (кладутся вручную раз в месяц, в .gitignore)
@@ -67,6 +68,7 @@ parser_v5/
 │   ├── ParserInterface.php   — контракт: getSupplierFolder(), getSupplierName(), parse()
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
 │   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→enrich→saveJson→send→move + processSingleFile()
+│   ├── SendPolicy.php        — разрешения отправки в 1С по типам услуг (setup.suppliers): statusToType(), checkOrder(), detectFolder()
 │   ├── ReferenceManager.php  — менеджер справочников: загрузка, поиск, обогащение ORDER полями UID, синхронизация через API 1С
 │   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
@@ -88,7 +90,8 @@ parser_v5/
 ├── index.php                 — панель управления (app.js, AJAX)
 ├── data.php                  — таблица заказов: вкладки по парсерам, data_rows, «Загрузить ещё», 70 колонок; дата references.last_import
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references)
+├── setup.php                  — страница настроек под паролем: загрузка справочников + галки отправки в 1С по поставщикам
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references/setup_get/setup_save/setup_logs)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
@@ -188,7 +191,10 @@ refResult = ReferenceManager->enrich(result, $folder, $fileName)
 result = refResult['order']
 refResult['warnings'] → WARNING в app.log (в Error/ НЕ переводит)
 saveJson($result, $folder, $xmlFile)
-if ($apiAvailable): ApiSender->send(…) — ВСЕГДА, даже без UID
+writeApiPayload(…) → json_api/ (всегда)
+SendPolicy->checkOrder($folder, $order):
+  тип услуги выключен → logSkipped() (SKIP в api_send.log), отправки нет
+  иначе if ($apiAvailable): ApiSender->send(…) — ВСЕГДА, даже без UID
 moveFile($xmlFile, "Processed/")
 catch:
 moveFile($xmlFile, "Error/")
@@ -203,6 +209,7 @@ updateLastRunTime() → settings.json.last_run = time()
 - Уровни: INFO, WARNING, ERROR, SUCCESS
 - Ротация: >5 МБ → `app.log.old` (1 архив)
 - Запись: `FILE_APPEND | LOCK_EX`
+- Чтение: `getLinesChunk(offsetFromEnd, limit)` — чанк с конца (журнал на index.php); `getFilteredLinesChunk($needles, offsetFromEnd, limit, maxScanLines)` — то же, но только строки с одной из подстрок (журнал настроек на setup.php). Глубина просмотра ограничена `maxScanLines`: события настроек редкие, без предела каждый опрос перечитывал бы весь лог
 
 ---
 
@@ -478,6 +485,27 @@ api.php?action=resend (POST, {file, source}) → читает JSON и отпра
   (ошибка → HTTP 400 с json_last_error_msg()), пишет нормализованный вариант в json_api/.
 Правка в этом окне меняет только payload; таблица строится по json/ и не меняется.
 
+7.7. Галки отправки по поставщикам (SendPolicy)
+Настраиваются на странице setup.php, хранятся в config/settings.json:
+
+json
+
+"setup": {
+  "password": "95123",
+  "suppliers": {
+    "moyagent": { "sale": true, "refund": false, "exchange": true }
+  }
+}
+Типы услуг соответствуют PRODUCTS[].STATUS: sale = «продажа», refund = «возврат», exchange = «обмен».
+Логика (core/SendPolicy.php):
+- Поставщика нет в настройках (новый парсер) → разрешены все типы, поведение как до доработки
+- Неизвестный STATUS → отправка разрешена (лучше отправить, чем потерять)
+- Заказ уходит в 1С одним документом, поэтому выключенный тип хотя бы у одного продукта блокирует весь заказ
+- Блокируется только HTTP-отправка: parse, json/, json_api/ и перенос в Processed/ работают всегда
+- Пропуск пишется в logs/api_send.log со статусом SKIP (ApiSender::logSkipped) и строкой INFO в app.log
+Точки применения: Processor::run(), Processor::processSingleFile() (webhook/PULL) и api.php?action=resend.
+Для resend папка поставщика берётся из имени JSON-файла ({папка}_{имя}_{Ymd_His}.json, SendPolicy::detectFolder, совпадение по самому длинному префиксу); имя не распознано → отправка разрешается.
+
 8. SFTP-синхронизатор
 8.1. Назначение
 Автоматическое копирование XML-файлов с SFTP-сервера поставщика («Мой агент») в локальную папку input/moyagent/ для дальнейшей обработки парсером.
@@ -582,7 +610,7 @@ php sftp_sync.php --force
 Назначение: подстановка UID из 1С в JSON ORDER (ReferenceManager::enrich()).
 
 Три способа заполнения references/*.json:
-1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на index.php вызывает api.php?action=import_references → ReferenceImporter::importAll(); при успехе *.txt из import/ удаляются, в settings.json пишется references.last_import (показывается на data.php)
+1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на setup.php вызывает api.php?action=import_references → ReferenceImporter::importAll(); при успехе *.txt из import/ удаляются, в settings.json пишется references.last_import (показывается на data.php)
 2. Вручную — правка references/*.json
 3. Через API 1С — syncReferences() при references.auto_sync=true (api_url пока пуст)
 
@@ -649,7 +677,7 @@ WARNING'ов по классам обслуживания в app.log больш�
 Логи в реальном времени (polling 3с)
 Кнопка «Запустить обработку»
 Тумблер автообработки
-Кнопка «Загрузить справочники» (импорт выгрузок 1С из references/import/)
+Квадратная кнопка ⚙ справа в строке управления — ссылка на setup.php
 Настройки API (url, login, password, timeout, enabled)
 JS: assets/app.js
 9.2. data.php — Обработанные заказы
@@ -729,6 +757,18 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 Двухрежимная: HTML-страница + AJAX к самой себе
 Читает logs/api_send.log (JSON Lines)
 Не использует app.js — встроенные скрипты
+9.3.1. setup.php — Настройки (под паролем)
+Вход по паролю из settings.json (setup.password = 95123), сессия PHP ($_SESSION['setup_auth']), ссылка «Выйти из настроек».
+Это первый уровень защиты: полноценной авторизации в системе нет, цель — чтобы рядовые сотрудники не меняли настройки.
+Содержимое:
+- Кнопка «📚 Загрузить справочники» (перенесена с index.php) + дата references.last_import
+- Карточки поставщиков из ParserManager с галками «Продажи / Возвраты / Обмены» и кнопкой «Сохранить»
+- Окно «Журнал настроек»: строки app.log по теме настроек (импорт справочников, сохранение галок, пропуски отправки, предупреждения справочников), опрос раз в 3 с, кнопка «Обновить», подгрузка истории при прокрутке вверх
+Каждое изменение галки пишется отдельной строкой: `Setup: «МА авиа» — снята галка «Возвраты», заказы этого типа в 1С не отправляются` (сохранение без изменений — «изменений нет»). Такие строки выделены в журнале своим цветом (класс `log-line--setup`, определяется по маркеру `Setup: ` в setup.php и assets/app.js).
+Новый парсер появляется на странице автоматически (список от ParserManager), галки по умолчанию включены.
+AJAX: api.php?action=setup_get / setup_save / setup_logs (без сессии — HTTP 403), встроенный скрипт (не app.js).
+Журнал вынесен в отдельное действие setup_logs: в блоке setup_get/setup_save создаётся ParserManager, который пишет в app.log «Загружен парсер…», и опрос раз в 3 с засорял бы журнал сам собой.
+
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
 Тестирует MoyAgentParser (7 XML) и SmartTravelParser (1 JSON)
@@ -771,6 +811,9 @@ save_api_json	POST	Сохранение отредактированного pay
 data_rows	GET	Строки таблицы заказов для data.php
 sync_references	POST	Синхронизация справочников через API 1С
 import_references	POST	Импорт справочников из references/import/; при успехе чистит *.txt и пишет references.last_import
+setup_get	GET	Поставщики (ParserManager) и галки отправки в 1С; только при сессии setup.php, иначе 403
+setup_save	POST	Сохранение галок в settings.json → setup.suppliers; в app.log по строке на каждое изменение (поставщик + тип услуги), в ответе — число изменений; только при сессии setup.php, иначе 403
+setup_logs	GET	Журнал настроек: отфильтрованные строки app.log (offset, limit); только при сессии setup.php, иначе 403
 10. Текущее состояние
 Реализовано (✅)
 ✅ Ядро: Processor, ParserManager, Logger, ParserInterface, Utils
@@ -785,6 +828,7 @@ import_references	POST	Импорт справочников из references/imp
 ✅ SFTP-синхронизатор встроен в обработку — при «Запустить» и автообработке (cURL+SFTP)
 ✅ SmartTravel PUSH+PULL: парсер ЖД-билетов, webhook.php, PullSync с прокси, единый парсер для двух режимов
 ✅ Справочники: подстановка UID (ReferenceManager) + импорт выгрузок 1С кнопкой «Загрузить справочники» (ReferenceImporter)
+✅ Страница Setup под паролем: галки «продажи / возвраты / обмены» по поставщикам (SendPolicy), загрузка справочников
 В ожидании (⏳)
 ⏳ Сетевой доступ к SFTP-серверу — администратор сети должен открыть порт 22 с сервера парсера к 10.4.175.11
 Известные проблемы (⚠️)
@@ -798,6 +842,9 @@ import_references	POST	Импорт справочников из references/imp
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-10-01	Лог изменения галок: setup_save сравнивает старые и новые значения и пишет по строке на каждое изменение («снята/поставлена галка «Возвраты» у «МА авиа»»); такие строки выделены в журнале цветом (log-line--setup)	api.php, assets/style.css, setup.php, assets/app.js
+2026-10-01	Журнал настроек на setup.php: окно со строками app.log по импорту справочников, сохранению галок и пропускам отправки; Logger::getFilteredLinesChunk + api.php?action=setup_logs (опрос 3 с, подгрузка истории при прокрутке)	core/Logger.php, api.php, setup.php, assets/style.css
+2026-10-01	Страница Setup под паролем (settings.setup.password): перенесена кнопка «Загрузить справочники», добавлены галки «Продажи/Возвраты/Обмены» по поставщикам; выключенный тип в 1С не отправляется (SKIP в api_send.log), кнопка ⚙ на index.php	core/SendPolicy.php, setup.php, core/Processor.php, core/ApiSender.php, api.php, index.php, assets/app.js, assets/style.css, config/settings.json
 2026-09-18	MoyAgent: RESERVATION_NUMBER = «PNR - ord_id» (пример GYM76H - 1253510898178); INVOICE_NUMBER без изменений	parsers/MoyAgentParser.php, test.php
 2026-09-17	Журнал: два окна (События / Служебные), подгрузка истории при скролле; api_logs — мягкая отметка ERROR; пояснения ошибок 1С (UID и др.)	index.php, assets/app.js, assets/style.css, core/Logger.php, api.php, core/ApiSender.php, api_logs.php
 2026-09-17	В payload 1С AGENT всегда null; в api_logs.php у ERROR — галочка «Обработано» (localStorage, серая строка)	core/ApiSender.php, api_logs.php
@@ -857,6 +904,7 @@ input/, json/ и json_api/ — в .gitignore (кроме .gitkeep)
 config/settings.json — модифицируется автоматически (last_run), содержит пароли
 config/sftp_last_run.txt — модифицируется автоматически
 API и SFTP пароли хранятся в settings.json открытым текстом
+Пароль страницы Setup — settings.json → setup.password (открытым текстом, первый уровень защиты: только чтобы сотрудники не заходили в настройки)
 SSL верификация отключена в ApiSender (внутренняя сеть)
 SSH host key проверка отключена в SftpSync (внутренняя сеть)
 ext-curl обязателен (с поддержкой SFTP/libssh2 для синхронизации)
@@ -868,7 +916,8 @@ UUID — только Utils::generateUUID() / generateUUIDFromKey() / orderUID()
 ORDER.UID = orderUID(папка_поставщика, INVOICE_NUMBER); PRODUCTS[].UID = productUID(папка, номер_билета) — детерминированно (продажа и возврат одного билета совпадают)
 Processor поддерживает glob(*.xml + *.json) — для XML и JSON поставщиков
 Retry при отправке в 1С: api.retry_attempts (0 = одна попытка); переотправка через 🔄 в data.php
-app.js обслуживает только index.php; data.php и api_logs.php имеют встроенные скрипты
+app.js обслуживает только index.php; data.php, api_logs.php и setup.php имеют встроенные скрипты
+Отправка в 1С фильтруется SendPolicy (settings.json → setup.suppliers): снятая галка типа услуги = SKIP в api_send.log, парсинг и json/ при этом не меняются. Новый парсер подхватывается автоматически (список от ParserManager, по умолчанию все галки включены) — настройки править не нужно
 SFTP встроен в runProcessing(); sftp_sync.php — standalone для отдельного запуска
 ext-curl обязателен (+ поддержка SFTP через libssh2)
 settings.json модифицируется автоматически (last_run), содержит секции api, sftp, smarttravel

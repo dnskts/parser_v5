@@ -1,6 +1,6 @@
 {
     "interval": 10,
-    "last_run": 1776006620,
+    "last_run": 1790852842,
     "api": {
         "enabled": true,
         "url": "https://10.30.88.24/TRADE_WORK/hs/PARSER_Exchange/Order",
@@ -33,7 +33,7 @@
             "proxy_login": "",
             "proxy_pass": "",
             "interval_min": 10,
-            "last_run": "1776006618"
+            "last_run": "1790852841"
         },
         "webhook": {
             "basic_auth_enabled": false,
@@ -77,6 +77,26 @@
             }
         },
         "last_import": "2026-09-14 15:01:47"
+    },
+    "setup": {
+        "password": "95123",
+        "suppliers": {
+            "moyagent": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            },
+            "smarttravel": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            },
+            "demo_hotel": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            }
+        }
     },
     "tab_order": [
         "moyagent",

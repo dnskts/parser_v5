@@ -20,6 +20,10 @@
  * - action=save_api_json — сохранить отредактированный payload (POST: file, content)
  * - action=data_rows    — порция строк таблицы по поставщику (GET: supplier, offset, limit, sort, dir)
  * - action=import_references — импорт справочников из references/import/ (POST)
+ * - action=setup_get    — поставщики и галки отправки в 1С (GET, только из setup.php)
+ * - action=setup_save   — сохранение галок отправки в 1С (POST, только из setup.php)
+ * - action=setup_logs   — журнал настроек: строки app.log по импорту справочников,
+ *                         сохранению галок и пропускам отправки (GET, только из setup.php)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -288,6 +292,7 @@ switch ($action) {
         }
 
         require_once BASE_DIR . '/core/ApiSender.php';
+        require_once BASE_DIR . '/core/SendPolicy.php';
         $resendSettings = json_decode(file_get_contents($configFile), true);
         $apiConfig = isset($resendSettings['api']) ? $resendSettings['api'] : array();
         $apiSender = new ApiSender($apiConfig, BASE_DIR . '/logs/api_send.log', BASE_DIR . '/json_api');
@@ -299,6 +304,27 @@ switch ($action) {
         }
 
         $sourceXml = isset($orderData['SOURCE_FILE']) ? $orderData['SOURCE_FILE'] : '';
+
+        // Ручная переотправка тоже подчиняется галкам поставщика (страница Setup).
+        // Папка поставщика в заказе не хранится — определяем её по имени файла
+        $resendPolicy = new SendPolicy(
+            isset($resendSettings['setup']) ? $resendSettings['setup'] : array()
+        );
+        $resendFolder = $resendPolicy->detectFolder($jsonFile);
+        $resendCheck = $resendPolicy->checkOrder($resendFolder, $orderData);
+
+        if (!$resendCheck['allowed']) {
+            $skipMessage = "Отправка отключена для типа «{$resendCheck['blocked_status']}»"
+                . " (поставщик {$resendFolder}). Включите её на странице Setup.";
+            $apiSender->logSkipped($jsonFile, $sourceXml, $skipMessage);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => $skipMessage,
+                'http_code' => null
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         $sendResult = $apiSender->send($orderData, $jsonFile, $sourceXml);
 
         echo json_encode(array(
@@ -606,6 +632,198 @@ switch ($action) {
             'cleaned'     => $cleaned,
             'last_import' => $lastImport,
             'results'     => $importResult
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * НАСТРОЙКИ ОТПРАВКИ В 1С ПО ПОСТАВЩИКАМ (страница setup.php)
+     *
+     * setup_get  (GET)  — список зарегистрированных парсеров и их галки
+     * setup_save (POST) — сохранение галок в settings.json и ответ со свежим списком
+     *
+     * Доступно только при активной сессии setup.php (вход по паролю).
+     */
+    case 'setup_get':
+    case 'setup_save':
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['setup_auth'])) {
+            http_response_code(403);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нужно войти на странице Setup'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        require_once BASE_DIR . '/core/ParserManager.php';
+        require_once BASE_DIR . '/core/SendPolicy.php';
+
+        $setupSettings = array();
+        if (file_exists($configFile) && is_readable($configFile)) {
+            $setupSettings = json_decode(file_get_contents($configFile), true);
+            if (!is_array($setupSettings)) {
+                $setupSettings = array();
+            }
+        }
+
+        // Список поставщиков берём у менеджера парсеров: новый парсер
+        // появляется в настройках сам, руками ничего добавлять не нужно
+        $setupParserManager = new ParserManager(BASE_DIR . '/parsers', $logger);
+        $setupFolders = $setupParserManager->getRegisteredFolders();
+
+        $setupMessage = '';
+        if ($action === 'setup_save') {
+            if ($method !== 'POST') {
+                http_response_code(405);
+                echo json_encode(array(
+                    'status' => 'error',
+                    'message' => 'Требуется POST-запрос'
+                ), JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            $setupInput = json_decode(file_get_contents('php://input'), true);
+            $rawSuppliers = (is_array($setupInput) && isset($setupInput['suppliers']))
+                ? $setupInput['suppliers']
+                : array();
+
+            if (!isset($setupSettings['setup']) || !is_array($setupSettings['setup'])) {
+                $setupSettings['setup'] = array();
+            }
+            $existingSuppliers = (isset($setupSettings['setup']['suppliers'])
+                && is_array($setupSettings['setup']['suppliers']))
+                ? $setupSettings['setup']['suppliers']
+                : array();
+
+            // Что именно поменялось — считаем до перезаписи настроек
+            $normalizedSuppliers = SendPolicy::normalizeSuppliers($rawSuppliers, $setupFolders);
+            $setupTypeLabels = SendPolicy::getTypeLabels();
+            $setupChanges = array();
+
+            foreach ($normalizedSuppliers as $changedFolder => $changedFlags) {
+                $parserForLog = $setupParserManager->getParser($changedFolder);
+                $supplierTitle = $parserForLog ? $parserForLog->getSupplierName() : $changedFolder;
+
+                foreach ($changedFlags as $changedType => $isEnabled) {
+                    // Нет записи в настройках = галка стояла (дефолт SendPolicy)
+                    $wasEnabled = isset($existingSuppliers[$changedFolder][$changedType])
+                        ? (bool)$existingSuppliers[$changedFolder][$changedType]
+                        : true;
+                    if ($wasEnabled === (bool)$isEnabled) {
+                        continue;
+                    }
+
+                    $typeTitle = isset($setupTypeLabels[$changedType])
+                        ? $setupTypeLabels[$changedType]
+                        : $changedType;
+                    $setupChanges[] = $isEnabled
+                        ? "Setup: «{$supplierTitle}» — поставлена галка «{$typeTitle}», заказы этого типа отправляются в 1С"
+                        : "Setup: «{$supplierTitle}» — снята галка «{$typeTitle}», заказы этого типа в 1С не отправляются";
+                }
+            }
+
+            // Папки отключённых парсеров не теряем — перекрываем только актуальные
+            $setupSettings['setup']['suppliers'] = array_merge($existingSuppliers, $normalizedSuppliers);
+
+            $setupEncoded = json_encode(
+                $setupSettings,
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+            if ($setupEncoded === false
+                || file_put_contents($configFile, $setupEncoded, LOCK_EX) === false
+            ) {
+                $logger->error('API: setup_save — не удалось записать settings.json');
+                http_response_code(500);
+                echo json_encode(array(
+                    'status' => 'error',
+                    'message' => 'Не удалось записать config/settings.json'
+                ), JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            Utils::ensureOwnership($configFile);
+
+            if (empty($setupChanges)) {
+                $logger->info('Setup: настройки отправки сохранены, изменений нет');
+            } else {
+                foreach ($setupChanges as $changeLine) {
+                    $logger->info($changeLine);
+                }
+            }
+
+            $setupMessage = empty($setupChanges)
+                ? 'Настройки сохранены (без изменений)'
+                : 'Настройки сохранены, изменений: ' . count($setupChanges);
+        }
+
+        $setupPolicy = new SendPolicy(
+            isset($setupSettings['setup']) ? $setupSettings['setup'] : array()
+        );
+
+        $setupSuppliers = array();
+        foreach ($setupFolders as $setupFolder) {
+            $setupParser = $setupParserManager->getParser($setupFolder);
+            $setupSuppliers[] = array(
+                'folder' => $setupFolder,
+                'name'   => $setupParser ? $setupParser->getSupplierName() : $setupFolder,
+                'flags'  => $setupPolicy->getSupplierFlags($setupFolder)
+            );
+        }
+
+        echo json_encode(array(
+            'status'    => 'ok',
+            'message'   => $setupMessage,
+            'types'     => SendPolicy::getTypeLabels(),
+            'suppliers' => $setupSuppliers
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * ЖУРНАЛ НАСТРОЕК (страница setup.php)
+     *
+     * Чанк app.log только со строками по теме настроек: импорт справочников,
+     * сохранение галок, пропуски отправки в 1С.
+     * GET: offset (пропуск подходящих строк с конца, 0=новые), limit (1..200).
+     *
+     * Отдельное действие, а не часть блока setup_get/setup_save: там создаётся
+     * ParserManager, который на каждом вызове пишет в app.log «Загружен парсер…»,
+     * а здесь опрос идёт раз в несколько секунд — журнал засорялся бы сам собой.
+     */
+    case 'setup_logs':
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['setup_auth'])) {
+            http_response_code(403);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нужно войти на странице Setup'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $setupLogsOffset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        $setupLogsLimit = isset($_GET['limit']) ? (int)$_GET['limit'] : 60;
+        $setupLogsLimit = max(1, min(200, $setupLogsLimit));
+
+        // Чем глубже уходим в историю, тем больше строк лога просматриваем
+        $setupLogsMaxScan = min(50000, 4000 + $setupLogsOffset * 150);
+
+        $setupLogsChunk = $logger->getFilteredLinesChunk(
+            array('setup', 'отправка отключена', 'import_references', 'импорт', 'справочник'),
+            $setupLogsOffset,
+            $setupLogsLimit,
+            $setupLogsMaxScan
+        );
+
+        echo json_encode(array(
+            'status'   => 'ok',
+            'logs'     => $setupLogsChunk['lines'],
+            'offset'   => $setupLogsChunk['offset'],
+            'limit'    => $setupLogsChunk['limit'],
+            'has_more' => $setupLogsChunk['has_more']
         ), JSON_UNESCAPED_UNICODE);
         break;
 

@@ -618,6 +618,21 @@ class ApiSender
     }
 
     /**
+     * Пишет в лог отправок запись SKIP, не обращаясь к 1С.
+     *
+     * Нужна, когда отправка запрещена настройками поставщика
+     * (setup.suppliers): в логах API видно, что заказ не ушёл намеренно.
+     *
+     * @param string $jsonFileName — имя JSON-файла
+     * @param string $sourceXml    — имя исходного файла
+     * @param string $message      — причина пропуска
+     */
+    public function logSkipped($jsonFileName, $sourceXml, $message)
+    {
+        $this->writeLog('SKIP', $jsonFileName, $sourceXml, null, null, $message);
+    }
+
+    /**
      * Добавляет одну строку в лог отправок (JSON Lines).
      *
      * @param string      $status       — статус: SEND, OK, ERROR, SKIP

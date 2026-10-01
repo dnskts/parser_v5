@@ -6,7 +6,7 @@ PHP 7.0+ (совместим с 8.x), без фреймворков/composer/Б�
 Структура
 config/settings.json — interval, last_run, api{url,login,password,timeout,enabled,retry_attempts,retry_delay_sec}, sftp{...}
 config/sftp_last_run.txt — timestamp последней SFTP-синхронизации
-core/ — ApiSender(POST 1С, retry при 5xx/таймауте если retry_attempts>0), Logger, ParserInterface, ParserManager, Processor(лог времени парсинга), SftpSync, Utils, DataTableHelpers(buildRowsFromJsonFile)
+core/ — ApiSender(POST 1С, retry при 5xx/таймауте если retry_attempts>0, logSkipped→SKIP), Logger, ParserInterface, ParserManager, Processor(лог времени парсинга), SendPolicy(галки отправки по типам услуг), SftpSync, Utils, DataTableHelpers(buildRowsFromJsonFile)
 parsers/ — MoyAgentParser(авиа TKT/REF/RFND/CANX, конъюнкции+скрытые), MoyAgentConstants(справочник), DemoHotelParser(шаблон)
 input/{supplier}/ — XML + Processed/ + Error/
 json/ — результаты JSON
@@ -14,7 +14,8 @@ logs/ — app.log + api_send.log(JSON Lines) + sftp_sync.log
 index.php — панель (два окна журнала: События / Служебные; infinite scroll логов)
 data.php — вкладки по парсерам, загрузка через data_rows + «Загрузить ещё», 60 колонок, resend 🔄, фильтр, сортировка, XLSX
 api_logs.php — логи API (HTML + AJAX; у ERROR галочка «Обработано» — приглушён бейдж; пояснения 1С)
-api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows; logs?offset&limit)
+setup.php — настройки под паролем (settings.setup.password): загрузка справочников + галки отправки в 1С по поставщикам + журнал настроек
+api.php — AJAX API (logs/run/settings/clear_logs/clear_json/resend/data_rows/import_references/setup_get/setup_save/setup_logs; logs?offset&limit)
 process.php — pipeline: runSftpSync + Processor (CLI cron + require из api.php)
 sftp_sync.php — SFTP standalone (CLI + браузер, для отдельного запуска)
 test.php — автотесты (glob фикстур, нет ожиданий = предупреждение; 7 фикстур MoyAgentParser)
@@ -31,9 +32,10 @@ process.php и кнопка «Запустить»: runSftpSync() → Processor.
 - UUID через Utils::generateUUID() / orderUID() / productUID()
 - Processor привязан к glob(*.xml)
 - Retry 1С: api.retry_attempts (0=без повторов), retry_delay_sec; переотправка через 🔄 в data.php
-- app.js только для index.php; data.php/api_logs.php — встроенные скрипты
+- app.js только для index.php; data.php/api_logs.php/setup.php — встроенные скрипты
+- Отправка в 1С фильтруется SendPolicy (settings.setup.suppliers: sale/refund/exchange). Снятая галка → SKIP в api_send.log, парсинг и json/ не меняются. Поставщика нет в настройках (новый парсер) → разрешено всё
 - SFTP встроен в runProcessing(); sftp_sync.php — standalone
-- settings.json: секции api и sftp, модифицируется автоматически
+- settings.json: секции api, sftp и setup, модифицируется автоматически
 - Все файлы/папки, создаваемые PHP: владелец `ext_kuritsyn`, группа `bitrix`. Использовать `Utils::ensureOwnership()` и `Utils::ensureDirectory()`.
 - MoyAgent: SUPPLIER — getSupplierName(); AGENT/BOOKING_AGENT в json/ из issuingAgent/bookingAgent; в payload 1С AGENT всегда null (prepareForApi), BOOKING_AGENT остаётся {CODE,NAME}; RESERVATION_NUMBER — `{rloc} - {ord_id}` (buildReservationNumber)
 - Конъюнкции: emd_ticket_doc[@main_prod_id] + скрытые (fare=0, seg_count=0, tkt_number ±1..9)
