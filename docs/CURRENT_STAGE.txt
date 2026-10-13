@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-10-01
-**Обновлено после:** страница Setup: пароль, перенос загрузки справочников, галки отправки в 1С по поставщикам + журнал настроек
+**Последнее обновление:** 2026-10-13
+**Обновлено после:** страница Setup: диагностика сети (1С, SFTP, SmartTravel) и прав записи
 
 ---
 
@@ -14,13 +14,14 @@
 - 2 фронтенд-файла (JS + CSS), ~980 строк
 - Итого: ~6 900 строк кода
 - 3 парсера (MoyAgent — авиа, SmartTravel — ЖД, DemoHotel — шаблон)
-- 8 тестовых fixture-файлов (7 XML + 1 JSON) в `tests/fixtures/`
+- 11 тестовых fixture-файлов (10 XML + 1 JSON) в `tests/fixtures/`
 
 Ключевые возможности:
 - Автоматическое обнаружение парсеров (plug-and-play)
 - Обработка по расписанию (cron) и вручную через веб-интерфейс
 - Поддержка операций: продажа, возврат (REF/RFND), аннуляция (CANX)
 - Группировка конъюнкционных бланков (emd_ticket_doc + air_ticket_doc)
+- **EMD из явной таксы:** если EMD пришёл таксой `air_tax code="EMD"` без собственного `emd_ticket_doc`, он выделяется в отдельный продукт с номером `{билет}-emd` и суммой только по таксе
 - Отправка заказов в API 1С с логированием
 - Повторная отправка из веб-интерфейса
 - **Страница Setup (пароль):** загрузка справочников + галки «продажи / возвраты / обмены» по каждому поставщику — отключённый тип в 1С не отправляется
@@ -69,6 +70,7 @@ parser_v5/
 │   ├── ParserManager.php     — auto-discovery: сканирует parsers/.php, рефлексия
 │   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→enrich→saveJson→send→move + processSingleFile()
 │   ├── SendPolicy.php        — разрешения отправки в 1С по типам услуг (setup.suppliers): statusToType(), checkOrder(), detectFolder()
+│   ├── SetupDiagnostics.php  — диагностика для setup.php: сеть (1С/SFTP/SmartTravel) и пробная запись в рабочие папки
 │   ├── ReferenceManager.php  — менеджер справочников: загрузка, поиск, обогащение ORDER полями UID, синхронизация через API 1С
 │   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
@@ -91,7 +93,7 @@ parser_v5/
 ├── data.php                  — таблица заказов: вкладки по парсерам, data_rows, «Загрузить ещё», 70 колонок; дата references.last_import
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
 ├── setup.php                  — страница настроек под паролем: загрузка справочников + галки отправки в 1С по поставщикам
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references/setup_get/setup_save/setup_logs)
+├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references/setup_get/setup_save/setup_logs/setup_diagnostics)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
@@ -357,6 +359,10 @@ getMainReservation()	V5	Первая reservation из XML
 findRelatedProdIds()	V4	Все связанные prod_id (для возвратов)
 buildCouponsFromGroup()	V4	Купоны из группы с дедупликацией
 buildTaxesFromGroup()	V4	Таксы из группы с дедупликацией
+sumEmdTaxes()	V6	Сумма такс air_tax[@code=EMD] одного air_ticket_prod
+splitEmdTaxLines()	V6	Делит готовый массив TAXES на строки EMD и остальные (сумма считается по тем же строкам, что убираются)
+groupHasEmdDoc()	V6	Есть ли у группы реальный emd_ticket_doc — тогда явную таксу не делим
+buildImplicitEmdProduct()	V6	EMD-продукт из явной таксы: номер {билет}-emd, EMD_NAME = «EMD», сумма только по таксе
 buildCommissions()	V1	service_fee + fees/fee[@type=commission]
 buildPaymentsFromXml()	V5	INVOICE = fare+taxes продукта; сумма заказа из XML не копируется (там уже есть service_fee, он уходит в COMMISSIONS)
 extractPenalty()	V1	Сумма air_tax[@code=PEN]
@@ -399,6 +405,26 @@ tkt_number отличается на 1–9 от основного
 Нюанс PHP: числовые строковые ключи массива автоматически конвертируются в integer ("0" → 0). При сравнении используется явное (string) приведение.
 
 Тест: 125359052102.xml — тест-кейс 6 в test.php
+
+EMD из явной таксы (без emd_ticket_doc)
+Проблема: у части заказов («Мой агент», перевозчики XZ, PC, W9, EW, V7, VY) EMD приходит не бланком, а таксой внутри авиабилета:
+
+
+<air_ticket_prod prod_id="0" fare="20490.6" taxes="5043.84">
+  <air_seg ...><air_tax code="EMD" amount="5043.84"/></air_seg>
+</air_ticket_prod>
+Своего номера бланка у такой услуги нет, `emd_ticket_doc` отсутствует, поэтому раньше заказ уходил в 1С одной продажей на тариф + таксу, а графы «EMD УСЛУГА» и «ОСН.Билет» оставались пустыми.
+
+Алгоритм (buildImplicitEmdProduct):
+- такса EMD вычитается из суммы авиабилета и убирается из его TAXES (остальные таксы, например `ALL` у PC, остаются на билете);
+- EMD уходит отдельным продуктом: `PRODUCT_TYPE` = EMD/000000002, `NUMBER` = `{номер билета}-emd`, `RELATED_TICKET_NUMBER` = чистый номер билета, `EMD_NAME` = «EMD», `PAYMENTS.INVOICE` и такса EMD = сумма таксы, `COUPONS`/`COMMISSIONS` пустые, `CONJ_COUNT` = 0, `PENALTY` = 0;
+- `UID` = `productUID(папка, normalizeTicketNumber(билет) . '-emd')` — от нормализованного номера, иначе один и тот же EMD получил бы разные UID в файлах с кодом АК и без;
+- при возврате EMD возвращается своим продуктом с тем же UID: `REFUND.AMOUNT` = такса EMD возвратного `air_ticket_prod`, штраф остаётся на билете;
+- `ApiSender::stripTicketPrefix()` сохраняет суффикс `-emd`, поэтому у 13-значных номеров (PC) билет и EMD уходят в 1С в одном формате: `2263660885` и `2263660885-emd`.
+
+Условия применения (иначе поведение прежнее): такса EMD > 0, номер билета непустой, у группы нет реального `emd_ticket_doc`, сумма таксы EMD не больше атрибута `taxes` — последнее страхует от отрицательной суммы билета.
+
+Тесты: 1253510791958.xml (XZ), 1253510791896.xml (PC, EMD + ALL), 1253510693429.xml (возврат) — тест-кейсы 7–9 в test.php
 
 6.2. SmartTravelParser — SmartTravel (ЖД-билеты)
 Файл: parsers/SmartTravelParser.php
@@ -449,7 +475,7 @@ json
 - удаляются SOURCE_FILE, PARSED_AT
 - SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT → плоский UID (строка), не объект {UID,CODE,NAME}
 - CLIENT — null (пустое значение тоже превращается в null, ТЗ его допускает)
-- NUMBER / RELATED_TICKET_NUMBER (продукт и PAYMENTS) — 13-значный номер режется до 10: «5552379660766» → «2379660766» (ЖД-бланки из 14 цифр не трогаются)
+- NUMBER / RELATED_TICKET_NUMBER (продукт и PAYMENTS) — 13-значный номер режется до 10: «5552379660766» → «2379660766» (ЖД-бланки из 14 цифр не трогаются); суффикс `-emd` сохраняется: «6242263660885-emd» → «2263660885-emd»
 - TAXES: такса с пустым CODE (тариф) получает CODE = «Тариф» (ApiSender::FARE_TAX_CODE)
 - у AGENT/BOOKING_AGENT снимается UID (в 1С его нет)
 - купоны: собираются DEPARTURE_DATETIME / ARRIVAL_DATETIME из DATE+TIME; убираются DATE/TIME, AIRLINE, SERVICE_CLASS, CLASS_NAME, TYPE_ID*, SEGMENT_STATUS*
@@ -763,16 +789,17 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 Содержимое:
 - Кнопка «📚 Загрузить справочники» (перенесена с index.php) + дата references.last_import
 - Карточки поставщиков из ParserManager с галками «Продажи / Возвраты / Обмены» и кнопкой «Сохранить»
+- Секция «Диагностика»: кнопка «Проверить» (не при открытии страницы) — доступность API 1С (HEAD), SFTP, SmartTravel PULL и пробная запись в config/, logs/, json/, json_api/, input/moyagent/, input/smarttravel/, references/, references/import/. Заказ в 1С не отправляется. Итог пишется в app.log: `Setup: диагностика — OK: N, FAIL: M, SKIP: K`
 - Окно «Журнал настроек»: строки app.log по теме настроек (импорт справочников, сохранение галок, пропуски отправки, предупреждения справочников), опрос раз в 3 с, кнопка «Обновить», подгрузка истории при прокрутке вверх
 Каждое изменение галки пишется отдельной строкой: `Setup: «МА авиа» — снята галка «Возвраты», заказы этого типа в 1С не отправляются` (сохранение без изменений — «изменений нет»). Такие строки выделены в журнале своим цветом (класс `log-line--setup`, определяется по маркеру `Setup: ` в setup.php и assets/app.js).
 Новый парсер появляется на странице автоматически (список от ParserManager), галки по умолчанию включены.
-AJAX: api.php?action=setup_get / setup_save / setup_logs (без сессии — HTTP 403), встроенный скрипт (не app.js).
+AJAX: api.php?action=setup_get / setup_save / setup_logs / setup_diagnostics (без сессии — HTTP 403), встроенный скрипт (не app.js).
 Журнал вынесен в отдельное действие setup_logs: в блоке setup_get/setup_save создаётся ParserManager, который пишет в app.log «Загружен парсер…», и опрос раз в 3 с засорял бы журнал сам собой.
 
 9.4. test.php — Автотесты
 Web + CLI (php_sapi_name() === 'cli')
-Тестирует MoyAgentParser (7 XML) и SmartTravelParser (1 JSON)
-8 фикстур, 247 assertions
+Тестирует MoyAgentParser (10 XML) и SmartTravelParser (1 JSON)
+11 фикстур, 383 assertions
 Вспомогательная функция addCheck() — DRY вместо копипаста
 PASS-блоки свёрнуты по умолчанию, FAIL — развёрнуты
 Badge показывает количество проверок: PASS (22)
@@ -786,6 +813,9 @@ Badge показывает количество проверок: PASS (22)
 125359005865.xml	5 авиа + 5 EMD = 10 продуктов, SVO→AUH→SVO	BOOKING_AGENT, AGENT, all_travellers, all_tickets
 125358954718.xml	Возврат + 2 EMD (номера и ненулевая сумма), penalty 5060	REFUND, 3 продукта
 125359052102.xml	Скрытая конъюнкция (без emd_ticket_doc), VKO→TIV	CONJ_COUNT=2
+1253510791958.xml	Продажа с явной таксой EMD (без emd_ticket_doc), FCO→OLB	2 продукта, тариф без EMD, all_tickets с «…-emd»
+1253510791896.xml	Продажа PC: такса EMD рядом с ALL, 13-значный номер	на билете тариф + ALL, EMD отдельно
+1253510693429.xml	Возврат с явной таксой EMD, FCO→OLB	REFUND.AMOUNT без EMD, EMD-возврат вторым продуктом
 smarttravel_push_railway.json	SmartTravel PUSH: ЖД покупка, Москва→С-Петербург	INVOICE_NUMBER=51978, TRAVELLER=ИВАНОВ ИВАН, fare=9481.7
 Категории проверок:
 
@@ -814,6 +844,7 @@ import_references	POST	Импорт справочников из references/imp
 setup_get	GET	Поставщики (ParserManager) и галки отправки в 1С; только при сессии setup.php, иначе 403
 setup_save	POST	Сохранение галок в settings.json → setup.suppliers; в app.log по строке на каждое изменение (поставщик + тип услуги), в ответе — число изменений; только при сессии setup.php, иначе 403
 setup_logs	GET	Журнал настроек: отфильтрованные строки app.log (offset, limit); только при сессии setup.php, иначе 403
+setup_diagnostics	GET	Сеть (1С, SFTP, SmartTravel) и пробная запись в рабочие папки; в app.log одна строка с числом OK/FAIL/SKIP; только при сессии setup.php, иначе 403
 10. Текущее состояние
 Реализовано (✅)
 ✅ Ядро: Processor, ParserManager, Logger, ParserInterface, Utils
@@ -842,6 +873,8 @@ setup_logs	GET	Журнал настроек: отфильтрованные с�
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-10-13	Setup: секция «Диагностика» — кнопка «Проверить» (сеть 1С/SFTP/SmartTravel и права записи в рабочие папки), api.php?action=setup_diagnostics	core/SetupDiagnostics.php, api.php, setup.php, assets/style.css
+2026-10-02	MoyAgent: явная такса air_tax code="EMD" без emd_ticket_doc выделяется в отдельный EMD-продукт (номер {билет}-emd, EMD_NAME «EMD», сумма только по таксе), включая возвраты; stripTicketPrefix сохраняет суффикс -emd; в buildEmdSaleProducts/buildEmdRefundProducts передан $orderId (RESERVATION_NUMBER собирался без номера заказа)	parsers/MoyAgentParser.php, core/ApiSender.php, test.php, tests/fixtures/
 2026-10-01	Лог изменения галок: setup_save сравнивает старые и новые значения и пишет по строке на каждое изменение («снята/поставлена галка «Возвраты» у «МА авиа»»); такие строки выделены в журнале цветом (log-line--setup)	api.php, assets/style.css, setup.php, assets/app.js
 2026-10-01	Журнал настроек на setup.php: окно со строками app.log по импорту справочников, сохранению галок и пропускам отправки; Logger::getFilteredLinesChunk + api.php?action=setup_logs (опрос 3 с, подгрузка истории при прокрутке)	core/Logger.php, api.php, setup.php, assets/style.css
 2026-10-01	Страница Setup под паролем (settings.setup.password): перенесена кнопка «Загрузить справочники», добавлены галки «Продажи/Возвраты/Обмены» по поставщикам; выключенный тип в 1С не отправляется (SKIP в api_send.log), кнопка ⚙ на index.php	core/SendPolicy.php, setup.php, core/Processor.php, core/ApiSender.php, api.php, index.php, assets/app.js, assets/style.css, config/settings.json
@@ -926,6 +959,7 @@ AGENT берётся из air_ticket_doc[@issuingAgent], НЕ из air_ticket_pr
 BOOKING_AGENT берётся из reservation[@bookingAgent]
 RESERVATION_NUMBER = `{rloc} - {ord_id}` через buildReservationNumber(); INVOICE_NUMBER = ord_id отдельно
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
+EMD бывает двух видов: бланк (emd_ticket_doc) и явная такса air_tax[@code=EMD] без бланка. Второй вид уходит отдельным продуктом с синтетическим номером {билет}-emd, сумма берётся только из таксы, на билете остаются тариф и прочие таксы. Если у группы есть реальный emd_ticket_doc, явную таксу не делим
 PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
 Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references); после успеха *.txt удаляются, дата — references.last_import (data.php)
 Если после клика в app.log нет строки «API: запрос import_references» — запрос не дошёл до PHP (прокси/таймаут/старый фронт); при HTTP-ошибке статус на панели покажет код

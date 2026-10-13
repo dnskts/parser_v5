@@ -909,6 +909,33 @@ a.btn {
     line-height: 1.5;
 }
 
+/* Результаты диагностики на странице Setup */
+.diag-list {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+}
+
+.diag-row {
+    font-size: 13px;
+    line-height: 1.45;
+    padding: 2px 0;
+    font-family: Consolas, "Courier New", monospace;
+    word-break: break-word;
+}
+
+.diag-row--ok {
+    color: #9ae6b4;
+}
+
+.diag-row--fail {
+    color: #feb2b2;
+}
+
+.diag-row--skip {
+    color: #a0aec0;
+}
+
 /* Карточки поставщиков с галками типов услуг */
 .setup__grid {
     display: flex;

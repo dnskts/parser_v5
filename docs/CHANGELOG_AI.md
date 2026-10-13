@@ -2,6 +2,61 @@
 
 ---
 
+## 2026-10-13 — Диагностика сети и прав на странице Setup
+
+**Запрос пользователя:** на страницу настроек добавить сетевые проверки и проверки прав записи.
+
+### Что сделано
+- `core/SetupDiagnostics.php`: `run($settings)` возвращает список проверок (`id`, `title`, `status` ok/fail/skip, `ms`, `message`) и счётчики.
+  - API 1С — `ApiSender::isAvailable()` (HEAD). Выключенный API или пустой URL → skip.
+  - SFTP — `SftpSync::testConnection()` без листинга. Выключенный SFTP → skip.
+  - SmartTravel PULL — `Utils::curlWithProxy` с timeout 3 с. Любой HTTP-код > 0 считается успехом (сеть и прокси живы, даже при 401). Выключено, режим не pull или пустой URL → skip.
+  - Права: в каждой папке создаётся `.setup_write_probe`, пишется байт, файл удаляется. Папки не создаются: нет каталога → fail «папка отсутствует». Папки: config, logs, json, json_api, input/moyagent, input/smarttravel, references, references/import.
+- `api.php?action=setup_diagnostics` (GET): сессия setup.php, иначе 403. В app.log одна строка `Setup: диагностика — OK: N, FAIL: M, SKIP: K` (маркер `Setup: ` — строка попадает в журнал настроек и красится как изменение настроек).
+- `setup.php`: секция «Диагностика» между справочниками и галками, кнопка «Проверить» (автозапуска нет). Статус: «Диагностика: N OK, M FAIL».
+- `assets/style.css`: `.diag-row--ok/fail/skip`.
+
+### Проверка
+- `php -l` по `core/SetupDiagnostics.php`, `api.php`, `setup.php`.
+
+### Изменённые файлы
+- `core/SetupDiagnostics.php`, `api.php`, `setup.php`, `assets/style.css`, docs
+
+---
+
+## 2026-10-02 — Явная такса EMD как отдельный продукт (MoyAgent)
+
+**Запрос пользователя:** по заказам, где EMD приходит таксой `air_tax code="EMD"` без собственного `emd_ticket_doc` (31 заказ из батча 135 файлов), отправлять EMD отдельным продуктом: название услуги «EMD», номер — номер билета с суффиксом `-emd`, свой UID, сумма только по таксе EMD. Для PC и подобных, где рядом есть другие таксы, передавать только часть EMD. Плюс убрать служебные файлы EMD-сканирования.
+
+### Что сделано
+- `parsers/MoyAgentParser.php`, новые хелперы:
+  - `sumEmdTaxes($airTicketProd)` — сумма `air_seg/air_tax` с `code=EMD` у одного продукта;
+  - `splitEmdTaxLines($taxes)` — делит готовый массив `TAXES` на строки EMD и остальные и возвращает сумму. Сумма считается по тем же строкам, которые убираются из билета, поэтому дедупликация `buildTaxesFromGroup()` не расходится с суммой;
+  - `groupHasEmdDoc($prodIds, $emdDocsMap)` — у группы есть реальный `emd_ticket_doc` → явную таксу не делим;
+  - `buildImplicitEmdProduct($context)` — сборка EMD-продукта: `NUMBER` = `{билет}-emd`, `RELATED_TICKET_NUMBER` = чистый номер билета, `EMD_NAME` = «EMD», `TAXES` = тариф 0 + такса EMD, `PAYMENTS` — одна строка INVOICE, `COUPONS`/`COMMISSIONS` пустые, `CONJ_COUNT`/`PENALTY`/`DISCOUNT` = 0, остальные поля копируются с основного билета.
+- Константы класса: `EMD_TAX_CODE = 'EMD'`, `IMPLICIT_EMD_SUFFIX = '-emd'`, `IMPLICIT_EMD_NAME = 'EMD'`.
+- Путь продажи/обмена: разделение считается **до** `buildPaymentsFromXml()`, т.к. туда передаётся итоговая сумма продукта. Такса EMD вычитается из `taxesAmount` и убирается из `TAXES`, затем добавляется EMD-продукт.
+- Путь возврата: `emdOrig` и `emdRef` считаются по исходному и возвратному `air_ticket_prod` отдельно; `origTotal` (PAYMENTS) и `refundAmount` уменьшаются на свои суммы, штраф остаётся на билете; EMD-возврат добавляется продуктом с тем же UID, `REFUND.AMOUNT` = `emdRef`, `PENALTY` = 0.
+- `UID` EMD-продукта: `Utils::productUID(папка, Utils::normalizeTicketNumber($билет) . '-emd')` — от нормализованного номера, иначе один и тот же EMD получил бы разные UID в файлах с кодом АК и без. Коллизии с авиабилетом нет: суффикс входит в ключ UUID v5.
+- `core/ApiSender.php`, `stripTicketPrefix()`: регулярка `^\d{3}-?(\d{10})(-emd)?$` — суффикс сохраняется. Иначе у PC билет уходил бы как `2263660885`, а EMD как `6242263660885-emd`, и связь в 1С не сошлась бы.
+- Условия применения (иначе поведение прежнее): такса EMD > 0, номер билета непустой, у группы нет `emd_ticket_doc`, сумма таксы EMD ≤ атрибута `taxes` (+0.01) — последнее страхует от отрицательной суммы билета.
+- Побочный баг: в `buildEmdSaleProducts()` и `buildEmdRefundProducts()` использовался `$orderId`, которого не было в сигнатуре, — `RESERVATION_NUMBER` у EMD-продуктов из реальных бланков собирался без номера заказа. Параметр добавлен.
+- Удалены служебные файлы EMD-сканирования: `scripts/emd-scan-report.json`, `scripts/emd-batch-stats.php`, `scripts/scan-emd-batch.php`.
+
+### Проверка
+- `php -l` по `parsers/MoyAgentParser.php` и `core/ApiSender.php` — без ошибок.
+- `php test.php` — 383/383 (было 270/270). Три новые фикстуры: `1253510791958.xml` (XZ, продажа), `1253510791896.xml` (PC, EMD рядом с ALL, 13-значный номер), `1253510693429.xml` (возврат).
+- Перепрогон всех 135 XML из `input/moyagent/Processed/` с сверкой против прежних JSON: 0 ошибок парсинга, EMD-продукт появился ровно у 31 заказа (34 продукта — в заказах с несколькими пассажирами), сумма `PAYMENTS` и сумма `REFUND.AMOUNT` по каждому заказу не изменились, коллизий UID нет, у билетов не осталось таксы EMD.
+- Payload для 1С (`prepareForApi`): PC-заказ уходит как билет `2263660885` (тариф 32227.92 + ALL 8952.2) и EMD `2263660885-emd` (`RELATED_TICKET_NUMBER` = `2263660885`, сумма 6424.52).
+
+### Что стоит подтвердить вне кода
+1С должна обновлять документ авиабилета по UID: UID билета не меняется, но сумма уменьшается на EMD. Если 1С дописывает, а не перезаписывает, по уже отправленным заказам возможно задвоение.
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`, `core/ApiSender.php`, `test.php`, `tests/fixtures/` (+3 XML), `scripts/` (−3 файла), docs
+
+---
+
 ## 2026-10-01 — Подробный лог изменения галок на странице Setup
 
 **Запрос пользователя:** из строки `Setup: сохранены настройки отправки в 1С по поставщикам` не понятно, что именно изменилось. Нужно писать, что снята или поставлена конкретная галка у конкретного поставщика, и выделять историю этих строк другим цветом.

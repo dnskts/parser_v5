@@ -20,6 +20,15 @@ require_once __DIR__ . '/constants/MoyAgentConstants.php';
 
 class MoyAgentParser implements ParserInterface
 {
+    // Код таксы, которой EMD приходит вместо отдельного emd_ticket_doc
+    const EMD_TAX_CODE = 'EMD';
+
+    // Суффикс синтетического номера EMD-продукта: своего бланка у такой услуги нет
+    const IMPLICIT_EMD_SUFFIX = '-emd';
+
+    // Название услуги для EMD из явной таксы
+    const IMPLICIT_EMD_NAME = 'EMD';
+
     public function getSupplierFolder()
     {
         return 'moyagent';
@@ -157,7 +166,29 @@ class MoyAgentParser implements ParserInterface
 
             $origFare = (float)(string)$origAirTicket['fare'];
             $origTaxes = (float)(string)$origAirTicket['taxes'];
+            $commissions = $this->buildCommissions($origAirTicket);
+            $penalty = $this->extractPenalty($refAirTicket);
+            $refFare = (float)(string)$refAirTicket['fare'];
+            $refTaxes = (float)(string)$refAirTicket['taxes'];
+
+            // Явная такса EMD возвращается отдельным продуктом: из сумм билета
+            // она вычитается, штраф остаётся на билете
+            $emdOrig = $this->sumEmdTaxes($origAirTicket);
+            $emdRef = $this->sumEmdTaxes($refAirTicket);
+            $splitEmd = $emdOrig > 0
+                && $ticketNumber !== ''
+                && !$this->groupHasEmdDoc($relatedProdIds, $emdDocsMap)
+                && $emdOrig <= $origTaxes + 0.01
+                && $emdRef <= $refTaxes + 0.01;
+            if ($splitEmd) {
+                $emdSplit = $this->splitEmdTaxLines($taxes);
+                $taxes = $emdSplit['rest'];
+                $origTaxes = $origTaxes - $emdOrig;
+                $refTaxes = $refTaxes - $emdRef;
+            }
+
             $origTotal = $origFare + $origTaxes;
+            $refundAmount = $refFare + $refTaxes - $penalty;
 
             $payments = array(array(
                 'TYPE' => 'INVOICE',
@@ -165,12 +196,6 @@ class MoyAgentParser implements ParserInterface
                 'EQUIVALENT_AMOUNT' => $origTotal,
                 'RELATED_TICKET_NUMBER' => null
             ));
-
-            $commissions = $this->buildCommissions($origAirTicket);
-            $penalty = $this->extractPenalty($refAirTicket);
-            $refFare = (float)(string)$refAirTicket['fare'];
-            $refTaxes = (float)(string)$refAirTicket['taxes'];
-            $refundAmount = $refFare + $refTaxes - $penalty;
 
             $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
 
@@ -227,11 +252,34 @@ class MoyAgentParser implements ParserInterface
                 )
             );
 
+            if ($splitEmd) {
+                $products[] = $this->buildImplicitEmdProduct(array(
+                    'ticket_number' => $ticketNumber,
+                    'emd_sum' => $emdOrig,
+                    'status' => 'возврат',
+                    'issue_date' => $issueDate,
+                    'reservation_number' => $reservationNumber,
+                    'booking_agent' => $bookingAgentName,
+                    'agent' => $issuingAgentName,
+                    'passenger_age' => $passengerAge,
+                    'passenger_doc_info' => $passengerDocInfo,
+                    'carrier' => (string)$origAirTicket['validating_carrier'],
+                    'supplier_code' => $supplierCode,
+                    'seg_carriers' => $segmentMeta['seg_carriers'],
+                    'flight_type_raw' => $flightTypeRaw,
+                    'gds_id' => $gdsId,
+                    'traveller' => $traveller,
+                    'currency' => $currency,
+                    'invoice_amount' => $emdOrig,
+                    'refund' => array('date' => $refundDate, 'amount' => $emdRef)
+                ));
+            }
+
             // EMD при возврате
             $emdRefundProducts = $this->buildEmdRefundProducts(
                 $origProdId, $refundDate, $ticketNumber, $emdDocsMap,
                 $airTicketsByProdId, $travelDocsMap, $passengersMap,
-                $mainReservation, $origAirTicket, $currency
+                $mainReservation, $origAirTicket, $currency, $orderId
             );
             foreach ($emdRefundProducts as $ep) {
                 $products[] = $ep;
@@ -338,6 +386,20 @@ class MoyAgentParser implements ParserInterface
                 $segmentMeta = $this->extractSegmentCarriersAndBaggageFromGroup($prodIds, $airTicketsByProdId);
                 $fare = (float)(string)$airTicket['fare'];
                 $taxesAmount = (float)(string)$airTicket['taxes'];
+
+                // Явная такса EMD (без emd_ticket_doc) уходит отдельным продуктом:
+                // на билете остаются тариф и остальные таксы
+                $emdSplit = $this->splitEmdTaxLines($taxes);
+                $emdSum = $emdSplit['emd_sum'];
+                $splitEmd = $emdSum > 0
+                    && $ticketNumber !== ''
+                    && !$this->groupHasEmdDoc($prodIds, $emdDocsMap)
+                    && $emdSum <= $taxesAmount + 0.01;
+                if ($splitEmd) {
+                    $taxes = $emdSplit['rest'];
+                    $taxesAmount = $taxesAmount - $emdSum;
+                }
+
                 $totalAmount = $fare + $taxesAmount;
 
                 $refundTkt = $isExchange ? $orderAnalysis['refund_ticket_number'] : '';
@@ -387,12 +449,33 @@ class MoyAgentParser implements ParserInterface
                     'PAYMENTS' => $payments,
                     'COMMISSIONS' => $this->buildCommissions($airTicket)
                 );
+
+                if ($splitEmd) {
+                    $products[] = $this->buildImplicitEmdProduct(array(
+                        'ticket_number' => $ticketNumber,
+                        'emd_sum' => $emdSum,
+                        'status' => 'продажа',
+                        'issue_date' => $issueDate,
+                        'reservation_number' => $reservationNumber,
+                        'booking_agent' => $bookingAgentName,
+                        'agent' => $issuingAgentName,
+                        'passenger_age' => $passengerAge,
+                        'passenger_doc_info' => $passengerDocInfo,
+                        'carrier' => (string)$airTicket['validating_carrier'],
+                        'supplier_code' => $supplierCode,
+                        'seg_carriers' => $segmentMeta['seg_carriers'],
+                        'flight_type_raw' => $flightTypeRaw,
+                        'gds_id' => $gdsId,
+                        'traveller' => $traveller,
+                        'currency' => $currency
+                    ));
+                }
             }
 
             // EMD при продаже
             $emdSaleProducts = $this->buildEmdSaleProducts(
                 $emdDocsMap, $airTicketsByProdId, $travelDocsMap,
-                $passengersMap, $mainReservation, $currency
+                $passengersMap, $mainReservation, $currency, $orderId
             );
             foreach ($emdSaleProducts as $ep) {
                 $products[] = $ep;
@@ -549,7 +632,7 @@ class MoyAgentParser implements ParserInterface
      */
     private function buildEmdSaleProducts(
         $emdDocsMap, $airTicketsByProdId, $travelDocsMap,
-        $passengersMap, $mainReservation, $currency
+        $passengersMap, $mainReservation, $currency, $orderId
     ) {
         $products = array();
 
@@ -715,7 +798,7 @@ class MoyAgentParser implements ParserInterface
     private function buildEmdRefundProducts(
         $origProdId, $refundDate, $mainTicketNumber, $emdDocsMap,
         $airTicketsByProdId, $travelDocsMap, $passengersMap,
-        $mainReservation, $origAirTicket, $currency
+        $mainReservation, $origAirTicket, $currency, $orderId
     ) {
         $products = array();
 
@@ -882,6 +965,170 @@ class MoyAgentParser implements ParserInterface
             );
         }
         return $products;
+    }
+
+    // =========================================================
+    // EMD ИЗ ЯВНОЙ ТАКСЫ (без emd_ticket_doc)
+    // =========================================================
+
+    /**
+     * Сумма такс air_tax[@code=EMD] одного air_ticket_prod.
+     */
+    private function sumEmdTaxes($airTicketProd)
+    {
+        if ($airTicketProd === null || !isset($airTicketProd->air_seg)) {
+            return 0;
+        }
+
+        $sum = 0;
+        foreach ($airTicketProd->air_seg as $seg) {
+            if (!isset($seg->air_tax)) {
+                continue;
+            }
+            foreach ($seg->air_tax as $tax) {
+                if (strtoupper(trim((string)$tax['code'])) === self::EMD_TAX_CODE) {
+                    $sum += (float)(string)$tax['amount'];
+                }
+            }
+        }
+
+        return $sum;
+    }
+
+    /**
+     * Делит готовый массив TAXES на строки EMD и остальные.
+     * Сумма считается по тем же строкам, которые убираются из билета,
+     * поэтому дедупликация buildTaxesFromGroup() не расходится с суммой.
+     *
+     * @return array array('rest' => array, 'emd_sum' => float)
+     */
+    private function splitEmdTaxLines($taxes)
+    {
+        $rest = array();
+        $emdSum = 0;
+
+        foreach ($taxes as $tax) {
+            $code = isset($tax['CODE']) ? strtoupper(trim($tax['CODE'])) : '';
+            if ($code === self::EMD_TAX_CODE) {
+                $emdSum += (float)$tax['AMOUNT'];
+                continue;
+            }
+            $rest[] = $tax;
+        }
+
+        return array('rest' => $rest, 'emd_sum' => $emdSum);
+    }
+
+    /**
+     * Есть ли у группы реальный emd_ticket_doc: тогда явную таксу не делим.
+     */
+    private function groupHasEmdDoc($prodIds, $emdDocsMap)
+    {
+        foreach ($emdDocsMap as $emdDoc) {
+            foreach ($prodIds as $pid) {
+                if ((string)$emdDoc['main_prod_id'] === (string)$pid) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * EMD-продукт из явной таксы: номер синтетический ({билет}-emd),
+     * сумма — только такса EMD, остальные поля копируются с основного билета.
+     *
+     * @param array $context ticket_number, emd_sum, status, issue_date,
+     *                       reservation_number, booking_agent, agent, passenger_age,
+     *                       passenger_doc_info, carrier, supplier_code, seg_carriers,
+     *                       flight_type_raw, gds_id, traveller, currency,
+     *                       invoice_amount (опц.), refund (опц.: date, amount)
+     * @return array продукт ORDER
+     */
+    private function buildImplicitEmdProduct($context)
+    {
+        $ticketNumber = (string)$context['ticket_number'];
+        $emdSum = (float)$context['emd_sum'];
+        $docInfo = $context['passenger_doc_info'];
+        $invoiceAmount = isset($context['invoice_amount'])
+            ? (float)$context['invoice_amount']
+            : $emdSum;
+
+        // UID — от нормализованного номера: в разных файлах один билет
+        // приходит то с кодом авиакомпании, то без него
+        $uidKey = Utils::normalizeTicketNumber($ticketNumber) . self::IMPLICIT_EMD_SUFFIX;
+
+        $product = array(
+            'UID' => Utils::productUID($this->getSupplierFolder(), $uidKey),
+            'PRODUCT_TYPE' => array('NAME' => 'EMD', 'CODE' => '000000002'),
+            'NUMBER' => $ticketNumber . self::IMPLICIT_EMD_SUFFIX,
+            'ISSUE_DATE' => $context['issue_date'],
+            'RESERVATION_NUMBER' => $context['reservation_number'],
+            'BOOKING_AGENT' => array(
+                'CODE' => $context['booking_agent'],
+                'NAME' => $context['booking_agent']
+            ),
+            'AGENT' => array('CODE' => $context['agent'], 'NAME' => $context['agent']),
+            'STATUS' => $context['status'],
+            'TICKET_TYPE' => 'OWN',
+            'PASSENGER_AGE' => $context['passenger_age'],
+            'PASSENGER_BIRTH_DATE' => $docInfo['birth_date'],
+            'PASSENGER_GENDER' => $docInfo['gender'],
+            'PASSENGER_DOC_TYPE' => $docInfo['doc_type'],
+            'PASSENGER_DOC_NUMBER' => $docInfo['doc_number'],
+            'PASSENGER_MIDDLE_NAME' => $docInfo['middle_name'],
+            'PASSENGER_DOC_COUNTRY' => $docInfo['doc_country'],
+            'PASSENGER_DOC_EXPIRE' => $docInfo['doc_expire'],
+            'CONJ_COUNT' => 0,
+            'PENALTY' => 0,
+            'CARRIER' => $context['carrier'],
+            'SUPPLIER' => $this->getSupplierName(),
+            'SUPPLIER_CODE' => $context['supplier_code'],
+            'DISCOUNT' => 0,
+            'BAG_ALLOWANCE' => '',
+            'SEG_CARRIERS' => $context['seg_carriers'],
+            'FLIGHT_TYPE' => $this->mapFlightType($context['flight_type_raw']),
+            'GDS_ID' => $context['gds_id'],
+            'GDS_NAME' => $this->mapGdsId($context['gds_id']),
+            'RELATED_TICKET_NUMBER' => $ticketNumber,
+            'EMD_NAME' => self::IMPLICIT_EMD_NAME,
+            'COUPONS' => array(),
+            'TRAVELLER' => $context['traveller'],
+            'TAXES' => array(
+                array(
+                    'CODE' => '', 'AMOUNT' => 0, 'EQUIVALENT_AMOUNT' => 0,
+                    'VAT_RATE' => 0, 'VAT_AMOUNT' => 0
+                ),
+                array(
+                    'CODE' => self::EMD_TAX_CODE, 'AMOUNT' => $emdSum,
+                    'EQUIVALENT_AMOUNT' => $emdSum, 'VAT_RATE' => 0, 'VAT_AMOUNT' => 0
+                )
+            ),
+            'CURRENCY' => $context['currency'],
+            'PAYMENTS' => array(array(
+                'TYPE' => 'INVOICE',
+                'AMOUNT' => $invoiceAmount,
+                'EQUIVALENT_AMOUNT' => $invoiceAmount,
+                'RELATED_TICKET_NUMBER' => null
+            )),
+            'COMMISSIONS' => array()
+        );
+
+        if (isset($context['refund']) && $context['refund'] !== null) {
+            $refundAmount = (float)$context['refund']['amount'];
+            $product['REFUND'] = array(
+                'DATA' => $context['refund']['date'],
+                'AMOUNT' => $refundAmount,
+                'EQUIVALENT_AMOUNT' => $refundAmount,
+                'FEE_CLIENT' => 0,
+                'FEE_VENDOR' => 0,
+                'PENALTY_CLIENT' => 0,
+                'PENALTY_VENDOR' => 0
+            );
+        }
+
+        return $product;
     }
 
     // =========================================================

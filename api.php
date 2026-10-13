@@ -24,6 +24,7 @@
  * - action=setup_save   — сохранение галок отправки в 1С (POST, только из setup.php)
  * - action=setup_logs   — журнал настроек: строки app.log по импорту справочников,
  *                         сохранению галок и пропускам отправки (GET, только из setup.php)
+ * - action=setup_diagnostics — сеть (1С, SFTP, SmartTravel) и права записи (GET, только из setup.php)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -777,6 +778,53 @@ switch ($action) {
             'message'   => $setupMessage,
             'types'     => SendPolicy::getTypeLabels(),
             'suppliers' => $setupSuppliers
+        ), JSON_UNESCAPED_UNICODE);
+        break;
+
+    /**
+     * ДИАГНОСТИКА СЕТИ И ПРАВ (страница setup.php)
+     *
+     * Лёгкие проверки: HEAD к 1С, короткое SFTP-подключение, GET к SmartTravel,
+     * пробная запись в рабочие папки. Заказ в 1С не отправляется.
+     * GET. Без сессии setup — HTTP 403.
+     */
+    case 'setup_diagnostics':
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['setup_auth'])) {
+            http_response_code(403);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нужно войти на странице Setup'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $diagSettings = array();
+        if (file_exists($configFile) && is_readable($configFile)) {
+            $diagSettings = json_decode(file_get_contents($configFile), true);
+            if (!is_array($diagSettings)) {
+                $diagSettings = array();
+            }
+        }
+
+        require_once BASE_DIR . '/core/SetupDiagnostics.php';
+        $diag = new SetupDiagnostics(BASE_DIR);
+        $diagResult = $diag->run($diagSettings);
+
+        $logger->info(
+            'Setup: диагностика — OK: ' . $diagResult['ok']
+            . ', FAIL: ' . $diagResult['fail']
+            . ', SKIP: ' . $diagResult['skip']
+        );
+
+        echo json_encode(array(
+            'status' => 'ok',
+            'checks' => $diagResult['checks'],
+            'ok'     => $diagResult['ok'],
+            'fail'   => $diagResult['fail'],
+            'skip'   => $diagResult['skip']
         ), JSON_UNESCAPED_UNICODE);
         break;
 

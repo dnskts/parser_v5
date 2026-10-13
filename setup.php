@@ -144,6 +144,27 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         </section>
 
         <!-- ============================================ -->
+        <!-- ДИАГНОСТИКА СЕТИ И ПРАВ                      -->
+        <!-- ============================================ -->
+        <section class="panel panel--compact">
+            <div class="panel__title-row">
+                <div class="panel__title-group">
+                    <h2 class="panel__title panel__title--inline">Диагностика</h2>
+                </div>
+            </div>
+            <p class="setup__hint">
+                Проверка доступности 1С, SFTP и SmartTravel и права записи в рабочие папки.
+                Заказ в 1С не отправляется, файлы с серверов не скачиваются.
+            </p>
+            <div class="control-group__buttons">
+                <button id="btn-diagnostics" class="btn btn--secondary" type="button">
+                    Проверить
+                </button>
+            </div>
+            <ul id="diag-results" class="diag-list"></ul>
+        </section>
+
+        <!-- ============================================ -->
         <!-- ОТПРАВКА В 1С ПО ПОСТАВЩИКАМ                 -->
         <!-- ============================================ -->
         <section class="panel panel--compact">
@@ -199,6 +220,8 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         var suppliersEl = document.getElementById('setup-suppliers');
         var btnSave = document.getElementById('btn-setup-save');
         var btnImportRefs = document.getElementById('btn-import-refs');
+        var btnDiagnostics = document.getElementById('btn-diagnostics');
+        var diagResultsEl = document.getElementById('diag-results');
         var refsLabel = document.getElementById('refs-last-import');
         var logsEl = document.getElementById('setup-logs');
         var btnRefreshLogs = document.getElementById('btn-refresh-logs');
@@ -639,8 +662,68 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                 });
         }
 
+        /**
+         * Сеть и права записи. Не запускается сама — только по кнопке.
+         */
+        function renderDiagnostics(checks) {
+            diagResultsEl.innerHTML = '';
+            if (!checks || !checks.length) {
+                return;
+            }
+            for (var i = 0; i < checks.length; i++) {
+                var check = checks[i];
+                var li = document.createElement('li');
+                var status = check.status || 'fail';
+                li.className = 'diag-row diag-row--' + status;
+                var label = status === 'ok' ? 'OK' : (status === 'skip' ? 'SKIP' : 'FAIL');
+                li.textContent = label + '  ' + (check.title || '')
+                    + '  ' + (check.ms || 0) + ' мс  —  ' + (check.message || '');
+                diagResultsEl.appendChild(li);
+            }
+        }
+
+        function runDiagnostics() {
+            btnDiagnostics.disabled = true;
+            setStatus('running', 'Диагностика…');
+            diagResultsEl.innerHTML = '';
+
+            fetch('api.php?action=setup_diagnostics')
+                .then(function(response) {
+                    return response.json().then(function(data) {
+                        return { httpStatus: response.status, data: data };
+                    });
+                })
+                .then(function(result) {
+                    var data = result.data;
+                    if (result.httpStatus === 403) {
+                        setStatus('error', (data && data.message) ? data.message : 'Нужно войти заново');
+                        return;
+                    }
+                    if (!data || data.status !== 'ok') {
+                        setStatus('error', (data && data.message) ? data.message : 'Диагностика не выполнена');
+                        return;
+                    }
+                    renderDiagnostics(data.checks);
+                    var fail = data.fail || 0;
+                    var text = 'Диагностика: ' + (data.ok || 0) + ' OK, ' + fail + ' FAIL';
+                    if (data.skip) {
+                        text += ', ' + data.skip + ' SKIP';
+                    }
+                    setStatus(fail > 0 ? 'error' : 'success', text);
+                    loadLogs(false);
+                })
+                .catch(function(error) {
+                    setStatus('error', 'Ошибка связи с сервером');
+                    console.error('Ошибка диагностики:', error);
+                })
+                .finally(function() {
+                    btnDiagnostics.disabled = false;
+                });
+        }
+
         btnSave.addEventListener('click', saveSetup);
         btnImportRefs.addEventListener('click', importReferences);
+        btnDiagnostics.addEventListener('click', runDiagnostics);
         btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
         logsEl.addEventListener('scroll', onLogScroll);
 
