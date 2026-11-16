@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-11-16 — Setup: ZIP-выгрузка данных на ПК
+
+**Запрос пользователя:** кнопка на Setup, чтобы скачать серверные данные архивом на ПК; обычная выгрузка + сразу «Полный клон»; в обычную — последние 100 input.
+
+### Что сделано
+- `core/SetupDataExport.php`: `build(data|full)` через ZipArchive.
+  - **data:** references/*.json, config/settings.json (+ sftp_last_run.txt), json/, json_api/, последние 100 файлов под input/ по mtime.
+  - **full:** то же + весь input + logs.
+  - Без .gitkeep и без references/import/*.txt.
+- `api.php?action=setup_export_data&mode=data|full`: сессия setup, иначе 403; ответ ZIP; лог `Setup: выгрузка данных для ПК (…)`.
+- `setup.php`: две ссылки-кнопки и подсказка с разницей; распаковать в корень parser_v5.
+
+### Проверка
+- `php -l`; smoke `build('data')` — архив собирается (локально ~379 файлов).
+
+### Изменённые файлы
+- `core/SetupDataExport.php`, `api.php`, `setup.php`, docs
+
+---
+
 ## 2026-11-16 — Git: код и settings; данные вне репозитория
 
 **Запрос пользователя:** в git должен уходить `settings.json` с паролями; справочники, входные файлы и результаты обработки — нет. С GitHub на сервер копируется проект, а актуальные refs/файлы/результаты остаются серверными; на ПК их переносят вручную.

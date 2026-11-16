@@ -25,6 +25,7 @@
  * - action=setup_logs   — журнал настроек: строки app.log по импорту справочников,
  *                         сохранению галок и пропускам отправки (GET, только из setup.php)
  * - action=setup_diagnostics — сеть (1С, SFTP, SmartTravel) и права записи (GET, только из setup.php)
+ * - action=setup_export_data — ZIP с данными сервера для ПК (GET mode=data|full, только из setup.php)
  * 
  * Все ответы возвращаются в формате JSON.
  * 
@@ -780,6 +781,65 @@ switch ($action) {
             'suppliers' => $setupSuppliers
         ), JSON_UNESCAPED_UNICODE);
         break;
+
+    /**
+     * ВЫГРУЗКА ДАННЫХ ДЛЯ ПК (страница setup.php)
+     *
+     * GET mode=data|full (по умолчанию data). Сессия setup, иначе 403.
+     * Ответ — ZIP-файл (не JSON).
+     * data: refs, settings, json, json_api, последние 100 файлов input
+     * full: то же + весь input + logs
+     */
+    case 'setup_export_data':
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['setup_auth'])) {
+            http_response_code(403);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нужно войти на странице Setup'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        @set_time_limit(300);
+        @ini_set('memory_limit', '512M');
+
+        $exportMode = isset($_GET['mode']) ? (string)$_GET['mode'] : 'data';
+        if ($exportMode !== 'full') {
+            $exportMode = 'data';
+        }
+
+        require_once BASE_DIR . '/core/SetupDataExport.php';
+        try {
+            $exporter = new SetupDataExport(BASE_DIR);
+            $exportResult = $exporter->build($exportMode);
+        } catch (Exception $e) {
+            $logger->warning('Setup: выгрузка данных — ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $sizeKb = round($exportResult['bytes'] / 1024, 1);
+        $logger->info(
+            'Setup: выгрузка данных для ПК (' . $exportResult['mode'] . ') — '
+            . $exportResult['file_count'] . ' файлов, ' . $sizeKb . ' КБ'
+        );
+
+        // Сбрасываем JSON-заголовок, отданный в начале api.php
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $exportResult['filename'] . '"');
+        header('Content-Length: ' . $exportResult['bytes']);
+        header('Cache-Control: no-store');
+
+        readfile($exportResult['path']);
+        @unlink($exportResult['path']);
+        exit;
 
     /**
      * ДИАГНОСТИКА СЕТИ И ПРАВ (страница setup.php)

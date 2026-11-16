@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-11-16
-**Обновлено после:** git — код и settings.json; справочники/файлы/результаты вне репозитория
+**Обновлено после:** Setup — выгрузка серверных данных ZIP (данные / полный клон)
 
 ---
 
@@ -71,6 +71,7 @@ parser_v5/
 │   ├── Processor.php         — оркестратор: glob(*.xml+*.json)→parse→enrich→saveJson→send→move + processSingleFile()
 │   ├── SendPolicy.php        — разрешения отправки в 1С по типам услуг (setup.suppliers): statusToType(), checkOrder(), detectFolder()
 │   ├── SetupDiagnostics.php  — диагностика для setup.php: сеть (1С/SFTP/SmartTravel) и пробная запись в рабочие папки
+│   ├── SetupDataExport.php   — ZIP выгрузка серверных данных на ПК (mode=data|full)
 │   ├── ReferenceManager.php  — менеджер справочников: загрузка, поиск, обогащение ORDER полями UID, синхронизация через API 1С
 │   ├── ReferenceImporter.php — импорт выгрузок 1С из references/import/ в references/*.json
 │   ├── SftpSync.php          — SFTP-клиент: подключение, листинг, скачивание, перемещение
@@ -93,7 +94,7 @@ parser_v5/
 ├── data.php                  — таблица заказов: вкладки по парсерам, data_rows, «Загрузить ещё», 70 колонок; дата references.last_import
 ├── api_logs.php              — логи API (HTML + AJAX к себе)
 ├── setup.php                  — страница настроек под паролем: загрузка справочников + галки отправки в 1С по поставщикам
-├── api.php                   — AJAX API (logs/run/settings/clear_logs/clear_json/resend/api_json/save_api_json/data_rows/sync_references/import_references/setup_get/setup_save/setup_logs/setup_diagnostics)
+├── api.php                   — AJAX API (…/setup_get/setup_save/setup_logs/setup_diagnostics/setup_export_data)
 ├── process.php               — точка входа pipeline (CLI cron + require из api.php), SFTP + PULL + syncReferences + Processor
 ├── webhook.php               — приёмник PUSH-уведомлений (POST JSON → input/{supplier}/ → Processor)
 ├── sftp_sync.php             — точка входа SFTP-синхронизации (CLI cron + браузер)
@@ -788,12 +789,13 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 Это первый уровень защиты: полноценной авторизации в системе нет, цель — чтобы рядовые сотрудники не меняли настройки.
 Содержимое:
 - Кнопка «📚 Загрузить справочники» (перенесена с index.php) + дата references.last_import
+- Кнопки выгрузки на ПК: «Скачать данные (ZIP)» (refs, settings, json/json_api, последние 100 input) и «Полный клон (ZIP)» (+весь input + logs). Распаковать в корень parser_v5
 - Карточки поставщиков из ParserManager с галками «Продажи / Возвраты / Обмены» и кнопкой «Сохранить»
 - Секция «Диагностика»: кнопка «Проверить» (не при открытии страницы) — доступность API 1С (HEAD), SFTP, SmartTravel PULL и пробная запись в config/, logs/, json/, json_api/, input/moyagent/, input/smarttravel/, references/, references/import/. Заказ в 1С не отправляется. Итог пишется в app.log: `Setup: диагностика — OK: N, FAIL: M, SKIP: K`
 - Окно «Журнал настроек»: строки app.log по теме настроек (импорт справочников, сохранение галок, пропуски отправки, предупреждения справочников), опрос раз в 3 с, кнопка «Обновить», подгрузка истории при прокрутке вверх
 Каждое изменение галки пишется отдельной строкой: `Setup: «МА авиа» — снята галка «Возвраты», заказы этого типа в 1С не отправляются` (сохранение без изменений — «изменений нет»). Такие строки выделены в журнале своим цветом (класс `log-line--setup`, определяется по маркеру `Setup: ` в setup.php и assets/app.js).
 Новый парсер появляется на странице автоматически (список от ParserManager), галки по умолчанию включены.
-AJAX: api.php?action=setup_get / setup_save / setup_logs / setup_diagnostics (без сессии — HTTP 403), встроенный скрипт (не app.js).
+AJAX: api.php?action=setup_get / setup_save / setup_logs / setup_diagnostics / setup_export_data (без сессии — HTTP 403), встроенный скрипт (не app.js).
 Журнал вынесен в отдельное действие setup_logs: в блоке setup_get/setup_save создаётся ParserManager, который пишет в app.log «Загружен парсер…», и опрос раз в 3 с засорял бы журнал сам собой.
 
 9.4. test.php — Автотесты
@@ -845,6 +847,7 @@ setup_get	GET	Поставщики (ParserManager) и галки отправк�
 setup_save	POST	Сохранение галок в settings.json → setup.suppliers; в app.log по строке на каждое изменение (поставщик + тип услуги), в ответе — число изменений; только при сессии setup.php, иначе 403
 setup_logs	GET	Журнал настроек: отфильтрованные строки app.log (offset, limit); только при сессии setup.php, иначе 403
 setup_diagnostics	GET	Сеть (1С, SFTP, SmartTravel) и пробная запись в рабочие папки; в app.log одна строка с числом OK/FAIL/SKIP; только при сессии setup.php, иначе 403
+setup_export_data	GET	ZIP для ПК: mode=data|full; ответ application/zip; сессия setup.php, иначе 403
 10. Текущее состояние
 Реализовано (✅)
 ✅ Ядро: Processor, ParserManager, Logger, ParserInterface, Utils
@@ -873,6 +876,7 @@ setup_diagnostics	GET	Сеть (1С, SFTP, SmartTravel) и пробная зап
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-16	Setup: ZIP-выгрузка данных на ПК — «Скачать данные» (refs/settings/json + 100 input) и «Полный клон» (+весь input + logs)	core/SetupDataExport.php, api.php, setup.php, docs
 2026-11-16	Git: settings.json с паролями остаётся в репозитории; references/*.json, входные файлы и результаты — вне git (gitignore + rm --cached); деплой не затирает серверные данные	.gitignore, config/settings.json, docs
 2026-10-13	Setup: секция «Диагностика» — кнопка «Проверить» (сеть 1С/SFTP/SmartTravel и права записи в рабочие папки), api.php?action=setup_diagnostics	core/SetupDiagnostics.php, api.php, setup.php, assets/style.css
 2026-10-02	MoyAgent: явная такса air_tax code="EMD" без emd_ticket_doc выделяется в отдельный EMD-продукт (номер {билет}-emd, EMD_NAME «EMD», сумма только по таксе), включая возвраты; stripTicketPrefix сохраняет суффикс -emd; в buildEmdSaleProducts/buildEmdRefundProducts передан $orderId (RESERVATION_NUMBER собирался без номера заказа)	parsers/MoyAgentParser.php, core/ApiSender.php, test.php, tests/fixtures/

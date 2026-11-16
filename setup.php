@@ -135,11 +135,26 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                     <a href="setup.php?logout=1" class="btn btn--small btn--outline">Выйти из настроек</a>
                 </div>
             </div>
+            <p class="setup__hint">
+                «Скачать данные» — справочники, settings, json/json_api и последние 100 файлов input
+                (для повседневной отладки на ПК). «Полный клон» — то же плюс весь input и все логи
+                (может быть большим, в XML есть персональные данные). Распаковать ZIP в корень parser_v5.
+            </p>
             <div class="control-group__buttons">
                 <button id="btn-import-refs" class="btn btn--secondary"
                         title="Прочитать выгрузку 1С из references/import/ и обновить справочники">
                     📚 Загрузить справочники
                 </button>
+                <a id="btn-export-data" class="btn btn--outline"
+                   href="api.php?action=setup_export_data&amp;mode=data"
+                   title="ZIP: refs, settings, json, последние 100 input">
+                    Скачать данные (ZIP)
+                </a>
+                <a id="btn-export-full" class="btn btn--outline"
+                   href="api.php?action=setup_export_data&amp;mode=full"
+                   title="ZIP: всё из «Данных» + весь input + logs">
+                    Полный клон (ZIP)
+                </a>
             </div>
         </section>
 
