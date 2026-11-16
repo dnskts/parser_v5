@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-11-16
-**Обновлено после:** Setup — выгрузка серверных данных ZIP (данные / полный клон)
+**Обновлено после:** email в подвале страниц
 
 ---
 
@@ -876,6 +876,8 @@ setup_export_data	GET	ZIP для ПК: mode=data|full; ответ application/zi
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-16	В подвал всех страниц: mailto denis.kuritsyn@rstls.ru	index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
+2026-11-16	Версия в шапке всех страниц из config/version.php (старт 1.1); при выкладках увеличивать	config/version.php, index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
 2026-11-16	Setup: ZIP-выгрузка данных на ПК — «Скачать данные» (refs/settings/json + 100 input) и «Полный клон» (+весь input + logs)	core/SetupDataExport.php, api.php, setup.php, docs
 2026-11-16	Git: settings.json с паролями остаётся в репозитории; references/*.json, входные файлы и результаты — вне git (gitignore + rm --cached); деплой не затирает серверные данные	.gitignore, config/settings.json, docs
 2026-10-13	Setup: секция «Диагностика» — кнопка «Проверить» (сеть 1С/SFTP/SmartTravel и права записи в рабочие папки), api.php?action=setup_diagnostics	core/SetupDiagnostics.php, api.php, setup.php, assets/style.css

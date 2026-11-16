@@ -1,9 +1,15 @@
+<?php
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Панель управления</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Панель управления</title>
     <!-- Подключаем стили оформления -->
     <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -15,7 +21,7 @@
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                 </div>
                 <!-- Навигация между страницами -->
                 <nav class="nav">
@@ -127,7 +133,7 @@
     <!-- ПОДВАЛ СТРАНИЦЫ                              -->
     <!-- ============================================ -->
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
     <!-- Подключаем скрипт логики интерфейса -->

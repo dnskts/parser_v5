@@ -6,6 +6,11 @@
 
 require_once __DIR__ . '/core/ApiSender.php';
 
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
+
 $configFile = __DIR__ . '/config/settings.json';
 $settings = array();
 if (file_exists($configFile)) {
@@ -48,7 +53,7 @@ if (isset($_GET['action'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Логи отправки API</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Логи отправки API</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
         .api-status{display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:3px 16px;border-radius:8px;font-size:14px}
@@ -88,7 +93,7 @@ if (isset($_GET['action'])) {
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                     <p class="header__subtitle">Логи отправки заказов в API 1С</p>
                 </div>
                 <nav class="nav">
@@ -137,7 +142,7 @@ if (isset($_GET['action'])) {
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
     <script>

@@ -20,6 +20,11 @@
 
 session_start();
 
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
+
 // Читаем настройки, чтобы взять пароль и дату импорта справочников
 $configFile = __DIR__ . '/config/settings.json';
 $settings = array();
@@ -71,7 +76,7 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Setup</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Setup</title>
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -79,7 +84,7 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                 </div>
                 <nav class="nav">
                     <a href="index.php" class="nav__link">Панель управления</a>
@@ -223,7 +228,7 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
 <?php if ($isAuthorized): ?>

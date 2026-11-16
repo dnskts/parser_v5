@@ -29,7 +29,8 @@
 | Файл | Описание |
 |------|----------|
 | `config/settings.json` | Главный файл настроек. Содержит: `interval`, `last_run`, секции `api`, `sftp`, `smarttravel`, `references` (auto_sync, api_*, uid_profile=prod\|test — выбор uid/uid_test в справочниках, пояснение в соседнем ключе `_uid_profile_hint`, types), `setup` (password — пароль страницы setup.php; suppliers.{папка}.{sale,refund,exchange} — галки отправки в 1С по типам услуг), опционально `data_column_order`, `tab_order`. |
-| `config/sftp_last_run.txt` | Одна строка — timestamp последней успешной SFTP-синхронизации. Обновляется после каждого запуска SftpSync (из process.php или sftp_sync.php). Используется для проверки интервала между синхронизациями. |
+| `config/version.php` | Версия приложения (`return '1.1';`). Показывается в шапке на всех страницах. При каждой заметной выкладке на git увеличивать. |
+| `config/sftp_last_run.txt` | Одна строка — timestamp последней успешной SFTP-синхронизации. Обновляется после каждого запуска SftpSync (из process.php или sftp_sync.php). Используется для проверки интервала между синхронизациями. Не в git. |
 
 ---
 

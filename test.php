@@ -1219,13 +1219,17 @@ if ($isCli) {
 // =====================================================
 // HTML-ВЫВОД (ВЕБ-ИНТЕРФЕЙС)
 // =====================================================
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Автотесты</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Автотесты</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
         /* Минимальные отступы для страницы тестов */
@@ -1435,7 +1439,7 @@ if ($isCli) {
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                     <p class="header__subtitle">Автоматическое тестирование парсеров</p>
                 </div>
                 <nav class="nav">
@@ -1563,7 +1567,7 @@ if ($isCli) {
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
     <script>
