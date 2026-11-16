@@ -142,9 +142,6 @@ class Processor
             $supplierDir = $this->inputDir . DIRECTORY_SEPARATOR . $folder;
 
             // Проверяем, существует ли папка поставщика
-            // #region agent log
-            @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'A','location'=>'Processor.php:128','message'=>'Checking supplier dir','data'=>array('folder'=>$folder,'supplierDir'=>$supplierDir,'exists'=>is_dir($supplierDir)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
-            // #endregion
             if (!is_dir($supplierDir)) {
                 $this->logger->warning("Папка поставщика не найдена: {$supplierDir}");
                 continue;
@@ -422,9 +419,6 @@ class Processor
      */
     private function moveFile($source, $destination)
     {
-        // #region agent log
-        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'E','location'=>'Processor.php:366','message'=>'moveFile','data'=>array('source'=>$source,'destination'=>$destination,'sourceExists'=>file_exists($source)),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
-        // #endregion
         // Если файл с таким именем уже существует — добавляем к имени дату
         if (file_exists($destination)) {
             $pathInfo = pathinfo($destination);
@@ -454,9 +448,6 @@ class Processor
         $processed = $supplierDir . DIRECTORY_SEPARATOR . 'Processed';
         $error = $supplierDir . DIRECTORY_SEPARATOR . 'Error';
 
-        // #region agent log
-        @file_put_contents(dirname(__DIR__) . '/debug-edd969.log', json_encode(array('sessionId'=>'edd969','hypothesisId'=>'A','location'=>'Processor.php:392','message'=>'ensureSubfolders','data'=>array('supplierDir'=>$supplierDir,'processed'=>$processed,'error'=>$error),'timestamp'=>round(microtime(true)*1000)))."\n", FILE_APPEND);
-        // #endregion
         Utils::ensureDirectory($processed);
         Utils::ensureDirectory($error);
     }

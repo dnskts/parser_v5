@@ -61,5 +61,8 @@ references/import/*
 temp/
 debug-*.log
 
+# === Локальные образцы багов (с ПДн, не в git) ===
+bugs/
+
 # Timestamp SFTP (пишется при каждой синхронизации)
 config/sftp_last_run.txt

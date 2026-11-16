@@ -15,7 +15,8 @@
 | `input/` | Входные файлы (XML, JSON). Подпапки поставщиков (moyagent, smarttravel, demo_hotel) с Processed/Error через `.gitkeep`. В корне репозитория: тестовый `test.xml`. Содержимое Processed/Error и рабочие XML не в git. |
 | `json/` | Выходные JSON-файлы после обработки (ORDER после enrich(), источник таблицы data.php). Имя: `{папка_поставщика}_{имя_xml}_{Ymd_His}.json`. Папка в git через `.gitkeep` (содержимое в .gitignore); при первом запуске Processor создаёт её через ensureDirectory. |
 | `json_api/` | Копии payload ровно в том виде, в каком они уходят в 1С (после ApiSender::prepareForApi()). Имена файлов совпадают с `json/`. Пишется всегда, даже при выключенном API; смотреть и править через окно «JSON для 1С» на data.php. Папка в git через `.gitkeep`. |
-| `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH) |
+| `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH). В git только `.gitkeep`. |
+| `bugs/` | Локальные XML/образцы для разбора багов (с ПДн). **Не в git** (`.gitignore`). |
 | `tests/` | Тесты. В tests/fixtures/ — XML/JSON-фикстуры для автотестов парсеров (MoyAgent + SmartTravel) |
 | `assets/` | Фронтенд: общие стили (style.css), скрипт панели (app.js), библиотека для выгрузки XLSX |
 | `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. **Не в git** (актуальные — на сервере / вручную на ПК); в репозитории только `.gitkeep` и `import/.gitkeep`. Заполняются импортом из `references/import/` (ReferenceImporter), вручную или через API 1С (syncAll). |
@@ -29,7 +30,7 @@
 | Файл | Описание |
 |------|----------|
 | `config/settings.json` | Главный файл настроек. Содержит: `interval`, `last_run`, секции `api`, `sftp`, `smarttravel`, `references` (auto_sync, api_*, uid_profile=prod\|test — выбор uid/uid_test в справочниках, пояснение в соседнем ключе `_uid_profile_hint`, types), `setup` (password — пароль страницы setup.php; suppliers.{папка}.{sale,refund,exchange} — галки отправки в 1С по типам услуг), опционально `data_column_order`, `tab_order`. |
-| `config/version.php` | Версия приложения (`return '1.1';`). Показывается в шапке на всех страницах. При каждой заметной выкладке на git увеличивать. |
+| `config/version.php` | Версия приложения (`return '1.2';`). Показывается в шапке на всех страницах. При каждой заметной выкладке на git увеличивать. |
 | `config/sftp_last_run.txt` | Одна строка — timestamp последней успешной SFTP-синхронизации. Обновляется после каждого запуска SftpSync (из process.php или sftp_sync.php). Используется для проверки интервала между синхронизациями. Не в git. |
 
 ---

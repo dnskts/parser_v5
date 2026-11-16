@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-11-16 — Чистка мусора
+
+**Запрос пользователя:** проверить файлы проекта на мусор.
+
+### Найдено и убрано
+- `core/Processor.php` — 3 остатка agent-debug (`file_put_contents` → `debug-edd969.log`); лог в корне удалён.
+- `.gitignore` — добавлен `bugs/` (локальные XML с ПДн не должны попадать в git).
+- `logs/.gitkeep` — восстановлен (папка логов снова сохраняется при клоне).
+- `json_api/.gitkeep` — сброшен phantom CRLF-diff.
+
+### Не мусор (оставлено)
+- `bugs/1253511413565.xml` — локальный образец бага (игнорируется git).
+- Локальные правки `config/settings.json` (interval/last_run/галки отправки) — рабочие настройки, не коммитить без нужды.
+- `input/`, `json/`, `json_api/`, `logs/*.log`, `references/` — рабочие данные.
+- `docs/17. Заказы парсера МА.md`, `migration.md`, `nextstep.md` — справочные/план, не leftovers.
+
+### Версия
+- При выкладке: `config/version.php` → **1.2**.
+
+### Изменённые файлы
+- `core/Processor.php`, `.gitignore`, `logs/.gitkeep`, `config/version.php`, docs
+
+---
+
 ## 2026-11-16 — Email в подвале
 
 **Запрос пользователя:** вниз страниц добавить denis.kuritsyn@rstls.ru.

@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
 **Последнее обновление:** 2026-11-16
-**Обновлено после:** email в подвале страниц
+**Обновлено после:** чистка мусора + версия 1.2
 
 ---
 
@@ -876,6 +876,7 @@ setup_export_data	GET	ZIP для ПК: mode=data|full; ответ application/zi
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-16	Чистка: убраны debug-записи Processor→debug-edd969.log; bugs/ в .gitignore; восстановлен logs/.gitkeep	core/Processor.php, .gitignore, logs/.gitkeep
 2026-11-16	В подвал всех страниц: mailto denis.kuritsyn@rstls.ru	index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
 2026-11-16	Версия в шапке всех страниц из config/version.php (старт 1.1); при выкладках увеличивать	config/version.php, index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
 2026-11-16	Setup: ZIP-выгрузка данных на ПК — «Скачать данные» (refs/settings/json + 100 input) и «Полный клон» (+весь input + logs)	core/SetupDataExport.php, api.php, setup.php, docs
