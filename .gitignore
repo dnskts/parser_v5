@@ -48,12 +48,18 @@ json_api/*
 logs/*
 !logs/.gitkeep
 
-# === Выгрузки справочников из 1С ===
-# Крупные txt-файлы, загружаются вручную раз в месяц
+# === Справочники ===
+# Актуальные JSON только на сервере / вручную на ПК (не в git).
+# В репозитории — пустая структура через .gitkeep.
+references/*
+!references/.gitkeep
+!references/import/
 references/import/*
 !references/import/.gitkeep
 
 # === Временные файлы ===
 temp/
+debug-*.log
 
+# Timestamp SFTP (пишется при каждой синхронизации)
 config/sftp_last_run.txt

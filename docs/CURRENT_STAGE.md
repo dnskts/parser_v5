@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-10-13
-**Обновлено после:** страница Setup: диагностика сети (1С, SFTP, SmartTravel) и прав записи
+**Последнее обновление:** 2026-11-16
+**Обновлено после:** git — код и settings.json; справочники/файлы/результаты вне репозитория
 
 ---
 
@@ -873,6 +873,7 @@ setup_diagnostics	GET	Сеть (1С, SFTP, SmartTravel) и пробная зап
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-16	Git: settings.json с паролями остаётся в репозитории; references/*.json, входные файлы и результаты — вне git (gitignore + rm --cached); деплой не затирает серверные данные	.gitignore, config/settings.json, docs
 2026-10-13	Setup: секция «Диагностика» — кнопка «Проверить» (сеть 1С/SFTP/SmartTravel и права записи в рабочие папки), api.php?action=setup_diagnostics	core/SetupDiagnostics.php, api.php, setup.php, assets/style.css
 2026-10-02	MoyAgent: явная такса air_tax code="EMD" без emd_ticket_doc выделяется в отдельный EMD-продукт (номер {билет}-emd, EMD_NAME «EMD», сумма только по таксе), включая возвраты; stripTicketPrefix сохраняет суффикс -emd; в buildEmdSaleProducts/buildEmdRefundProducts передан $orderId (RESERVATION_NUMBER собирался без номера заказа)	parsers/MoyAgentParser.php, core/ApiSender.php, test.php, tests/fixtures/
 2026-10-01	Лог изменения галок: setup_save сравнивает старые и новые значения и пишет по строке на каждое изменение («снята/поставлена галка «Возвраты» у «МА авиа»»); такие строки выделены в журнале цветом (log-line--setup)	api.php, assets/style.css, setup.php, assets/app.js
@@ -933,9 +934,22 @@ JSON: JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
 CSS: BEM-нотация
 JS: ES5 (совместимость), fetch API
 13. Безопасность и деплой
-input/, json/ и json_api/ — в .gitignore (кроме .gitkeep)
-config/settings.json — модифицируется автоматически (last_run), содержит пароли
-config/sftp_last_run.txt — модифицируется автоматически
+
+**Что в git:** код (PHP/JS/CSS/docs), `config/settings.json` **с паролями** (api, sftp, setup), структура папок через `.gitkeep`, тестовый `input/test.xml`.
+
+**Что не в git (только на сервере / вручную на ПК):**
+- `references/*.json` — актуальные справочники (после импорта на сервере); в репозитории пустая `references/` + `import/.gitkeep`
+- `references/import/*.txt` — выгрузки 1С
+- `input/**` рабочие XML/JSON поставщиков (кроме `.gitkeep` и `input/test.xml`)
+- `json/`, `json_api/` — результаты обработки
+- `logs/`, `config/sftp_last_run.txt`
+
+**Деплой:** `git pull` на сервер обновляет код и settings; справочники, входные файлы и результаты на сервере **не затираются**. На ПК актуальные refs и файлы переносятся вручную. Дата импорта на Setup (`references.last_import`) обновляется при успешной кнопке «Загрузить справочники»; при pull с GitHub подпись может откатиться к дате из репозитория, пока снова не импортируете.
+
+**Следующий этап (не сделано):** ночная автоактуализация справочников — нужен либо HTTP-сервис 1С (`syncAll`), либо регламент 1С, кладущий файлы в `import/` + отдельный ночной cron (не `auto_sync` на каждый `process.php`).
+
+config/settings.json — в git с паролями; на сервере ещё меняются `last_run` и `last_import`
+config/sftp_last_run.txt — не в git, пишется при SFTP
 API и SFTP пароли хранятся в settings.json открытым текстом
 Пароль страницы Setup — settings.json → setup.password (открытым текстом, первый уровень защиты: только чтобы сотрудники не заходили в настройки)
 SSL верификация отключена в ApiSender (внутренняя сеть)

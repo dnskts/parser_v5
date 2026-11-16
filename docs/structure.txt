@@ -18,7 +18,7 @@
 | `logs/` | Логи: app.log (основной), api_send.log (отправки в 1С, JSON Lines), sftp_sync.log (SFTP), pull_sync.log (SmartTravel PULL), webhook.log (SmartTravel PUSH) |
 | `tests/` | Тесты. В tests/fixtures/ — XML/JSON-фикстуры для автотестов парсеров (MoyAgent + SmartTravel) |
 | `assets/` | Фронтенд: общие стили (style.css), скрипт панели (app.js), библиотека для выгрузки XLSX |
-| `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. Заполняются импортом выгрузок 1С из `references/import/` (ReferenceImporter), вручную или через API 1С (syncAll). Используются ReferenceManager для обогащения ORDER. |
+| `references/` | Справочники для подстановки UID из 1С. JSON-файлы с массивами `{uid, code, name}`. **Не в git** (актуальные — на сервере / вручную на ПК); в репозитории только `.gitkeep` и `import/.gitkeep`. Заполняются импортом из `references/import/` (ReferenceImporter), вручную или через API 1С (syncAll). |
 | `docs/` | Документация проекта и AI-контекст: текущее состояние, changelog AI, полная структура, системный промпт; для каждого основного `.md` — UTF-8 зеркало `.txt` (обновление через `scripts/sync-docs-to-txt.php`) |
 | `.cursor/` | Локальные настройки Cursor IDE — в `.gitignore`, в репозиторий не попадает |
 
@@ -123,6 +123,8 @@
 
 ## Справочники (references/)
 
+Все `references/*.json` **вне git** (gitignore): на сервере свои после импорта, на ПК — ручной перенос. В репозитории — `references/.gitkeep` и `references/import/.gitkeep`.
+
 | Файл | Описание |
 |------|----------|
 | `references/import/` | Выгрузки из 1С «как есть» (JSON внутри .txt). Кладутся вручную, содержимое в .gitignore (кроме .gitkeep). После успешного импорта кнопкой «Загрузить справочники» все `*.txt` удаляются. Читаются ReferenceImporter: Валюты.txt, АвиаКомпании.txt, АэропортыСтанцииЖД.txt, Агенты.txt / Пользователи.txt, Города.txt, Страны.txt, Контрагенты.txt (~24 МБ, читается потоково). |
@@ -159,7 +161,7 @@
 | `nextstep.md` | План улучшений и оптимизации, следующие шаги с пояснениями, подробная инструкция по подключению новых поставщиков через API. |
 | `README.md` | Краткое описание проекта для людей (если есть). |
 | `migration.md` | Документ миграции (если есть). |
-| `.gitignore` | Исключения для Git: input/ (кроме test.xml и `.gitkeep` структуры папок), json/, json_api/, логи, `.cursor/`, конфиги с паролями, содержимое references/import/ (кроме .gitkeep). |
+| `.gitignore` | Исключения для Git: `references/*.json` (актуальные справочники), `references/import/*`, input/ (кроме test.xml и `.gitkeep`), json/, json_api/, логи, `config/sftp_last_run.txt`, `.cursor/`, `debug-*.log`. **Не** исключает `config/settings.json` — он в репозитории с паролями. |
 
 ---
 
