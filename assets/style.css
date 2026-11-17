@@ -444,6 +444,12 @@ a.btn {
     align-items: stretch;
 }
 
+/* Три журнала на index.php — колонка */
+.logs__split--column {
+    flex-direction: column;
+    gap: 10px;
+}
+
 .logs__pane {
     flex: 1;
     min-width: 0;
@@ -470,9 +476,21 @@ a.btn {
     flex: 1;
 }
 
-/* Невысокое окно логов (журнал настроек на setup.php) */
-.logs__container--compact {
-    max-height: 240px;
+/* Обработка файлов — основной поток */
+.logs__pane--files .logs__container {
+    max-height: 360px;
+}
+
+/* История запусков — компактная */
+.logs__container--compact,
+.logs__pane--runs .logs__container {
+    max-height: 160px;
+}
+
+/* Служебные */
+.logs__container--service,
+.logs__pane--service .logs__container {
+    max-height: 220px;
 }
 
 .logs__placeholder {

@@ -10,7 +10,7 @@
  * 
  * Доступные действия:
  * 
- * - action=logs         — получить последние записи лога (GET)
+ * - action=logs         — чанк app.log (GET: offset, limit, channel=files|runs|service)
  * - action=run          — запустить обработку файлов вручную (POST)
  * - action=settings     — получить настройки (GET) или сохранить (POST)
  * - action=clear_logs   — очистить файл логов (POST)
@@ -19,7 +19,7 @@
  * - action=api_json     — payload в формате 1С из json_api/ (GET: file)
  * - action=save_api_json — сохранить отредактированный payload (POST: file, content)
  * - action=data_rows    — порция строк таблицы по поставщику (GET: supplier, offset, limit, sort, dir)
- * - action=import_references — импорт справочников из references/import/ (POST)
+ * - action=import_references — импорт справочников: multipart .txt и/или папка references/import/ (POST, сессия Setup)
  * - action=setup_get    — поставщики и галки отправки в 1С (GET, только из setup.php)
  * - action=setup_save   — сохранение галок отправки в 1С (POST, только из setup.php)
  * - action=setup_logs   — журнал настроек: строки app.log по импорту справочников,
@@ -73,6 +73,30 @@ switch ($action) {
     case 'logs':
         $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
         $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
+        $channel = isset($_GET['channel']) ? trim((string)$_GET['channel']) : '';
+        if ($channel !== '') {
+            $allowedChannels = array('files' => true, 'runs' => true, 'service' => true);
+            if (!isset($allowedChannels[$channel])) {
+                http_response_code(400);
+                echo json_encode(array(
+                    'status' => 'error',
+                    'message' => 'Неизвестный channel (files|runs|service)'
+                ), JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $chunk = $logger->getChannelLinesChunk($channel, $offset, $limit);
+            echo json_encode(array(
+                'status'   => 'ok',
+                'channel'  => $channel,
+                'logs'     => $chunk['lines'],
+                'offset'   => $chunk['offset'],
+                'limit'    => $chunk['limit'],
+                'has_more' => $chunk['has_more'],
+                'scanned'  => isset($chunk['scanned']) ? $chunk['scanned'] : 0
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+        // Без channel — прежнее поведение (сырой чанк), на случай внешних вызовов
         $chunk = $logger->getLinesChunk($offset, $limit);
         echo json_encode(array(
             'status'   => 'ok',
@@ -554,6 +578,18 @@ switch ($action) {
             break;
         }
 
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if (empty($_SESSION['setup_auth'])) {
+            http_response_code(403);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нужно войти на странице Setup'
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         // Сразу в лог — если этой строки нет, клик до PHP не дошёл
         $logger->info('API: запрос import_references');
 
@@ -562,8 +598,85 @@ switch ($action) {
         @ini_set('memory_limit', '512M');
 
         require_once BASE_DIR . '/core/ReferenceImporter.php';
+        $importDir = BASE_DIR . '/references/import';
+        Utils::ensureDirectory($importDir);
+
+        // Гибрид: multipart .txt с диска пользователя и/или уже лежащие в import/
+        $uploadedCount = 0;
+        $uploadErrors = array();
+        $uploadMax = ini_get('upload_max_filesize');
+        $postMax = ini_get('post_max_size');
+        if (!empty($_FILES['files'])) {
+            $filesBag = $_FILES['files'];
+            // Нормализуем к списку файлов (один или multiple)
+            $names = isset($filesBag['name']) ? $filesBag['name'] : array();
+            if (!is_array($names)) {
+                $names = array($names);
+                $filesBag = array(
+                    'name' => array($filesBag['name']),
+                    'type' => array(isset($filesBag['type']) ? $filesBag['type'] : ''),
+                    'tmp_name' => array(isset($filesBag['tmp_name']) ? $filesBag['tmp_name'] : ''),
+                    'error' => array(isset($filesBag['error']) ? $filesBag['error'] : UPLOAD_ERR_NO_FILE),
+                    'size' => array(isset($filesBag['size']) ? $filesBag['size'] : 0)
+                );
+            }
+            for ($fi = 0; $fi < count($names); $fi++) {
+                $err = isset($filesBag['error'][$fi]) ? (int)$filesBag['error'][$fi] : UPLOAD_ERR_NO_FILE;
+                if ($err === UPLOAD_ERR_NO_FILE) {
+                    continue;
+                }
+                if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
+                    $uploadErrors[] = basename((string)$names[$fi])
+                        . ' превышает лимит PHP (upload_max_filesize='
+                        . $uploadMax . ', post_max_size=' . $postMax . ')';
+                    continue;
+                }
+                if ($err !== UPLOAD_ERR_OK) {
+                    $uploadErrors[] = basename((string)$names[$fi]) . ' — код ошибки upload ' . $err;
+                    continue;
+                }
+                $base = basename((string)$names[$fi]);
+                $ext = strtolower(pathinfo($base, PATHINFO_EXTENSION));
+                if ($ext !== 'txt') {
+                    $uploadErrors[] = $base . ' — допускается только .txt';
+                    continue;
+                }
+                $dest = $importDir . DIRECTORY_SEPARATOR . $base;
+                $tmp = isset($filesBag['tmp_name'][$fi]) ? $filesBag['tmp_name'][$fi] : '';
+                if ($tmp === '' || !is_uploaded_file($tmp) || !@move_uploaded_file($tmp, $dest)) {
+                    $uploadErrors[] = $base . ' — не удалось сохранить на сервер';
+                    continue;
+                }
+                Utils::ensureOwnership($dest);
+                $uploadedCount++;
+            }
+        }
+
+        if (!empty($uploadErrors) && $uploadedCount === 0) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => implode('; ', $uploadErrors),
+                'upload_max_filesize' => $uploadMax,
+                'post_max_size' => $postMax
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        $existingTxt = glob($importDir . DIRECTORY_SEPARATOR . '*.txt');
+        if ($uploadedCount === 0 && (empty($existingTxt) || !is_array($existingTxt))) {
+            http_response_code(400);
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => 'Нет файлов: выберите .txt с диска или положите выгрузки в references/import/',
+                'upload_max_filesize' => $uploadMax,
+                'post_max_size' => $postMax
+            ), JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         $importer = new ReferenceImporter(
-            BASE_DIR . '/references/import',
+            $importDir,
             BASE_DIR . '/references',
             $logger
         );
@@ -619,21 +732,30 @@ switch ($action) {
         }
 
         $importMessage = "Справочников обновлено: {$importedTypes}, записей: {$importedRows}";
+        if ($uploadedCount > 0) {
+            $importMessage .= ", загружено с диска: {$uploadedCount}";
+        }
         if ($cleaned > 0) {
             $importMessage .= ", удалено файлов выгрузки: {$cleaned}";
         }
         if (!empty($failedTypes)) {
             $importMessage .= '. Ошибки: ' . implode(', ', $failedTypes);
         }
+        if (!empty($uploadErrors)) {
+            $importMessage .= '. Upload: ' . implode('; ', $uploadErrors);
+        }
 
         echo json_encode(array(
-            'status'      => 'ok',
-            'message'     => $importMessage,
-            'imported'    => $importedTypes,
-            'rows'        => $importedRows,
-            'cleaned'     => $cleaned,
-            'last_import' => $lastImport,
-            'results'     => $importResult
+            'status'               => 'ok',
+            'message'              => $importMessage,
+            'imported'             => $importedTypes,
+            'rows'                 => $importedRows,
+            'uploaded'             => $uploadedCount,
+            'cleaned'              => $cleaned,
+            'last_import'          => $lastImport,
+            'results'              => $importResult,
+            'upload_max_filesize'  => $uploadMax,
+            'post_max_size'        => $postMax
         ), JSON_UNESCAPED_UNICODE);
         break;
 

@@ -9,7 +9,7 @@
  * - Ручной запуск обработки файлов
  * - Автообработка по таймеру (пока страница открыта)
  * - Сохранение настроек (интервал обработки)
- * - Импорт справочников из выгрузки 1С
+ * - Три независимых журнала (файлы / запуски / служебные)
  * - Очистка логов
  * 
  * Все запросы к серверу идут через AJAX (fetch API)
@@ -42,10 +42,6 @@ document.addEventListener('DOMContentLoaded', function() {
     /** Кнопка обновления логов */
     var btnRefreshLogs = document.getElementById('btn-refresh-logs');
     
-    /** Контейнеры журнала: события (лево) и служебные (право) */
-    var logsMain = document.getElementById('logs-main');
-    var logsService = document.getElementById('logs-service');
-    
     /** Текст статуса (Ожидание / Обработка / Успех / Ошибка) */
     var statusText = document.getElementById('status-text');
     
@@ -71,15 +67,38 @@ document.addEventListener('DOMContentLoaded', function() {
     /** AbortController для прерывания fetch при уходе со страницы */
     var runAbortController = null;
 
-    /** Сколько строк уже загружено с конца файла (курсор истории) */
-    var logsLoadedFromEnd = 0;
     var logsPageSize = 100;
-    var logsHasMore = true;
-    var logsLoadingOlder = false;
     var logsPollPaused = false;
-    /** Последняя известная самая новая строка (для append при poll) */
-    var logsNewestLine = '';
-    var knownLogLines = {};
+
+    /**
+     * Три независимых панели журнала (свой channel / offset / known).
+     */
+    var logPanes = {
+        files: {
+            channel: 'files',
+            el: document.getElementById('logs-files'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        },
+        runs: {
+            channel: 'runs',
+            el: document.getElementById('logs-runs'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        },
+        service: {
+            channel: 'service',
+            el: document.getElementById('logs-service'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        }
+    };
 
     // -------------------------------------------------------
     // ЗАГРУЗКА НАСТРОЕК ПРИ ОТКРЫТИИ СТРАНИЦЫ
@@ -116,36 +135,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // -------------------------------------------------------
-    // ЗАГРУЗКА И ОТОБРАЖЕНИЕ ЛОГОВ
+    // ЗАГРУЗКА И ОТОБРАЖЕНИЕ ЛОГОВ (три канала)
     // -------------------------------------------------------
 
-    function isServiceLogLine(line) {
-        var l = (line || '').toLowerCase();
-        if (l.indexOf('нет новых файлов') !== -1) return true;
-        if (l.indexOf('import_references') !== -1) return true;
-        if (l.indexOf('referenceimporter') !== -1) return true;
-        if (l.indexOf('references.last_import') !== -1) return true;
-        if (l.indexOf('справочник') !== -1) return true;
-        if (l.indexOf('parsermanager') !== -1) return true;
-        if (l.indexOf('зарегистрирован') !== -1 && l.indexOf('парсер') !== -1) return true;
-        if (l.indexOf('загружен') !== -1 && l.indexOf('парсер') !== -1) return true;
-        if (l.indexOf('обнаружен парсер') !== -1) return true;
-        return false;
+    function eachLogPane(fn) {
+        fn(logPanes.files);
+        fn(logPanes.runs);
+        fn(logPanes.service);
     }
 
     function clearLogPanes() {
-        logsMain.innerHTML = '';
-        logsService.innerHTML = '';
-        knownLogLines = {};
-        logsNewestLine = '';
-        logsLoadedFromEnd = 0;
-        logsHasMore = true;
+        eachLogPane(function(pane) {
+            if (!pane.el) return;
+            pane.el.innerHTML = '';
+            pane.known = {};
+            pane.loadedFromEnd = 0;
+            pane.hasMore = true;
+            pane.loadingOlder = false;
+        });
     }
 
     function showLogsEmpty(msg) {
         clearLogPanes();
-        logsMain.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
-        logsService.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
+        eachLogPane(function(pane) {
+            if (!pane.el) return;
+            pane.el.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
+        });
     }
 
     function createLogLineEl(line) {
@@ -156,28 +171,25 @@ document.addEventListener('DOMContentLoaded', function() {
         return div;
     }
 
-    function appendLogLine(line) {
-        if (knownLogLines[line]) return false;
-        knownLogLines[line] = 1;
-        var el = createLogLineEl(line);
-        var pane = isServiceLogLine(line) ? logsService : logsMain;
-        var ph = pane.querySelector('.logs__placeholder');
-        if (ph) pane.innerHTML = '';
-        pane.appendChild(el);
+    function appendLogLineToPane(pane, line) {
+        if (!pane || !pane.el || pane.known[line]) return false;
+        pane.known[line] = 1;
+        var ph = pane.el.querySelector('.logs__placeholder');
+        if (ph) pane.el.innerHTML = '';
+        pane.el.appendChild(createLogLineEl(line));
         return true;
     }
 
-    function prependLogLine(line) {
-        if (knownLogLines[line]) return false;
-        knownLogLines[line] = 1;
+    function prependLogLineToPane(pane, line) {
+        if (!pane || !pane.el || pane.known[line]) return false;
+        pane.known[line] = 1;
+        var ph = pane.el.querySelector('.logs__placeholder');
+        if (ph) pane.el.innerHTML = '';
         var el = createLogLineEl(line);
-        var pane = isServiceLogLine(line) ? logsService : logsMain;
-        var ph = pane.querySelector('.logs__placeholder');
-        if (ph) pane.innerHTML = '';
-        if (pane.firstChild) {
-            pane.insertBefore(el, pane.firstChild);
+        if (pane.el.firstChild) {
+            pane.el.insertBefore(el, pane.el.firstChild);
         } else {
-            pane.appendChild(el);
+            pane.el.appendChild(el);
         }
         return true;
     }
@@ -186,98 +198,109 @@ document.addEventListener('DOMContentLoaded', function() {
         return (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
     }
 
-    function scrollPanesToBottom() {
-        logsMain.scrollTop = logsMain.scrollHeight;
-        logsService.scrollTop = logsService.scrollHeight;
+    function scrollPaneToBottom(pane) {
+        if (pane && pane.el) {
+            pane.el.scrollTop = pane.el.scrollHeight;
+        }
+    }
+
+    function fetchPaneChunk(pane, offset, limit) {
+        var url = 'api.php?action=logs&channel=' + encodeURIComponent(pane.channel)
+            + '&offset=' + offset + '&limit=' + limit;
+        return fetch(url).then(function(response) { return response.json(); });
     }
 
     /**
-     * Первичная загрузка / полный refresh: последние N строк.
+     * Загрузка одного канала: fullReset / первая заливка или poll (offset=0).
+     */
+    function loadPaneLogs(pane, fullReset) {
+        if (!pane || !pane.el) return;
+        fetchPaneChunk(pane, 0, logsPageSize)
+            .then(function(data) {
+                if (!data || data.status !== 'ok') return;
+                if (!data.logs || data.logs.length === 0) {
+                    if (fullReset || pane.loadedFromEnd === 0) {
+                        pane.el.innerHTML = '<p class="logs__placeholder">Нет записей</p>';
+                        pane.loadedFromEnd = 0;
+                        pane.hasMore = false;
+                        pane.known = {};
+                    }
+                    return;
+                }
+
+                if (fullReset || pane.loadedFromEnd === 0) {
+                    pane.el.innerHTML = '';
+                    pane.known = {};
+                    for (var i = 0; i < data.logs.length; i++) {
+                        appendLogLineToPane(pane, data.logs[i]);
+                    }
+                    pane.loadedFromEnd = data.logs.length;
+                    pane.hasMore = !!data.has_more;
+                    scrollPaneToBottom(pane);
+                    return;
+                }
+
+                var stick = isNearBottom(pane.el);
+                var added = 0;
+                for (var j = 0; j < data.logs.length; j++) {
+                    if (appendLogLineToPane(pane, data.logs[j])) {
+                        added++;
+                    }
+                }
+                if (added > 0 && stick) {
+                    scrollPaneToBottom(pane);
+                }
+            })
+            .catch(function(error) {
+                console.error('Ошибка загрузки логов [' + pane.channel + ']:', error);
+            });
+    }
+
+    /**
+     * Первичная загрузка / refresh / poll для всех трёх панелей.
      */
     function loadLogs(fullReset) {
         if (fullReset) {
             clearLogPanes();
         }
-        var url = 'api.php?action=logs&offset=0&limit=' + logsPageSize;
-        fetch(url)
-            .then(function(response) { return response.json(); })
-            .then(function(data) {
-                if (data.status !== 'ok') return;
-                if (!data.logs || data.logs.length === 0) {
-                    if (logsLoadedFromEnd === 0) {
-                        showLogsEmpty('Логи пусты');
-                    }
-                    return;
-                }
-
-                if (fullReset || logsLoadedFromEnd === 0) {
-                    clearLogPanes();
-                    for (var i = 0; i < data.logs.length; i++) {
-                        appendLogLine(data.logs[i]);
-                    }
-                    logsLoadedFromEnd = data.logs.length;
-                    logsHasMore = !!data.has_more;
-                    logsNewestLine = data.logs[data.logs.length - 1] || '';
-                    scrollPanesToBottom();
-                    return;
-                }
-
-                // poll: append только новые строки в хвосте
-                var stickMain = isNearBottom(logsMain);
-                var stickService = isNearBottom(logsService);
-                var added = 0;
-                for (var j = 0; j < data.logs.length; j++) {
-                    if (appendLogLine(data.logs[j])) {
-                        added++;
-                    }
-                }
-                if (data.logs.length) {
-                    logsNewestLine = data.logs[data.logs.length - 1];
-                }
-                if (added > 0) {
-                    if (stickMain) logsMain.scrollTop = logsMain.scrollHeight;
-                    if (stickService) logsService.scrollTop = logsService.scrollHeight;
-                }
-            })
-            .catch(function(error) {
-                console.error('Ошибка загрузки логов:', error);
-            });
+        eachLogPane(function(pane) {
+            loadPaneLogs(pane, !!fullReset);
+        });
     }
 
-    function loadOlderLogs() {
-        if (logsLoadingOlder || !logsHasMore) return;
-        logsLoadingOlder = true;
-        var prevMainHeight = logsMain.scrollHeight;
-        var prevServiceHeight = logsService.scrollHeight;
-        var url = 'api.php?action=logs&offset=' + logsLoadedFromEnd + '&limit=' + logsPageSize;
-        fetch(url)
-            .then(function(response) { return response.json(); })
+    function loadOlderForPane(pane) {
+        if (!pane || !pane.el || pane.loadingOlder || !pane.hasMore) return;
+        pane.loadingOlder = true;
+        var prevHeight = pane.el.scrollHeight;
+        fetchPaneChunk(pane, pane.loadedFromEnd, logsPageSize)
             .then(function(data) {
-                logsLoadingOlder = false;
-                if (data.status !== 'ok' || !data.logs || data.logs.length === 0) {
-                    logsHasMore = false;
+                pane.loadingOlder = false;
+                if (!data || data.status !== 'ok' || !data.logs || data.logs.length === 0) {
+                    pane.hasMore = false;
                     return;
                 }
-                // data.logs chronological old→new; prepend from newest of chunk to oldest
-                // so visual order stays chronological
                 for (var i = data.logs.length - 1; i >= 0; i--) {
-                    prependLogLine(data.logs[i]);
+                    prependLogLineToPane(pane, data.logs[i]);
                 }
-                logsLoadedFromEnd += data.logs.length;
-                logsHasMore = !!data.has_more;
-                logsMain.scrollTop = logsMain.scrollHeight - prevMainHeight;
-                logsService.scrollTop = logsService.scrollHeight - prevServiceHeight;
+                pane.loadedFromEnd += data.logs.length;
+                pane.hasMore = !!data.has_more;
+                pane.el.scrollTop = pane.el.scrollHeight - prevHeight;
             })
             .catch(function(error) {
-                logsLoadingOlder = false;
-                console.error('Ошибка подгрузки логов:', error);
+                pane.loadingOlder = false;
+                console.error('Ошибка подгрузки логов [' + pane.channel + ']:', error);
             });
     }
 
     function onLogScroll(ev) {
         var el = ev.target;
-        if (el.scrollTop <= 8) {
-            loadOlderLogs();
+        if (el.scrollTop > 8) return;
+        var pane = null;
+        eachLogPane(function(p) {
+            if (p.el === el) pane = p;
+        });
+        if (pane) {
+            loadOlderForPane(pane);
         }
     }
 
@@ -504,9 +527,6 @@ document.addEventListener('DOMContentLoaded', function() {
     btnClearLogs.addEventListener('click', clearLogs);
     btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
 
-    logsMain.addEventListener('scroll', onLogScroll);
-    logsService.addEventListener('scroll', onLogScroll);
-
     function pauseLogPoll() {
         logsPollPaused = true;
         clearInterval(logsTimer);
@@ -517,10 +537,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (logsTimer) clearInterval(logsTimer);
         logsTimer = setInterval(function() { loadLogs(false); }, 3000);
     }
-    logsMain.addEventListener('mouseenter', pauseLogPoll);
-    logsService.addEventListener('mouseenter', pauseLogPoll);
-    logsMain.addEventListener('mouseleave', resumeLogPoll);
-    logsService.addEventListener('mouseleave', resumeLogPoll);
+    eachLogPane(function(pane) {
+        if (!pane.el) return;
+        pane.el.addEventListener('scroll', onLogScroll);
+        pane.el.addEventListener('mouseenter', pauseLogPoll);
+        pane.el.addEventListener('mouseleave', resumeLogPoll);
+    });
 
     // -------------------------------------------------------
     // ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ

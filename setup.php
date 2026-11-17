@@ -131,7 +131,7 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                     <div class="panel__title-text">
                         <h2 class="panel__title panel__title--inline">Справочники</h2>
                         <span id="refs-last-import" class="panel__count"
-                              title="Дата последнего импорта из references/import/">
+                              title="Дата последнего импорта справочников">
                             Последний импорт: <?php echo htmlspecialchars($refsLastImportLabel); ?>
                         </span>
                     </div>
@@ -141,14 +141,27 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                 </div>
             </div>
             <p class="setup__hint">
+                Справочники: выберите несколько .txt выгрузки 1С с диска <strong>или</strong>
+                заранее положите их в <code>references/import/</code> на сервере
+                (для крупных файлов вроде Контрагенты.txt) и нажмите кнопку без выбора файлов.
+                Лимиты PHP upload: <?php echo htmlspecialchars(ini_get('upload_max_filesize')); ?>,
+                post: <?php echo htmlspecialchars(ini_get('post_max_size')); ?>.
+            </p>
+            <p class="setup__hint">
                 «Скачать данные» — справочники, settings, json/json_api и последние 100 файлов input
                 (для повседневной отладки на ПК). «Полный клон» — то же плюс весь input и все логи
                 (может быть большим, в XML есть персональные данные). Распаковать ZIP в корень parser_v5.
             </p>
             <div class="control-group__buttons">
+                <input type="file" id="refs-files" class="setup__file-input"
+                       multiple accept=".txt,text/plain" style="display:none">
                 <button id="btn-import-refs" class="btn btn--secondary"
-                        title="Прочитать выгрузку 1С из references/import/ и обновить справочники">
+                        title="Выбрать .txt с диска или импортировать из references/import/">
                     📚 Загрузить справочники
+                </button>
+                <button id="btn-import-refs-folder" class="btn btn--outline"
+                        title="Импорт только из references/import/ без выбора файлов">
+                    Из папки на сервере
                 </button>
                 <a id="btn-export-data" class="btn btn--outline"
                    href="api.php?action=setup_export_data&amp;mode=data"
@@ -240,6 +253,8 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         var suppliersEl = document.getElementById('setup-suppliers');
         var btnSave = document.getElementById('btn-setup-save');
         var btnImportRefs = document.getElementById('btn-import-refs');
+        var btnImportRefsFolder = document.getElementById('btn-import-refs-folder');
+        var refsFilesInput = document.getElementById('refs-files');
         var btnDiagnostics = document.getElementById('btn-diagnostics');
         var diagResultsEl = document.getElementById('diag-results');
         var refsLabel = document.getElementById('refs-last-import');
@@ -625,14 +640,31 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         }
 
         /**
-         * Читает выгрузку 1С из references/import/ и обновляет
-         * справочники references/*.json. После успеха сервер удаляет *.txt.
+         * Импорт справочников: с диска (FormData) или из references/import/ (пустой POST).
+         * После успеха сервер удаляет *.txt из import/.
+         *
+         * @param {FileList|null} fileList
          */
-        function importReferences() {
+        function importReferences(fileList) {
             btnImportRefs.disabled = true;
-            setStatus('running', 'Загрузка справочников...');
+            if (btnImportRefsFolder) {
+                btnImportRefsFolder.disabled = true;
+            }
 
-            fetch('api.php?action=import_references', { method: 'POST' })
+            var opts = { method: 'POST' };
+            var n = fileList && fileList.length ? fileList.length : 0;
+            if (n > 0) {
+                var fd = new FormData();
+                for (var i = 0; i < n; i++) {
+                    fd.append('files[]', fileList[i]);
+                }
+                opts.body = fd;
+                setStatus('running', 'Загрузка справочников с диска (' + n + ')…');
+            } else {
+                setStatus('running', 'Импорт из references/import/…');
+            }
+
+            fetch('api.php?action=import_references', opts)
                 .then(function(response) {
                     return response.text().then(function(text) {
                         var data = null;
@@ -655,7 +687,7 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                         setStatus(
                             'error',
                             'Ошибка HTTP ' + result.httpStatus
-                                + (hint ? ': ' + hint : ' (часто таймаут прокси на Контрагенты.txt)')
+                                + (hint ? ': ' + hint : ' (часто таймаут прокси / лимит upload)')
                         );
                         return;
                     }
@@ -678,6 +710,12 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
                 })
                 .finally(function() {
                     btnImportRefs.disabled = false;
+                    if (btnImportRefsFolder) {
+                        btnImportRefsFolder.disabled = false;
+                    }
+                    if (refsFilesInput) {
+                        refsFilesInput.value = '';
+                    }
                     loadLogs(false);
                 });
         }
@@ -742,7 +780,23 @@ $isAuthorized = !empty($_SESSION['setup_auth']);
         }
 
         btnSave.addEventListener('click', saveSetup);
-        btnImportRefs.addEventListener('click', importReferences);
+        btnImportRefs.addEventListener('click', function() {
+            if (refsFilesInput) {
+                refsFilesInput.click();
+            }
+        });
+        if (refsFilesInput) {
+            refsFilesInput.addEventListener('change', function() {
+                if (refsFilesInput.files && refsFilesInput.files.length > 0) {
+                    importReferences(refsFilesInput.files);
+                }
+            });
+        }
+        if (btnImportRefsFolder) {
+            btnImportRefsFolder.addEventListener('click', function() {
+                importReferences(null);
+            });
+        }
         btnDiagnostics.addEventListener('click', runDiagnostics);
         btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
         logsEl.addEventListener('scroll', onLogScroll);

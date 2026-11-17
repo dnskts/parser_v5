@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-11-17 — Гибрид импорта справочников + три журнала на главной
+
+**Запрос пользователя:** на Setup грузить справочники с диска пользователя (несколько файлов); на главной — три журнала друг под другом с независимой прокруткой; в истории запусков одна строка на цикл.
+
+### Что сделано
+
+**Setup / импорт (гибрид):**
+- `setup.php` — input multiple `.txt`, кнопка открывает диалог; кнопка «Из папки на сервере» — импорт без upload (для крупных вроде Контрагенты.txt).
+- `api.php?action=import_references` — сессия Setup; если есть `$_FILES['files']` — сохранить `.txt` в `references/import/`; иначе читать папку; пусто → 400; `UPLOAD_ERR_INI_SIZE` — ошибка с `ini_get` лимитами.
+
+**Журнал на index:**
+- Три панели: Обработка файлов / История запусков / Служебные.
+- `Logger::classifyLogChannel` + `getChannelLinesChunk`; `logs?channel=files|runs|service`.
+- Независимые offset/has_more/scroll на каждую панель в `assets/app.js`.
+- `Processor` больше не пишет «Начата обработка файлов»; остаётся только «Обработка завершена: …» → канал `runs`.
+
+### Изменённые файлы
+- `setup.php`, `api.php`, `index.php`, `assets/app.js`, `assets/style.css`
+- `core/Logger.php`, `core/Processor.php`
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`
+
+---
+
 ## 2026-11-16 — Чистка мусора
 
 **Запрос пользователя:** проверить файлы проекта на мусор.

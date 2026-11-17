@@ -1,7 +1,7 @@
 # XML Parser v5 — Текущее состояние
 
-**Последнее обновление:** 2026-11-16
-**Обновлено после:** чистка мусора + версия 1.2
+**Последнее обновление:** 2026-11-17
+**Обновлено после:** гибрид импорта справочников + три журнала на главной
 
 ---
 
@@ -637,7 +637,7 @@ php sftp_sync.php --force
 Назначение: подстановка UID из 1С в JSON ORDER (ReferenceManager::enrich()).
 
 Три способа заполнения references/*.json:
-1. **Импорт из выгрузки 1С** (основной) — файлы кладутся вручную в references/import/, кнопка «Загрузить справочники» на setup.php вызывает api.php?action=import_references → ReferenceImporter::importAll(); при успехе *.txt из import/ удаляются, в settings.json пишется references.last_import (показывается на data.php)
+1. **Импорт из выгрузки 1С** (основной, гибрид) — на setup.php: выбрать несколько .txt с диска **или** кнопку «Из папки на сервере» (файлы уже в references/import/, для крупных вроде Контрагенты.txt). POST api.php?action=import_references (сессия Setup) → при upload сохраняет в import/ → ReferenceImporter::importAll(); при успехе *.txt удаляются, пишется references.last_import
 2. Вручную — правка references/*.json
 3. Через API 1С — syncReferences() при references.auto_sync=true (api_url пока пуст)
 
@@ -701,7 +701,11 @@ WARNING'ов по классам обслуживания в app.log больш�
 
 9. Web UI
 9.1. index.php — Панель управления
-Логи в реальном времени (polling 3с)
+Три журнала сверху вниз (polling 3с, независимая прокрутка и подгрузка истории):
+1. Обработка файлов — события по файлам, настройки, API и пр.
+2. История запусков — только «Обработка завершена: обработано…» (баннер старта не пишется)
+3. Служебные — парсеры, «нет новых файлов», справочники
+История в logs/app.log; api.php?action=logs&channel=files|runs|service
 Кнопка «Запустить обработку»
 Тумблер автообработки
 Квадратная кнопка ⚙ справа в строке управления — ссылка на setup.php
@@ -788,7 +792,7 @@ formatAgent() — антидубль (V5): CODE===NAME → одно значен
 Вход по паролю из settings.json (setup.password = 95123), сессия PHP ($_SESSION['setup_auth']), ссылка «Выйти из настроек».
 Это первый уровень защиты: полноценной авторизации в системе нет, цель — чтобы рядовые сотрудники не меняли настройки.
 Содержимое:
-- Кнопка «📚 Загрузить справочники» (перенесена с index.php) + дата references.last_import
+- Кнопки «📚 Загрузить справочники» (выбор .txt с диска) и «Из папки на сервере» + дата references.last_import; рядом лимиты PHP upload/post
 - Кнопки выгрузки на ПК: «Скачать данные (ZIP)» (refs, settings, json/json_api, последние 100 input) и «Полный клон (ZIP)» (+весь input + logs). Распаковать в корень parser_v5
 - Карточки поставщиков из ParserManager с галками «Продажи / Возвраты / Обмены» и кнопкой «Сохранить»
 - Секция «Диагностика»: кнопка «Проверить» (не при открытии страницы) — доступность API 1С (HEAD), SFTP, SmartTravel PULL и пробная запись в config/, logs/, json/, json_api/, input/moyagent/, input/smarttravel/, references/, references/import/. Заказ в 1С не отправляется. Итог пишется в app.log: `Setup: диагностика — OK: N, FAIL: M, SKIP: K`
@@ -832,7 +836,7 @@ V5: комиссии	CLIENT комиссия + сумма, VENDOR комисси
 Multi-passenger	all_travellers, all_tickets
 9.5. api.php — AJAX API
 action	Метод	Описание
-logs	GET	Последние N строк app.log
+logs	GET	Чанк app.log (offset, limit); с channel=files|runs|service — отфильтрованный чанк канала
 run	POST	runSftpSync + runPullSync + runProcessing (SFTP + PULL + обработка, force=true)
 settings	GET/POST	Чтение/запись settings.json
 clear_logs	POST	Очистка app.log
@@ -842,7 +846,7 @@ api_json	GET	Payload для 1С из json_api/ (file); при отсутстви
 save_api_json	POST	Сохранение отредактированного payload в json_api/ (file, content)
 data_rows	GET	Строки таблицы заказов для data.php
 sync_references	POST	Синхронизация справочников через API 1С
-import_references	POST	Импорт справочников из references/import/; при успехе чистит *.txt и пишет references.last_import
+import_references	POST	Гибрид: multipart .txt и/или import/ на сервере; сессия Setup; при успехе чистит *.txt и пишет last_import
 setup_get	GET	Поставщики (ParserManager) и галки отправки в 1С; только при сессии setup.php, иначе 403
 setup_save	POST	Сохранение галок в settings.json → setup.suppliers; в app.log по строке на каждое изменение (поставщик + тип услуги), в ответе — число изменений; только при сессии setup.php, иначе 403
 setup_logs	GET	Журнал настроек: отфильтрованные строки app.log (offset, limit); только при сессии setup.php, иначе 403
@@ -876,6 +880,7 @@ setup_export_data	GET	ZIP для ПК: mode=data|full; ответ application/zi
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-17	Setup: гибрид загрузки справочников (.txt с диска или из import/); index: три независимых журнала (файлы / запуски / служебные), Logger::getChannelLinesChunk; убран баннер «Начата обработка»	setup.php, api.php, index.php, assets/app.js, assets/style.css, core/Logger.php, core/Processor.php
 2026-11-16	Чистка: убраны debug-записи Processor→debug-edd969.log; bugs/ в .gitignore; logs/.gitkeep; версия 1.2	core/Processor.php, .gitignore, logs/.gitkeep, config/version.php
 2026-11-16	В подвал всех страниц: mailto denis.kuritsyn@rstls.ru	index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
 2026-11-16	Версия в шапке всех страниц из config/version.php (старт 1.1); при выкладках увеличивать	config/version.php, index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css
@@ -982,7 +987,8 @@ RESERVATION_NUMBER = `{rloc} - {ord_id}` через buildReservationNumber(); IN
 Конъюнкции группируются через emd_ticket_doc[@main_prod_id]
 EMD бывает двух видов: бланк (emd_ticket_doc) и явная такса air_tax[@code=EMD] без бланка. Второй вид уходит отдельным продуктом с синтетическим номером {билет}-emd, сумма берётся только из таксы, на билете остаются тариф и прочие таксы. Если у группы есть реальный emd_ticket_doc, явную таксу не делим
 PAYMENTS.INVOICE = fare+taxes продукта (не payment@amount заказа): в XML сумма оплаты уже включает service_fee, а сбор уходит в COMMISSIONS — иначе 1С учитывает его дважды
-Справочники: заполняются импортом из references/import/ (кнопка «Загрузить справочники» → api.php?action=import_references); после успеха *.txt удаляются, дата — references.last_import (data.php)
+Справочники: гибрид — .txt с диска (Setup) или уже лежащие в references/import/ («Из папки на сервере»); api.php?action=import_references требует сессию Setup; после успеха *.txt удаляются, дата — references.last_import
+Журнал index: три канала logs?channel=files|runs|service; независимый infinite scroll; история в logs/app.log
 Если после клика в app.log нет строки «API: запрос import_references» — запрос не дошёл до PHP (прокси/таймаут/старый фронт); при HTTP-ошибке статус на панели покажет код
 Справочники: AGENT/BOOKING_AGENT — объект {CODE, NAME} без UID (в выгрузке 1С у агентов UID нет); ненайденный агент уходит как 999 «Агент не найден» (ReferenceManager::UNKNOWN_AGENT_CODE), ФИО в CODE не отправляется — 1С такой заказ отклоняет
 Справочники: ненайденный код — WARNING в app.log, файл всё равно уходит в Processed/ (в Error/ НЕ переводится)

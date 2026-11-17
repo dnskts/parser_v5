@@ -254,6 +254,110 @@ class Logger
     }
 
     /**
+     * Классификация строки app.log для трёх окон на index.php.
+     *
+     * @param string $line
+     * @return string — files|runs|service|drop
+     */
+    public function classifyLogChannel($line)
+    {
+        $l = $this->toLower((string)$line);
+
+        // Старый баннер старта цикла — не показываем ни в одном окне
+        if (strpos($l, 'начата обработка файлов') !== false) {
+            return 'drop';
+        }
+        // Итог запуска Processor
+        if (strpos($l, 'обработка завершена:') !== false) {
+            return 'runs';
+        }
+        // Служебные (как бывший isServiceLogLine в app.js)
+        if (strpos($l, 'нет новых файлов') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'import_references') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'referenceimporter') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'references.last_import') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'справочник') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'parsermanager') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'зарегистрирован') !== false && strpos($l, 'парсер') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'загружен') !== false && strpos($l, 'парсер') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'обнаружен парсер') !== false) {
+            return 'service';
+        }
+
+        return 'files';
+    }
+
+    /**
+     * Чанк строк одного канала журнала (files|runs|service) с конца app.log.
+     *
+     * Offset считается только по строкам этого канала — независимая прокрутка панелей.
+     *
+     * @param string $channel — files|runs|service
+     * @param int $offsetFromEnd
+     * @param int $limit
+     * @param int $maxScanLines
+     * @return array — lines, has_more, offset, limit, scanned, channel
+     */
+    public function getChannelLinesChunk($channel, $offsetFromEnd = 0, $limit = 100, $maxScanLines = 8000)
+    {
+        $channel = (string)$channel;
+        $allowed = array('files' => true, 'runs' => true, 'service' => true);
+        if (!isset($allowed[$channel])) {
+            $channel = 'files';
+        }
+
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+        $maxScanLines = max($limit, min(50000, (int)$maxScanLines));
+
+        $result = array(
+            'lines'    => array(),
+            'has_more' => false,
+            'offset'   => $offsetFromEnd,
+            'limit'    => $limit,
+            'scanned'  => 0,
+            'channel'  => $channel
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $result;
+        }
+
+        $scanned = $this->readLastNonEmptyLines($maxScanLines);
+        $result['scanned'] = count($scanned);
+
+        $matched = array();
+        foreach ($scanned as $line) {
+            if ($this->classifyLogChannel($line) === $channel) {
+                $matched[] = $line;
+            }
+        }
+
+        $slice = array_slice($matched, $offsetFromEnd, $limit);
+        $result['lines'] = array_reverse($slice);
+        $result['has_more'] = (count($matched) > ($offsetFromEnd + $limit))
+            || ($result['scanned'] >= $maxScanLines);
+
+        return $result;
+    }
+
+    /**
      * Содержит ли строка лога хотя бы одну из подстрок (уже в нижнем регистре).
      *
      * @param string $line
