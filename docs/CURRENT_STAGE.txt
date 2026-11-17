@@ -880,6 +880,7 @@ setup_export_data	GET	ZIP для ПК: mode=data|full; ответ application/zi
 ⚠️ uid_profile в config/settings.json сейчас test — при установке на прод поставить prod (иначе SUPPLIER уйдёт с тестовым UID)
 11. Последние изменения
 Дата	Действие	Файлы
+2026-11-17	WARNING/ERROR API 1С: в сообщение сразу вставляется тело ответа сервера (до 500 символов), без отсылки к колонке «Ответ сервера»	core/ApiSender.php
 2026-11-17	Setup: гибрид загрузки справочников (.txt с диска или из import/); index: три независимых журнала (файлы / запуски / служебные), Logger::getChannelLinesChunk; убран баннер «Начата обработка»	setup.php, api.php, index.php, assets/app.js, assets/style.css, core/Logger.php, core/Processor.php
 2026-11-16	Чистка: убраны debug-записи Processor→debug-edd969.log; bugs/ в .gitignore; logs/.gitkeep; версия 1.2	core/Processor.php, .gitignore, logs/.gitkeep, config/version.php
 2026-11-16	В подвал всех страниц: mailto denis.kuritsyn@rstls.ru	index.php, data.php, api_logs.php, setup.php, test.php, assets/style.css

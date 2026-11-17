@@ -214,8 +214,10 @@ class ApiSender
                     return array('success' => false, 'message' => $bodyExplain, 'http_code' => $httpCode);
                 }
                 if ($this->looksLikeOneCErrorText($response)) {
-                    $msg = '1С вернула ошибку в теле ответа при HTTP ' . $httpCode
-                        . '. Смотрите колонку «Ответ сервера» и сверьте json_api.';
+                    $msg = $this->withServerResponse(
+                        '1С вернула ошибку в теле ответа при HTTP ' . $httpCode . '.',
+                        $response
+                    );
                     $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $msg);
                     return array('success' => false, 'message' => $msg, 'http_code' => $httpCode);
                 }
@@ -433,13 +435,45 @@ class ApiSender
     }
 
     /**
+     * Добавляет тело ответа 1С к тексту сообщения (для app.log и статуса).
+     * Длинный ответ обрезается, переводы строк схлопываются в пробел.
+     *
+     * @param string $message
+     * @param string|null $response
+     * @param int $maxLen
+     * @return string
+     */
+    private function withServerResponse($message, $response, $maxLen = 500)
+    {
+        $text = trim((string)$response);
+        if ($text === '') {
+            return rtrim($message) . ' Ответ сервера пуст.';
+        }
+        $oneLine = preg_replace('/\s+/u', ' ', $text);
+        if (!is_string($oneLine) || $oneLine === '') {
+            $oneLine = $text;
+        }
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            if (mb_strlen($oneLine, 'UTF-8') > $maxLen) {
+                $oneLine = mb_substr($oneLine, 0, $maxLen, 'UTF-8') . '…';
+            }
+        } elseif (strlen($oneLine) > $maxLen) {
+            $oneLine = substr($oneLine, 0, $maxLen) . '…';
+        }
+        return rtrim($message) . ' Ответ: ' . $oneLine;
+    }
+
+    /**
      * Формирует пояснение по HTTP-коду ответа (4xx, 5xx).
      */
     private function explanationForHttpCode($httpCode, $url, $response)
     {
         $bodyExplain = $this->explainOneCResponse($response);
         if ($bodyExplain !== null) {
-            return $bodyExplain . " (HTTP {$httpCode}).";
+            return $this->withServerResponse(
+                $bodyExplain . " (HTTP {$httpCode}).",
+                $response
+            );
         }
         if ($httpCode === 401) {
             return "Ошибка аутентификации (HTTP 401). Неверный логин/пароль. Проверьте api.login и api.password в config/settings.json.";
@@ -451,12 +485,18 @@ class ApiSender
             return "Эндпоинт не найден (HTTP 404). URL {$url} не существует. Проверьте api.url — возможно неверный путь или сервис не опубликован.";
         }
         if ($httpCode === 500) {
-            return "Внутренняя ошибка 1С (HTTP 500). Смотрите колонку «Ответ сервера»; часто это пустой UID или неверный тип поля. Обратитесь к разработчику 1С при необходимости.";
+            return $this->withServerResponse(
+                'Внутренняя ошибка 1С (HTTP 500). Часто пустой UID или неверный тип поля.',
+                $response
+            );
         }
         if ($httpCode === 502 || $httpCode === 503) {
             return "Сервер 1С временно недоступен (HTTP {$httpCode}). Повторите позже.";
         }
-        return "Неожиданный HTTP-код: {$httpCode}. Смотрите колонку «Ответ сервера».";
+        return $this->withServerResponse(
+            "Неожиданный HTTP-код: {$httpCode}.",
+            $response
+        );
     }
 
     /**
@@ -521,7 +561,10 @@ class ApiSender
         }
         if ($successWithError && $explained === null) {
             $entry['status'] = 'ERROR';
-            $entry['message'] = '1С вернула ошибку в теле ответа при HTTP 2xx. Смотрите колонку «Ответ сервера» и сверьте json_api.';
+            $entry['message'] = $this->withServerResponse(
+                '1С вернула ошибку в теле ответа при HTTP 2xx.',
+                $response
+            );
         }
         return $entry;
     }
