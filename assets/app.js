@@ -9,6 +9,7 @@
  * - Ручной запуск обработки файлов
  * - Автообработка по таймеру (пока страница открыта)
  * - Сохранение настроек (интервал обработки)
+ * - Три независимых журнала (файлы / запуски / служебные)
  * - Очистка логов
  * 
  * Все запросы к серверу идут через AJAX (fetch API)
@@ -41,9 +42,6 @@ document.addEventListener('DOMContentLoaded', function() {
     /** Кнопка обновления логов */
     var btnRefreshLogs = document.getElementById('btn-refresh-logs');
     
-    /** Контейнер для отображения логов */
-    var logsContainer = document.getElementById('logs-container');
-    
     /** Текст статуса (Ожидание / Обработка / Успех / Ошибка) */
     var statusText = document.getElementById('status-text');
     
@@ -68,6 +66,39 @@ document.addEventListener('DOMContentLoaded', function() {
     
     /** AbortController для прерывания fetch при уходе со страницы */
     var runAbortController = null;
+
+    var logsPageSize = 100;
+    var logsPollPaused = false;
+
+    /**
+     * Три независимых панели журнала (свой channel / offset / known).
+     */
+    var logPanes = {
+        files: {
+            channel: 'files',
+            el: document.getElementById('logs-files'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        },
+        runs: {
+            channel: 'runs',
+            el: document.getElementById('logs-runs'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        },
+        service: {
+            channel: 'service',
+            el: document.getElementById('logs-service'),
+            loadedFromEnd: 0,
+            hasMore: true,
+            loadingOlder: false,
+            known: {}
+        }
+    };
 
     // -------------------------------------------------------
     // ЗАГРУЗКА НАСТРОЕК ПРИ ОТКРЫТИИ СТРАНИЦЫ
@@ -104,63 +135,193 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // -------------------------------------------------------
-    // ЗАГРУЗКА И ОТОБРАЖЕНИЕ ЛОГОВ
+    // ЗАГРУЗКА И ОТОБРАЖЕНИЕ ЛОГОВ (три канала)
     // -------------------------------------------------------
-    
+
+    function eachLogPane(fn) {
+        fn(logPanes.files);
+        fn(logPanes.runs);
+        fn(logPanes.service);
+    }
+
+    function clearLogPanes() {
+        eachLogPane(function(pane) {
+            if (!pane.el) return;
+            pane.el.innerHTML = '';
+            pane.known = {};
+            pane.loadedFromEnd = 0;
+            pane.hasMore = true;
+            pane.loadingOlder = false;
+        });
+    }
+
+    function showLogsEmpty(msg) {
+        clearLogPanes();
+        eachLogPane(function(pane) {
+            if (!pane.el) return;
+            pane.el.innerHTML = '<p class="logs__placeholder">' + escapeHtml(msg) + '</p>';
+        });
+    }
+
+    function createLogLineEl(line) {
+        var div = document.createElement('div');
+        div.className = 'log-line ' + getLogLineClass(line);
+        div.textContent = line;
+        div.setAttribute('data-line', line);
+        return div;
+    }
+
+    function appendLogLineToPane(pane, line) {
+        if (!pane || !pane.el || pane.known[line]) return false;
+        pane.known[line] = 1;
+        var ph = pane.el.querySelector('.logs__placeholder');
+        if (ph) pane.el.innerHTML = '';
+        pane.el.appendChild(createLogLineEl(line));
+        return true;
+    }
+
+    function prependLogLineToPane(pane, line) {
+        if (!pane || !pane.el || pane.known[line]) return false;
+        pane.known[line] = 1;
+        var ph = pane.el.querySelector('.logs__placeholder');
+        if (ph) pane.el.innerHTML = '';
+        var el = createLogLineEl(line);
+        if (pane.el.firstChild) {
+            pane.el.insertBefore(el, pane.el.firstChild);
+        } else {
+            pane.el.appendChild(el);
+        }
+        return true;
+    }
+
+    function isNearBottom(el) {
+        return (el.scrollHeight - el.scrollTop - el.clientHeight) < 40;
+    }
+
+    function scrollPaneToBottom(pane) {
+        if (pane && pane.el) {
+            pane.el.scrollTop = pane.el.scrollHeight;
+        }
+    }
+
+    function fetchPaneChunk(pane, offset, limit) {
+        var url = 'api.php?action=logs&channel=' + encodeURIComponent(pane.channel)
+            + '&offset=' + offset + '&limit=' + limit;
+        return fetch(url).then(function(response) { return response.json(); });
+    }
+
     /**
-     * Загружает последние записи лога с сервера и отображает их
-     * в контейнере на странице. Каждая строка окрашивается
-     * в зависимости от уровня (INFO, ERROR, SUCCESS, WARNING).
+     * Загрузка одного канала: fullReset / первая заливка или poll (offset=0).
      */
-    function loadLogs() {
-        fetch('api.php?action=logs')
-            .then(function(response) { return response.json(); })
+    function loadPaneLogs(pane, fullReset) {
+        if (!pane || !pane.el) return;
+        fetchPaneChunk(pane, 0, logsPageSize)
             .then(function(data) {
-                if (data.status === 'ok') {
-                    if (data.logs.length === 0) {
-                        logsContainer.innerHTML = '<p class="logs__placeholder">Логи пусты</p>';
-                        return;
+                if (!data || data.status !== 'ok') return;
+                if (!data.logs || data.logs.length === 0) {
+                    if (fullReset || pane.loadedFromEnd === 0) {
+                        pane.el.innerHTML = '<p class="logs__placeholder">Нет записей</p>';
+                        pane.loadedFromEnd = 0;
+                        pane.hasMore = false;
+                        pane.known = {};
                     }
+                    return;
+                }
 
-                    // Преобразуем каждую строку лога в HTML-элемент с нужным цветом
-                    var html = '';
+                if (fullReset || pane.loadedFromEnd === 0) {
+                    pane.el.innerHTML = '';
+                    pane.known = {};
                     for (var i = 0; i < data.logs.length; i++) {
-                        var line = data.logs[i];
-                        var cssClass = getLogLineClass(line);
-                        // Экранируем HTML-символы для безопасности
-                        var safeLine = escapeHtml(line);
-                        html += '<div class="log-line ' + cssClass + '">' + safeLine + '</div>';
+                        appendLogLineToPane(pane, data.logs[i]);
                     }
-                    
-                    logsContainer.innerHTML = html;
+                    pane.loadedFromEnd = data.logs.length;
+                    pane.hasMore = !!data.has_more;
+                    scrollPaneToBottom(pane);
+                    return;
+                }
 
-                    // Прокручиваем контейнер вниз, чтобы были видны последние записи
-                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                var stick = isNearBottom(pane.el);
+                var added = 0;
+                for (var j = 0; j < data.logs.length; j++) {
+                    if (appendLogLineToPane(pane, data.logs[j])) {
+                        added++;
+                    }
+                }
+                if (added > 0 && stick) {
+                    scrollPaneToBottom(pane);
                 }
             })
             .catch(function(error) {
-                console.error('Ошибка загрузки логов:', error);
+                console.error('Ошибка загрузки логов [' + pane.channel + ']:', error);
             });
     }
 
     /**
+     * Первичная загрузка / refresh / poll для всех трёх панелей.
+     */
+    function loadLogs(fullReset) {
+        if (fullReset) {
+            clearLogPanes();
+        }
+        eachLogPane(function(pane) {
+            loadPaneLogs(pane, !!fullReset);
+        });
+    }
+
+    function loadOlderForPane(pane) {
+        if (!pane || !pane.el || pane.loadingOlder || !pane.hasMore) return;
+        pane.loadingOlder = true;
+        var prevHeight = pane.el.scrollHeight;
+        fetchPaneChunk(pane, pane.loadedFromEnd, logsPageSize)
+            .then(function(data) {
+                pane.loadingOlder = false;
+                if (!data || data.status !== 'ok' || !data.logs || data.logs.length === 0) {
+                    pane.hasMore = false;
+                    return;
+                }
+                for (var i = data.logs.length - 1; i >= 0; i--) {
+                    prependLogLineToPane(pane, data.logs[i]);
+                }
+                pane.loadedFromEnd += data.logs.length;
+                pane.hasMore = !!data.has_more;
+                pane.el.scrollTop = pane.el.scrollHeight - prevHeight;
+            })
+            .catch(function(error) {
+                pane.loadingOlder = false;
+                console.error('Ошибка подгрузки логов [' + pane.channel + ']:', error);
+            });
+    }
+
+    function onLogScroll(ev) {
+        var el = ev.target;
+        if (el.scrollTop > 8) return;
+        var pane = null;
+        eachLogPane(function(p) {
+            if (p.el === el) pane = p;
+        });
+        if (pane) {
+            loadOlderForPane(pane);
+        }
+    }
+
+    /**
      * Определяет CSS-класс для строки лога по её содержимому.
-     * Это нужно для окраски строк разным цветом.
      * 
      * @param {string} line — строка лога
      * @returns {string} — CSS-класс
      */
     function getLogLineClass(line) {
         if (line.indexOf('[ERROR]') !== -1)   return 'log-line--error';
-        if (line.indexOf('[SUCCESS]') !== -1) return 'log-line--success';
         if (line.indexOf('[WARNING]') !== -1) return 'log-line--warning';
+        // изменения галок отправки со страницы Setup — своим цветом
+        if (line.indexOf('Setup: ') !== -1)   return 'log-line--setup';
+        if (line.indexOf('[SUCCESS]') !== -1) return 'log-line--success';
         if (line.indexOf('=====') !== -1)     return 'log-line--separator';
         return 'log-line--info';
     }
 
     /**
      * Экранирует HTML-символы в строке, чтобы избежать XSS-атак.
-     * Например, символ < превращается в &lt;
      * 
      * @param {string} text — исходный текст
      * @returns {string} — безопасный текст
@@ -347,7 +508,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(response) { return response.json(); })
             .then(function(data) {
                 if (data.status === 'ok') {
-                    logsContainer.innerHTML = '<p class="logs__placeholder">Логи очищены</p>';
+                    showLogsEmpty('Логи очищены');
                     setStatus('success', 'Логи очищены');
                 }
             })
@@ -364,29 +525,35 @@ document.addEventListener('DOMContentLoaded', function() {
     btnToggleAuto.addEventListener('click', toggleAutoProcessing);
     btnSaveInterval.addEventListener('click', saveInterval);
     btnClearLogs.addEventListener('click', clearLogs);
-    btnRefreshLogs.addEventListener('click', loadLogs);
+    btnRefreshLogs.addEventListener('click', function() { loadLogs(true); });
+
+    function pauseLogPoll() {
+        logsPollPaused = true;
+        clearInterval(logsTimer);
+        logsTimer = null;
+    }
+    function resumeLogPoll() {
+        logsPollPaused = false;
+        if (logsTimer) clearInterval(logsTimer);
+        logsTimer = setInterval(function() { loadLogs(false); }, 3000);
+    }
+    eachLogPane(function(pane) {
+        if (!pane.el) return;
+        pane.el.addEventListener('scroll', onLogScroll);
+        pane.el.addEventListener('mouseenter', pauseLogPoll);
+        pane.el.addEventListener('mouseleave', resumeLogPoll);
+    });
 
     // -------------------------------------------------------
     // ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
     // -------------------------------------------------------
     
-    // Загружаем настройки и логи сразу при открытии
     loadSettings();
-    loadLogs();
+    loadLogs(true);
 
-    // Прерываем fetch при уходе со страницы — браузер не будет блокировать навигацию
     window.addEventListener('beforeunload', function() {
         if (runAbortController) runAbortController.abort();
     });
 
-        // Запускаем автоматическое обновление логов каждые 3 секунды
-        logsTimer = setInterval(loadLogs, 3000);
-
-        // Пауза обновления при наведении мыши (чтобы можно было скопировать текст)
-        logsContainer.addEventListener('mouseenter', function() {
-            clearInterval(logsTimer);
-        });
-        logsContainer.addEventListener('mouseleave', function() {
-            logsTimer = setInterval(loadLogs, 3000);
-        });
+    logsTimer = setInterval(function() { loadLogs(false); }, 3000);
 });

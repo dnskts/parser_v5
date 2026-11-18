@@ -54,7 +54,10 @@ function webhookLog($level, $message)
     $line = '[' . date('Y-m-d H:i:s') . '] [' . $level . '] ' . $message . PHP_EOL;
     file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
 
-    if ($isNewFile) {
+    // Права — на новом файле и один раз за запрос
+    static $ownershipChecked = false;
+    if ($isNewFile || !$ownershipChecked) {
+        $ownershipChecked = true;
         Utils::ensureOwnership($logFile);
     }
 }

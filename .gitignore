@@ -1,7 +1,11 @@
+# === Cursor IDE (локально, не в репозитории) ===
+.cursor/
+
 # === Input папки ===
 # Игнорировать содержимое, но сохранить структуру
 input/*
 !input/.gitkeep
+!input/test.xml
 !input/moyagent/
 input/moyagent/*
 !input/moyagent/.gitkeep
@@ -36,6 +40,29 @@ input/demo_hotel/Error/*
 json/*
 !json/.gitkeep
 
+# === JSON ровно в том виде, в каком уходит в 1С ===
+json_api/*
+!json_api/.gitkeep
+
 # === Логи ===
 logs/*
 !logs/.gitkeep
+
+# === Справочники ===
+# Актуальные JSON только на сервере / вручную на ПК (не в git).
+# В репозитории — пустая структура через .gitkeep.
+references/*
+!references/.gitkeep
+!references/import/
+references/import/*
+!references/import/.gitkeep
+
+# === Временные файлы ===
+temp/
+debug-*.log
+
+# === Локальные образцы багов (с ПДн, не в git) ===
+bugs/
+
+# Timestamp SFTP (пишется при каждой синхронизации)
+config/sftp_last_run.txt

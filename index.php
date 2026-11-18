@@ -1,9 +1,15 @@
+<?php
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Панель управления</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Панель управления</title>
     <!-- Подключаем стили оформления -->
     <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -15,7 +21,7 @@
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                 </div>
                 <!-- Навигация между страницами -->
                 <nav class="nav">
@@ -72,6 +78,16 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Настройки: отдельная страница Setup, прижата к правому краю -->
+                <div class="control-group control-group--right">
+                    <div class="control-group__buttons">
+                        <a href="setup.php" class="btn btn--outline btn--icon"
+                           title="Setup — загрузка справочников и отправка в 1С по поставщикам">
+                            ⚙
+                        </a>
+                    </div>
+                </div>
             </div>
 
             <!-- Строка статуса -->
@@ -87,9 +103,7 @@
         </section>
 
         <!-- ============================================ -->
-        <!-- БЛОК ЛОГОВ                                   -->
-        <!-- Здесь отображаются записи из журнала событий -->
-        <!-- Логи обновляются автоматически каждые 3 сек  -->
+        <!-- БЛОК ЛОГОВ: три окна сверху вниз               -->
         <!-- ============================================ -->
         <section class="logs">
             <div class="logs__header">
@@ -98,8 +112,25 @@
                     ↻ Обновить
                 </button>
             </div>
-            <div id="logs-container" class="logs__container">
-                <p class="logs__placeholder">Загрузка логов...</p>
+            <div class="logs__split logs__split--column">
+                <div class="logs__pane logs__pane--files">
+                    <div class="logs__pane-title">Обработка файлов</div>
+                    <div id="logs-files" class="logs__container">
+                        <p class="logs__placeholder">Загрузка логов...</p>
+                    </div>
+                </div>
+                <div class="logs__pane logs__pane--runs">
+                    <div class="logs__pane-title">История запусков</div>
+                    <div id="logs-runs" class="logs__container logs__container--compact">
+                        <p class="logs__placeholder">Загрузка логов...</p>
+                    </div>
+                </div>
+                <div class="logs__pane logs__pane--service">
+                    <div class="logs__pane-title">Служебные</div>
+                    <div id="logs-service" class="logs__container logs__container--service">
+                        <p class="logs__placeholder">Загрузка логов...</p>
+                    </div>
+                </div>
             </div>
         </section>
     </main>
@@ -108,7 +139,7 @@
     <!-- ПОДВАЛ СТРАНИЦЫ                              -->
     <!-- ============================================ -->
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
     <!-- Подключаем скрипт логики интерфейса -->

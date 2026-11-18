@@ -48,6 +48,34 @@ function formatAgent($agent)
 }
 
 /**
+ * Приводит значение справочника к строке для таблицы.
+ *
+ * После enrich() поля справочников (SUPPLIER, CARRIER, CURRENCY) — объекты
+ * {UID, CODE, NAME}, но в старых JSON они остались строками, поэтому
+ * поддерживаются оба варианта.
+ *
+ * @param array|string $value Значение поля
+ * @param string $prefer Какой ключ показывать: CODE или NAME
+ * @return string
+ */
+function formatRefValue($value, $prefer = 'NAME')
+{
+    if (!is_array($value)) {
+        return is_scalar($value) ? (string)$value : '';
+    }
+
+    $fallback = ($prefer === 'CODE') ? 'NAME' : 'CODE';
+
+    foreach (array($prefer, $fallback) as $key) {
+        if (isset($value[$key]) && trim((string)$value[$key]) !== '') {
+            return (string)$value[$key];
+        }
+    }
+
+    return '';
+}
+
+/**
  * Строит массив строк таблицы из одного JSON-файла заказа.
  * Один продукт (PRODUCTS[]) = одна строка.
  *
@@ -73,9 +101,11 @@ function buildRowsFromJsonFile($filePath)
             $points = array();
             foreach ($product['COUPONS'] as $coupon) {
                 if (empty($points)) {
-                    $points[] = isset($coupon['DEPARTURE_AIRPORT']) ? $coupon['DEPARTURE_AIRPORT'] : '';
+                    $dep = isset($coupon['DEPARTURE_AIRPORT']) ? $coupon['DEPARTURE_AIRPORT'] : '';
+                    $points[] = is_array($dep) && isset($dep['CODE']) ? $dep['CODE'] : $dep;
                 }
-                $points[] = isset($coupon['ARRIVAL_AIRPORT']) ? $coupon['ARRIVAL_AIRPORT'] : '';
+                $arr = isset($coupon['ARRIVAL_AIRPORT']) ? $coupon['ARRIVAL_AIRPORT'] : '';
+                $points[] = is_array($arr) && isset($arr['CODE']) ? $arr['CODE'] : $arr;
             }
             $route = implode(' → ', array_filter($points));
         } elseif (!empty($product['SEGMENTS'])) {
@@ -146,9 +176,15 @@ function buildRowsFromJsonFile($filePath)
                 if (isset($coupon['TYPE_ID_NAME']) && $coupon['TYPE_ID_NAME'] !== '') $tidName[] = $coupon['TYPE_ID_NAME'];
                 if (isset($coupon['DEPARTURE_DATETIME']) && $coupon['DEPARTURE_DATETIME'] !== '') {
                     $depDates[] = formatRstlsDate($coupon['DEPARTURE_DATETIME']);
+                } elseif (isset($coupon['DEPARTURE_DATE']) && $coupon['DEPARTURE_DATE'] !== '') {
+                    $depDt14 = $coupon['DEPARTURE_DATE'] . (isset($coupon['DEPARTURE_TIME']) ? $coupon['DEPARTURE_TIME'] : '');
+                    $depDates[] = formatRstlsDate($depDt14);
                 }
                 if (isset($coupon['ARRIVAL_DATETIME']) && $coupon['ARRIVAL_DATETIME'] !== '') {
                     $arrDates[] = formatRstlsDate($coupon['ARRIVAL_DATETIME']);
+                } elseif (isset($coupon['ARRIVAL_DATE']) && $coupon['ARRIVAL_DATE'] !== '') {
+                    $arrDt14 = $coupon['ARRIVAL_DATE'] . (isset($coupon['ARRIVAL_TIME']) ? $coupon['ARRIVAL_TIME'] : '');
+                    $arrDates[] = formatRstlsDate($arrDt14);
                 }
             }
             $flightNumbers = implode(', ', $fn);
@@ -246,15 +282,15 @@ function buildRowsFromJsonFile($filePath)
             'issue_date_raw' => isset($product['ISSUE_DATE']) ? $product['ISSUE_DATE'] : '',
             'status' => isset($product['STATUS']) ? $product['STATUS'] : '',
             'traveller' => isset($product['TRAVELLER']) ? $product['TRAVELLER'] : '',
-            'supplier' => isset($product['SUPPLIER']) ? $product['SUPPLIER'] : '',
+            'supplier' => isset($product['SUPPLIER']) ? formatRefValue($product['SUPPLIER'], 'NAME') : '',
             'supplier_code' => isset($product['SUPPLIER_CODE']) ? $product['SUPPLIER_CODE'] : '',
-            'carrier' => isset($product['CARRIER']) ? $product['CARRIER'] : '',
+            'carrier' => isset($product['CARRIER']) ? formatRefValue($product['CARRIER'], 'CODE') : '',
             'seg_carriers' => isset($product['SEG_CARRIERS']) ? $product['SEG_CARRIERS'] : '',
             'bag_allowance' => isset($product['BAG_ALLOWANCE']) ? $product['BAG_ALLOWANCE'] : '',
             'route' => $route,
             'discount' => isset($product['DISCOUNT']) ? $product['DISCOUNT'] : '',
             'amount' => $amountInvoice,
-            'currency' => isset($product['CURRENCY']) ? $product['CURRENCY'] : '',
+            'currency' => isset($product['CURRENCY']) ? formatRefValue($product['CURRENCY'], 'CODE') : '',
             'source_xml' => $sourceXmlFile,
             'parsed_at' => $parsedAt,
             'order_uid' => $orderUid,

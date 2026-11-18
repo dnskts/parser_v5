@@ -11,6 +11,8 @@
  * - Проверяет доступность API (метод isAvailable)
  * - Отправляет данные заказа методом POST с базовой авторизацией
  * - Удаляет служебные поля (SOURCE_FILE, PARSED_AT) перед отправкой
+ * - Сворачивает справочники (CLIENT, SUPPLIER, CARRIER, CURRENCY, аэропорты)
+ *   в плоский UID-строку — формат, который принимает HTTP-сервис 1С
  * - Записывает каждую попытку отправки в лог (JSON Lines)
  * - Возвращает понятные сообщения об ошибках (сеть, таймаут, HTTP-код)
  *
@@ -22,24 +24,74 @@ require_once __DIR__ . '/Utils.php';
 
 class ApiSender
 {
+    /** Код таксы «тариф» в 1С: парсеры отдают эту строку с пустым CODE */
+    const FARE_TAX_CODE = 'Тариф';
+
     /** @var array Настройки API: url, login, password, timeout, enabled */
     private $config;
 
     /** @var string Путь к файлу лога отправок (logs/api_send.log) */
     private $logFile;
 
+    /** @var bool Права на файл лога уже проверялись в этом запросе */
+    private $logOwnershipChecked = false;
+
+    /** @var string|null Папка json_api/ для payload-копий (null — не сохранять) */
+    private $apiJsonDir;
+
     /**
      * Создание отправителя.
      *
-     * @param array  $apiConfig — настройки из settings.json (api)
-     * @param string $logFile   — путь к файлу лога (JSON Lines)
+     * @param array  $apiConfig  — настройки из settings.json (api)
+     * @param string $logFile    — путь к файлу лога (JSON Lines)
+     * @param string|null $apiJsonDir — папка json_api/ для копий payload
      */
-    public function __construct($apiConfig, $logFile)
+    public function __construct($apiConfig, $logFile, $apiJsonDir = null)
     {
         $this->config = $apiConfig;
         $this->logFile = $logFile;
         $logDir = dirname($logFile);
         Utils::ensureDirectory($logDir);
+
+        $this->apiJsonDir = $apiJsonDir;
+        if ($this->apiJsonDir !== null) {
+            Utils::ensureDirectory($this->apiJsonDir);
+        }
+    }
+
+    /**
+     * Собирает payload для 1С и сохраняет его в json_api/ под тем же именем,
+     * что и ORDER в json/. Файл нужен, чтобы видеть и править в браузере
+     * ровно то, что уходит в 1С.
+     *
+     * @param array  $orderData    — ORDER после enrich()
+     * @param string $jsonFileName — имя файла (как в json/)
+     * @return array|null — payload или null, если папка не задана / запись не удалась
+     */
+    public function writeApiPayload($orderData, $jsonFileName)
+    {
+        if ($this->apiJsonDir === null) {
+            return null;
+        }
+
+        $payload = $this->prepareForApi($orderData);
+        $content = json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+
+        if ($content === false) {
+            return null;
+        }
+
+        $filePath = $this->apiJsonDir . DIRECTORY_SEPARATOR . $jsonFileName;
+        if (file_put_contents($filePath, $content, LOCK_EX) === false) {
+            return null;
+        }
+
+        Utils::ensureOwnership($filePath);
+
+        return $payload;
     }
 
     /**
@@ -108,9 +160,9 @@ class ApiSender
             return array('success' => false, 'message' => $msg, 'http_code' => null);
         }
 
-        $sendData = $orderData;
-        unset($sendData['SOURCE_FILE']);
-        unset($sendData['PARSED_AT']);
+        // В json/ хранится полный ORDER с объектами {UID,CODE,NAME} для таблицы.
+        // В 1С уходят только UID (как в прежнем *_export.json).
+        $sendData = $this->prepareForApi($orderData);
 
         $jsonBody = json_encode($sendData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($jsonBody === false) {
@@ -156,7 +208,20 @@ class ApiSender
             }
 
             if ($httpCode >= 200 && $httpCode < 300) {
-                $explanation = "Успешно отправлено (HTTP {$httpCode}). Ответ: " . $this->truncate($response, 500);
+                $bodyExplain = $this->explainOneCResponse($response);
+                if ($bodyExplain !== null) {
+                    $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $bodyExplain);
+                    return array('success' => false, 'message' => $bodyExplain, 'http_code' => $httpCode);
+                }
+                if ($this->looksLikeOneCErrorText($response)) {
+                    $msg = $this->withServerResponse(
+                        '1С вернула ошибку в теле ответа при HTTP ' . $httpCode . '.',
+                        $response
+                    );
+                    $this->writeLog('ERROR', $jsonFileName, $sourceXml, $httpCode, $response, $msg);
+                    return array('success' => false, 'message' => $msg, 'http_code' => $httpCode);
+                }
+                $explanation = "Успешно отправлено (HTTP {$httpCode}).";
                 $this->writeLog('OK', $jsonFileName, $sourceXml, $httpCode, $response, $explanation);
                 return array('success' => true, 'message' => $explanation, 'http_code' => $httpCode);
             }
@@ -183,10 +248,233 @@ class ApiSender
     }
 
     /**
+     * Готовит ORDER к отправке в 1С: убирает служебные поля и сворачивает
+     * справочники в плоский UID (строка), как в прежнем формате *_export.json.
+     *
+     * В файлах json/ объекты {UID,CODE,NAME} сохраняются — они нужны таблице
+     * data.php. В HTTP-тело уходит только UID.
+     *
+     * @param array $orderData — ORDER после enrich()
+     * @return array — копия заказа для POST
+     */
+    private function prepareForApi($orderData)
+    {
+        $data = $orderData;
+        unset($data['SOURCE_FILE']);
+        unset($data['PARSED_AT']);
+
+        // CLIENT после enrich() — null; если пришёл объект справочника,
+        // берём UID. Пустое значение отправляем как null: ТЗ его допускает.
+        if (isset($data['CLIENT'])) {
+            $uid = $this->flattenRefToUid($data['CLIENT']);
+            $data['CLIENT'] = $uid !== '' ? $uid : null;
+        } else {
+            $data['CLIENT'] = null;
+        }
+
+        if (!isset($data['PRODUCTS']) || !is_array($data['PRODUCTS'])) {
+            return $data;
+        }
+
+        foreach ($data['PRODUCTS'] as $pIdx => $product) {
+            // 1С ждёт номер билета без трёхзначного кода авиакомпании
+            if (isset($product['NUMBER'])) {
+                $data['PRODUCTS'][$pIdx]['NUMBER'] = $this->stripTicketPrefix($product['NUMBER']);
+            }
+            if (isset($product['RELATED_TICKET_NUMBER'])) {
+                $data['PRODUCTS'][$pIdx]['RELATED_TICKET_NUMBER'] = $this->stripTicketPrefix(
+                    $product['RELATED_TICKET_NUMBER']
+                );
+            }
+            if (isset($product['PAYMENTS']) && is_array($product['PAYMENTS'])) {
+                foreach ($product['PAYMENTS'] as $payIdx => $payment) {
+                    if (isset($payment['RELATED_TICKET_NUMBER'])) {
+                        $data['PRODUCTS'][$pIdx]['PAYMENTS'][$payIdx]['RELATED_TICKET_NUMBER'] =
+                            $this->stripTicketPrefix($payment['RELATED_TICKET_NUMBER']);
+                    }
+                }
+            }
+
+            // Тариф парсеры отдают таксой с пустым кодом, в 1С у него код «Тариф»
+            if (isset($product['TAXES']) && is_array($product['TAXES'])) {
+                foreach ($product['TAXES'] as $tIdx => $tax) {
+                    $code = isset($tax['CODE']) ? trim((string)$tax['CODE']) : '';
+                    if ($code === '') {
+                        $data['PRODUCTS'][$pIdx]['TAXES'][$tIdx]['CODE'] = self::FARE_TAX_CODE;
+                    }
+                }
+            }
+
+            if (isset($product['SUPPLIER'])) {
+                $data['PRODUCTS'][$pIdx]['SUPPLIER'] = $this->flattenRefToUid($product['SUPPLIER']);
+            }
+            if (isset($product['CARRIER'])) {
+                $data['PRODUCTS'][$pIdx]['CARRIER'] = $this->flattenRefToUid($product['CARRIER']);
+            }
+            if (isset($product['CURRENCY'])) {
+                $data['PRODUCTS'][$pIdx]['CURRENCY'] = $this->flattenRefToUid($product['CURRENCY']);
+            }
+
+            // AGENT в 1С всегда null (определяется на стороне 1С); BOOKING_AGENT — {CODE, NAME}
+            $data['PRODUCTS'][$pIdx]['AGENT'] = null;
+            if (isset($product['BOOKING_AGENT']) && is_array($product['BOOKING_AGENT'])) {
+                $booking = $product['BOOKING_AGENT'];
+                unset($booking['UID']);
+                $data['PRODUCTS'][$pIdx]['BOOKING_AGENT'] = $booking;
+            }
+
+            if (!isset($product['COUPONS']) || !is_array($product['COUPONS'])) {
+                continue;
+            }
+
+            foreach ($product['COUPONS'] as $cIdx => $coupon) {
+                if (isset($coupon['DEPARTURE_AIRPORT'])) {
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_AIRPORT'] = $this->flattenRefToUid(
+                        $coupon['DEPARTURE_AIRPORT']
+                    );
+                }
+                if (isset($coupon['ARRIVAL_AIRPORT'])) {
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_AIRPORT'] = $this->flattenRefToUid(
+                        $coupon['ARRIVAL_AIRPORT']
+                    );
+                }
+
+                // 1С ждёт DEPARTURE_DATETIME / ARRIVAL_DATETIME (как в *_export.json),
+                // а парсер кладёт раздельную пару DATE + TIME
+                $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_DATETIME'] = $this->buildDateTimeField(
+                    $coupon, 'DEPARTURE'
+                );
+                $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_DATETIME'] = $this->buildDateTimeField(
+                    $coupon, 'ARRIVAL'
+                );
+
+                // Лишние для 1С поля купона (остаются в json/ для таблицы)
+                unset(
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_DATE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['DEPARTURE_TIME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_DATE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['ARRIVAL_TIME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['AIRLINE'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SERVICE_CLASS'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['CLASS_NAME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['TYPE_ID'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['TYPE_ID_NAME'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SEGMENT_STATUS'],
+                    $data['PRODUCTS'][$pIdx]['COUPONS'][$cIdx]['SEGMENT_STATUS_NAME']
+                );
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Убирает трёхзначный код авиакомпании из номера билета:
+     * «5551234567890» / «555-1234567890» → «1234567890».
+     * Суффикс «-emd» (синтетический номер EMD из явной таксы) сохраняется,
+     * иначе EMD и его основной билет уйдут в 1С в разных форматах.
+     * Номера другого формата (ЖД-бланки, пустые значения) не трогаются.
+     *
+     * @param mixed $number — номер билета
+     * @return mixed
+     */
+    private function stripTicketPrefix($number)
+    {
+        if (!is_string($number) && !is_numeric($number)) {
+            return $number;
+        }
+
+        $value = trim((string)$number);
+        if (preg_match('/^\d{3}-?(\d{10})(-emd)?$/', $value, $m)) {
+            return $m[1] . (isset($m[2]) ? $m[2] : '');
+        }
+
+        return $number;
+    }
+
+    /**
+     * Собирает YYYYMMDDHHmmss для купона: готовый *_DATETIME или склейка DATE+TIME.
+     *
+     * @param array $coupon — купон из ORDER
+     * @param string $prefix — DEPARTURE или ARRIVAL
+     * @return string
+     */
+    private function buildDateTimeField($coupon, $prefix)
+    {
+        $dtKey = $prefix . '_DATETIME';
+        if (isset($coupon[$dtKey]) && trim((string)$coupon[$dtKey]) !== '') {
+            return (string)$coupon[$dtKey];
+        }
+
+        $date = isset($coupon[$prefix . '_DATE']) ? trim((string)$coupon[$prefix . '_DATE']) : '';
+        $time = isset($coupon[$prefix . '_TIME']) ? trim((string)$coupon[$prefix . '_TIME']) : '';
+
+        if ($date !== '' && $time !== '') {
+            return $date . $time;
+        }
+
+        return $date !== '' ? $date : '';
+    }
+
+    /**
+     * Объект справочника {UID,CODE,NAME} → строка UID.
+     * Если значение уже строка (UID или код до enrich) — возвращается как есть.
+     *
+     * @param mixed $value — объект или строка
+     * @return string
+     */
+    private function flattenRefToUid($value)
+    {
+        if (is_array($value)) {
+            return isset($value['UID']) ? (string)$value['UID'] : '';
+        }
+        if (is_string($value) || is_numeric($value)) {
+            return (string)$value;
+        }
+        return '';
+    }
+
+    /**
+     * Добавляет тело ответа 1С к тексту сообщения (для app.log и статуса).
+     * Длинный ответ обрезается, переводы строк схлопываются в пробел.
+     *
+     * @param string $message
+     * @param string|null $response
+     * @param int $maxLen
+     * @return string
+     */
+    private function withServerResponse($message, $response, $maxLen = 500)
+    {
+        $text = trim((string)$response);
+        if ($text === '') {
+            return rtrim($message) . ' Ответ сервера пуст.';
+        }
+        $oneLine = preg_replace('/\s+/u', ' ', $text);
+        if (!is_string($oneLine) || $oneLine === '') {
+            $oneLine = $text;
+        }
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            if (mb_strlen($oneLine, 'UTF-8') > $maxLen) {
+                $oneLine = mb_substr($oneLine, 0, $maxLen, 'UTF-8') . '…';
+            }
+        } elseif (strlen($oneLine) > $maxLen) {
+            $oneLine = substr($oneLine, 0, $maxLen) . '…';
+        }
+        return rtrim($message) . ' Ответ: ' . $oneLine;
+    }
+
+    /**
      * Формирует пояснение по HTTP-коду ответа (4xx, 5xx).
      */
     private function explanationForHttpCode($httpCode, $url, $response)
     {
+        $bodyExplain = $this->explainOneCResponse($response);
+        if ($bodyExplain !== null) {
+            return $this->withServerResponse(
+                $bodyExplain . " (HTTP {$httpCode}).",
+                $response
+            );
+        }
         if ($httpCode === 401) {
             return "Ошибка аутентификации (HTTP 401). Неверный логин/пароль. Проверьте api.login и api.password в config/settings.json.";
         }
@@ -197,12 +485,106 @@ class ApiSender
             return "Эндпоинт не найден (HTTP 404). URL {$url} не существует. Проверьте api.url — возможно неверный путь или сервис не опубликован.";
         }
         if ($httpCode === 500) {
-            return "Внутренняя ошибка 1С (HTTP 500). Ответ: " . $this->truncate($response, 500) . ". Обратитесь к разработчику 1С.";
+            return $this->withServerResponse(
+                'Внутренняя ошибка 1С (HTTP 500). Часто пустой UID или неверный тип поля.',
+                $response
+            );
         }
         if ($httpCode === 502 || $httpCode === 503) {
             return "Сервер 1С временно недоступен (HTTP {$httpCode}). Повторите позже.";
         }
-        return "Неожиданный HTTP-код: {$httpCode}. Ответ: " . $this->truncate($response, 500);
+        return $this->withServerResponse(
+            "Неожиданный HTTP-код: {$httpCode}.",
+            $response
+        );
+    }
+
+    /**
+     * Человекочитаемое пояснение по телу ответа 1С.
+     * Возвращает null, если явной ошибки в тексте не распознано.
+     *
+     * @param string|null $response
+     * @return string|null
+     */
+    public function explainOneCResponse($response)
+    {
+        if ($response === null || trim((string)$response) === '') {
+            return null;
+        }
+        $text = (string)$response;
+
+        if (stripos($text, 'УникальныйИдентификатор') !== false
+            || (stripos($text, 'Недопустимое значение параметра') !== false
+                && stripos($text, 'параметр') !== false)
+        ) {
+            return 'Ошибка UID в 1С: в какой-то строке payload пустой или отсутствующий обязательный UID '
+                . '(конструктор УникальныйИдентификатор получил недопустимое значение). '
+                . 'Проверьте в json_api поля SUPPLIER, CARRIER, CURRENCY, DEPARTURE_AIRPORT, ARRIVAL_AIRPORT и другие UID.';
+        }
+        if (mb_stripos($text, 'агент') !== false && mb_stripos($text, 'не найден') !== false) {
+            return '1С не нашла агента по CODE. Проверьте BOOKING_AGENT.CODE в payload и справочник агентов в 1С.';
+        }
+        if (stripos($text, 'timeout') !== false || mb_stripos($text, 'таймаут') !== false
+            || mb_stripos($text, 'время ожидания') !== false
+        ) {
+            return 'Таймаут на стороне 1С или сети. Повторите отправку; при повторении увеличьте api.timeout.';
+        }
+        return null;
+    }
+
+    /**
+     * Нужно ли переписать message для уже сохранённой записи лога.
+     *
+     * @param array $entry
+     * @return array
+     */
+    public function enrichLogEntryMessage($entry)
+    {
+        if (!is_array($entry)) {
+            return $entry;
+        }
+        $response = isset($entry['response']) ? $entry['response'] : '';
+        $message = isset($entry['message']) ? $entry['message'] : '';
+        $explained = $this->explainOneCResponse($response);
+        $status = isset($entry['status']) ? strtoupper((string)$entry['status']) : '';
+        $dup = ($message !== '' && $response !== '' && strpos($message, (string)$response) !== false);
+        $successWithError = (strpos($message, 'Успешно отправлено') !== false)
+            && ($explained !== null || $this->looksLikeOneCErrorText($response));
+        $generic500 = (strpos($message, 'Внутренняя ошибка 1С') !== false && strpos($message, 'Ответ:') !== false);
+
+        if ($explained !== null && ($dup || $successWithError || $generic500 || $status === 'ERROR')) {
+            $entry['message'] = $explained;
+            if ($successWithError) {
+                $entry['status'] = 'ERROR';
+            }
+            return $entry;
+        }
+        if ($successWithError && $explained === null) {
+            $entry['status'] = 'ERROR';
+            $entry['message'] = $this->withServerResponse(
+                '1С вернула ошибку в теле ответа при HTTP 2xx.',
+                $response
+            );
+        }
+        return $entry;
+    }
+
+    /**
+     * Грубая эвристика: тело ответа похоже на ошибку 1С.
+     *
+     * @param string|null $response
+     * @return bool
+     */
+    private function looksLikeOneCErrorText($response)
+    {
+        if ($response === null || trim((string)$response) === '') {
+            return false;
+        }
+        $text = (string)$response;
+        return (mb_stripos($text, 'ошибка') !== false
+            || stripos($text, 'Error') !== false
+            || stripos($text, 'Exception') !== false
+            || mb_stripos($text, 'Недопустимое') !== false);
     }
 
     /**
@@ -281,6 +663,21 @@ class ApiSender
     }
 
     /**
+     * Пишет в лог отправок запись SKIP, не обращаясь к 1С.
+     *
+     * Нужна, когда отправка запрещена настройками поставщика
+     * (setup.suppliers): в логах API видно, что заказ не ушёл намеренно.
+     *
+     * @param string $jsonFileName — имя JSON-файла
+     * @param string $sourceXml    — имя исходного файла
+     * @param string $message      — причина пропуска
+     */
+    public function logSkipped($jsonFileName, $sourceXml, $message)
+    {
+        $this->writeLog('SKIP', $jsonFileName, $sourceXml, null, null, $message);
+    }
+
+    /**
      * Добавляет одну строку в лог отправок (JSON Lines).
      *
      * @param string      $status       — статус: SEND, OK, ERROR, SKIP
@@ -306,7 +703,10 @@ class ApiSender
         $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
         file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
 
-        if ($isNewFile) {
+        // Права — на новом файле и один раз за запрос (старый лог мог остаться
+        // с прежними правами, а chmod на каждую строку не нужен)
+        if ($isNewFile || !$this->logOwnershipChecked) {
+            $this->logOwnershipChecked = true;
             Utils::ensureOwnership($this->logFile);
         }
     }
@@ -342,7 +742,9 @@ class ApiSender
         $entries = array();
         foreach ($lines as $line) {
             $entry = json_decode($line, true);
-            if (is_array($entry)) $entries[] = $entry;
+            if (is_array($entry)) {
+                $entries[] = $this->enrichLogEntryMessage($entry);
+            }
         }
         return $entries;
     }

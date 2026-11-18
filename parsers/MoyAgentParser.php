@@ -20,6 +20,15 @@ require_once __DIR__ . '/constants/MoyAgentConstants.php';
 
 class MoyAgentParser implements ParserInterface
 {
+    // Код таксы, которой EMD приходит вместо отдельного emd_ticket_doc
+    const EMD_TAX_CODE = 'EMD';
+
+    // Суффикс синтетического номера EMD-продукта: своего бланка у такой услуги нет
+    const IMPLICIT_EMD_SUFFIX = '-emd';
+
+    // Название услуги для EMD из явной таксы
+    const IMPLICIT_EMD_NAME = 'EMD';
+
     public function getSupplierFolder()
     {
         return 'moyagent';
@@ -133,7 +142,10 @@ class MoyAgentParser implements ParserInterface
                 throw new Exception("Не найден air_ticket_prod для возврата");
             }
 
-            $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+            $reservationNumber = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $psgId = $refundDoc ? $refundDoc['psgr_id'] : '';
             $passenger = isset($passengersMap[$psgId]) ? $passengersMap[$psgId] : null;
             $traveller = $this->buildTravellerName($passenger);
@@ -154,7 +166,29 @@ class MoyAgentParser implements ParserInterface
 
             $origFare = (float)(string)$origAirTicket['fare'];
             $origTaxes = (float)(string)$origAirTicket['taxes'];
+            $commissions = $this->buildCommissions($origAirTicket);
+            $penalty = $this->extractPenalty($refAirTicket);
+            $refFare = (float)(string)$refAirTicket['fare'];
+            $refTaxes = (float)(string)$refAirTicket['taxes'];
+
+            // Явная такса EMD возвращается отдельным продуктом: из сумм билета
+            // она вычитается, штраф остаётся на билете
+            $emdOrig = $this->sumEmdTaxes($origAirTicket);
+            $emdRef = $this->sumEmdTaxes($refAirTicket);
+            $splitEmd = $emdOrig > 0
+                && $ticketNumber !== ''
+                && !$this->groupHasEmdDoc($relatedProdIds, $emdDocsMap)
+                && $emdOrig <= $origTaxes + 0.01
+                && $emdRef <= $refTaxes + 0.01;
+            if ($splitEmd) {
+                $emdSplit = $this->splitEmdTaxLines($taxes);
+                $taxes = $emdSplit['rest'];
+                $origTaxes = $origTaxes - $emdOrig;
+                $refTaxes = $refTaxes - $emdRef;
+            }
+
             $origTotal = $origFare + $origTaxes;
+            $refundAmount = $refFare + $refTaxes - $penalty;
 
             $payments = array(array(
                 'TYPE' => 'INVOICE',
@@ -162,12 +196,6 @@ class MoyAgentParser implements ParserInterface
                 'EQUIVALENT_AMOUNT' => $origTotal,
                 'RELATED_TICKET_NUMBER' => null
             ));
-
-            $commissions = $this->buildCommissions($origAirTicket);
-            $penalty = $this->extractPenalty($refAirTicket);
-            $refFare = (float)(string)$refAirTicket['fare'];
-            $refTaxes = (float)(string)$refAirTicket['taxes'];
-            $refundAmount = $refFare + $refTaxes - $penalty;
 
             $passengerDocInfo = $this->buildPassengerDocInfo($passenger);
 
@@ -179,7 +207,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = (string)$origAirTicket['supplier'];
 
             $products[] = array(
-                'UID' => Utils::generateUUID(),
+                'UID' => Utils::productUID($this->getSupplierFolder(), $ticketNumber),
                 'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
                 'NUMBER' => $ticketNumber,
                 'ISSUE_DATE' => $issueDate,
@@ -224,11 +252,34 @@ class MoyAgentParser implements ParserInterface
                 )
             );
 
+            if ($splitEmd) {
+                $products[] = $this->buildImplicitEmdProduct(array(
+                    'ticket_number' => $ticketNumber,
+                    'emd_sum' => $emdOrig,
+                    'status' => 'возврат',
+                    'issue_date' => $issueDate,
+                    'reservation_number' => $reservationNumber,
+                    'booking_agent' => $bookingAgentName,
+                    'agent' => $issuingAgentName,
+                    'passenger_age' => $passengerAge,
+                    'passenger_doc_info' => $passengerDocInfo,
+                    'carrier' => (string)$origAirTicket['validating_carrier'],
+                    'supplier_code' => $supplierCode,
+                    'seg_carriers' => $segmentMeta['seg_carriers'],
+                    'flight_type_raw' => $flightTypeRaw,
+                    'gds_id' => $gdsId,
+                    'traveller' => $traveller,
+                    'currency' => $currency,
+                    'invoice_amount' => $emdOrig,
+                    'refund' => array('date' => $refundDate, 'amount' => $emdRef)
+                ));
+            }
+
             // EMD при возврате
             $emdRefundProducts = $this->buildEmdRefundProducts(
                 $origProdId, $refundDate, $ticketNumber, $emdDocsMap,
                 $airTicketsByProdId, $travelDocsMap, $passengersMap,
-                $mainReservation, $origAirTicket, $currency
+                $mainReservation, $origAirTicket, $currency, $orderId
             );
             foreach ($emdRefundProducts as $ep) {
                 $products[] = $ep;
@@ -317,7 +368,10 @@ class MoyAgentParser implements ParserInterface
                 }
 
                 $travelDoc = isset($travelDocsMap[$mainProdId]) ? $travelDocsMap[$mainProdId] : null;
-                $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+                $reservationNumber = $this->buildReservationNumber(
+                    $mainReservation ? $mainReservation['rloc'] : '',
+                    $orderId
+                );
                 $issuingAgentName = $travelDoc ? $travelDoc['issuingAgent'] : '';
                 $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
                 $psgId = $travelDoc ? $travelDoc['psgr_id'] : '';
@@ -332,6 +386,20 @@ class MoyAgentParser implements ParserInterface
                 $segmentMeta = $this->extractSegmentCarriersAndBaggageFromGroup($prodIds, $airTicketsByProdId);
                 $fare = (float)(string)$airTicket['fare'];
                 $taxesAmount = (float)(string)$airTicket['taxes'];
+
+                // Явная такса EMD (без emd_ticket_doc) уходит отдельным продуктом:
+                // на билете остаются тариф и остальные таксы
+                $emdSplit = $this->splitEmdTaxLines($taxes);
+                $emdSum = $emdSplit['emd_sum'];
+                $splitEmd = $emdSum > 0
+                    && $ticketNumber !== ''
+                    && !$this->groupHasEmdDoc($prodIds, $emdDocsMap)
+                    && $emdSum <= $taxesAmount + 0.01;
+                if ($splitEmd) {
+                    $taxes = $emdSplit['rest'];
+                    $taxesAmount = $taxesAmount - $emdSum;
+                }
+
                 $totalAmount = $fare + $taxesAmount;
 
                 $refundTkt = $isExchange ? $orderAnalysis['refund_ticket_number'] : '';
@@ -346,7 +414,7 @@ class MoyAgentParser implements ParserInterface
                 $supplierCode = (string)$airTicket['supplier'];
 
                 $products[] = array(
-                    'UID' => Utils::generateUUID(),
+                    'UID' => Utils::productUID($this->getSupplierFolder(), $ticketNumber),
                     'PRODUCT_TYPE' => array('NAME' => 'Авиабилет', 'CODE' => '000000001'),
                     'NUMBER' => $ticketNumber,
                     'ISSUE_DATE' => $issueDate,
@@ -381,12 +449,33 @@ class MoyAgentParser implements ParserInterface
                     'PAYMENTS' => $payments,
                     'COMMISSIONS' => $this->buildCommissions($airTicket)
                 );
+
+                if ($splitEmd) {
+                    $products[] = $this->buildImplicitEmdProduct(array(
+                        'ticket_number' => $ticketNumber,
+                        'emd_sum' => $emdSum,
+                        'status' => 'продажа',
+                        'issue_date' => $issueDate,
+                        'reservation_number' => $reservationNumber,
+                        'booking_agent' => $bookingAgentName,
+                        'agent' => $issuingAgentName,
+                        'passenger_age' => $passengerAge,
+                        'passenger_doc_info' => $passengerDocInfo,
+                        'carrier' => (string)$airTicket['validating_carrier'],
+                        'supplier_code' => $supplierCode,
+                        'seg_carriers' => $segmentMeta['seg_carriers'],
+                        'flight_type_raw' => $flightTypeRaw,
+                        'gds_id' => $gdsId,
+                        'traveller' => $traveller,
+                        'currency' => $currency
+                    ));
+                }
             }
 
             // EMD при продаже
             $emdSaleProducts = $this->buildEmdSaleProducts(
                 $emdDocsMap, $airTicketsByProdId, $travelDocsMap,
-                $passengersMap, $mainReservation, $currency
+                $passengersMap, $mainReservation, $currency, $orderId
             );
             foreach ($emdSaleProducts as $ep) {
                 $products[] = $ep;
@@ -399,7 +488,7 @@ class MoyAgentParser implements ParserInterface
 
         // ШАГ 5: Итоговый ORDER
         return array(
-            'UID' => Utils::generateUUID(),
+            'UID' => Utils::orderUID($this->getSupplierFolder(), $orderId),
             'INVOICE_NUMBER' => $orderId,
             'INVOICE_DATA' => $this->formatDateTime($orderTime),
             'CLIENT' => $clientCode,
@@ -543,7 +632,7 @@ class MoyAgentParser implements ParserInterface
      */
     private function buildEmdSaleProducts(
         $emdDocsMap, $airTicketsByProdId, $travelDocsMap,
-        $passengersMap, $mainReservation, $currency
+        $passengersMap, $mainReservation, $currency, $orderId
     ) {
         $products = array();
 
@@ -579,7 +668,10 @@ class MoyAgentParser implements ParserInterface
                 $carrier = (string)$mainAirTicket['validating_carrier'];
             }
 
-            $reservationNumber = $mainReservation ? $mainReservation['rloc'] : '';
+            $reservationNumber = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $bookingAgentName = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
             $emdFare = $emdAirTicket ? (float)(string)$emdAirTicket['fare'] : 0;
@@ -617,13 +709,17 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$seg['class'];
                     $typeIdRaw = isset($seg['type_id']) ? (string)$seg['type_id'] : '';
                     $statusRaw = isset($seg['status']) ? (string)$seg['status'] : (isset($seg['segment_status']) ? (string)$seg['segment_status'] : '');
+                    $emdDepDt = $this->formatDateTime((string)$seg['departure_datetime']);
+                    $emdArrDt = $this->formatDateTime((string)$seg['arrival_datetime']);
                     $coupons[] = array(
                         'FLIGHT_NUMBER'      => (string)$seg['flight_number'],
                         'FARE_BASIS'         => (string)$seg['fare_basis'],
                         'DEPARTURE_AIRPORT'  => (string)$seg['departure_airport'],
-                        'DEPARTURE_DATETIME' => $this->formatDateTime((string)$seg['departure_datetime']),
+                        'DEPARTURE_DATE'     => substr($emdDepDt, 0, 8),
+                        'DEPARTURE_TIME'     => substr($emdDepDt, 8, 6),
                         'ARRIVAL_AIRPORT'    => (string)$seg['arrival_airport'],
-                        'ARRIVAL_DATETIME'   => $this->formatDateTime((string)$seg['arrival_datetime']),
+                        'ARRIVAL_DATE'       => substr($emdArrDt, 0, 8),
+                        'ARRIVAL_TIME'       => substr($emdArrDt, 8, 6),
                         'CLASS'              => $classRaw,
                         'CLASS_NAME'         => $this->mapCabinClass($classRaw),
                         'TYPE_ID'            => $typeIdRaw,
@@ -650,7 +746,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = $emdAirTicket ? (string)$emdAirTicket['supplier'] : '';
 
             $products[] = array(
-                'UID' => Utils::generateUUID(),
+                'UID' => Utils::productUID($this->getSupplierFolder(), $emdDoc['tkt_number']),
                 'PRODUCT_TYPE' => array('NAME' => 'EMD', 'CODE' => '000000002'),
                 'NUMBER' => $emdDoc['tkt_number'],
                 'ISSUE_DATE' => $this->formatDateTime($emdDoc['tkt_date']),
@@ -702,7 +798,7 @@ class MoyAgentParser implements ParserInterface
     private function buildEmdRefundProducts(
         $origProdId, $refundDate, $mainTicketNumber, $emdDocsMap,
         $airTicketsByProdId, $travelDocsMap, $passengersMap,
-        $mainReservation, $origAirTicket, $currency
+        $mainReservation, $origAirTicket, $currency, $orderId
     ) {
         $products = array();
 
@@ -742,7 +838,10 @@ class MoyAgentParser implements ParserInterface
                 $carrier = (string)$origAirTicket['validating_carrier'];
             }
 
-            $resNum = $mainReservation ? $mainReservation['rloc'] : '';
+            $resNum = $this->buildReservationNumber(
+                $mainReservation ? $mainReservation['rloc'] : '',
+                $orderId
+            );
             $bookAgent = $mainReservation ? $mainReservation['bookingAgent'] : '';
 
             $emdFare = $emdAT ? (float)(string)$emdAT['fare'] : 0;
@@ -774,13 +873,15 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$seg['class'];
                     $typeIdRaw = isset($seg['type_id']) ? (string)$seg['type_id'] : '';
                     $statusRaw = isset($seg['status']) ? (string)$seg['status'] : (isset($seg['segment_status']) ? (string)$seg['segment_status'] : '');
+                    $refDepDt = $this->formatDateTime((string)$seg['departure_datetime']);
+                    $refArrDt = $this->formatDateTime((string)$seg['arrival_datetime']);
                     $coupons[] = array(
                         'FLIGHT_NUMBER'=>(string)$seg['flight_number'],
                         'FARE_BASIS'=>(string)$seg['fare_basis'],
                         'DEPARTURE_AIRPORT'=>(string)$seg['departure_airport'],
-                        'DEPARTURE_DATETIME'=>$this->formatDateTime((string)$seg['departure_datetime']),
+                        'DEPARTURE_DATE'=>substr($refDepDt, 0, 8),'DEPARTURE_TIME'=>substr($refDepDt, 8, 6),
                         'ARRIVAL_AIRPORT'=>(string)$seg['arrival_airport'],
-                        'ARRIVAL_DATETIME'=>$this->formatDateTime((string)$seg['arrival_datetime']),
+                        'ARRIVAL_DATE'=>substr($refArrDt, 0, 8),'ARRIVAL_TIME'=>substr($refArrDt, 8, 6),
                         'CLASS'=>$classRaw,
                         'CLASS_NAME'=>$this->mapCabinClass($classRaw),
                         'TYPE_ID'=>$typeIdRaw,
@@ -821,7 +922,7 @@ class MoyAgentParser implements ParserInterface
             $supplierCode = $emdAT ? (string)$emdAT['supplier'] : '';
 
             $products[] = array(
-                'UID'=>Utils::generateUUID(),
+                'UID'=>Utils::productUID($this->getSupplierFolder(), $emdTktNum),
                 'PRODUCT_TYPE'=>array('NAME'=>'EMD','CODE'=>'000000002'),
                 'NUMBER'=>$emdTktNum,
                 'ISSUE_DATE'=>$this->formatDateTime($emdDoc['tkt_date']),
@@ -864,6 +965,170 @@ class MoyAgentParser implements ParserInterface
             );
         }
         return $products;
+    }
+
+    // =========================================================
+    // EMD ИЗ ЯВНОЙ ТАКСЫ (без emd_ticket_doc)
+    // =========================================================
+
+    /**
+     * Сумма такс air_tax[@code=EMD] одного air_ticket_prod.
+     */
+    private function sumEmdTaxes($airTicketProd)
+    {
+        if ($airTicketProd === null || !isset($airTicketProd->air_seg)) {
+            return 0;
+        }
+
+        $sum = 0;
+        foreach ($airTicketProd->air_seg as $seg) {
+            if (!isset($seg->air_tax)) {
+                continue;
+            }
+            foreach ($seg->air_tax as $tax) {
+                if (strtoupper(trim((string)$tax['code'])) === self::EMD_TAX_CODE) {
+                    $sum += (float)(string)$tax['amount'];
+                }
+            }
+        }
+
+        return $sum;
+    }
+
+    /**
+     * Делит готовый массив TAXES на строки EMD и остальные.
+     * Сумма считается по тем же строкам, которые убираются из билета,
+     * поэтому дедупликация buildTaxesFromGroup() не расходится с суммой.
+     *
+     * @return array array('rest' => array, 'emd_sum' => float)
+     */
+    private function splitEmdTaxLines($taxes)
+    {
+        $rest = array();
+        $emdSum = 0;
+
+        foreach ($taxes as $tax) {
+            $code = isset($tax['CODE']) ? strtoupper(trim($tax['CODE'])) : '';
+            if ($code === self::EMD_TAX_CODE) {
+                $emdSum += (float)$tax['AMOUNT'];
+                continue;
+            }
+            $rest[] = $tax;
+        }
+
+        return array('rest' => $rest, 'emd_sum' => $emdSum);
+    }
+
+    /**
+     * Есть ли у группы реальный emd_ticket_doc: тогда явную таксу не делим.
+     */
+    private function groupHasEmdDoc($prodIds, $emdDocsMap)
+    {
+        foreach ($emdDocsMap as $emdDoc) {
+            foreach ($prodIds as $pid) {
+                if ((string)$emdDoc['main_prod_id'] === (string)$pid) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * EMD-продукт из явной таксы: номер синтетический ({билет}-emd),
+     * сумма — только такса EMD, остальные поля копируются с основного билета.
+     *
+     * @param array $context ticket_number, emd_sum, status, issue_date,
+     *                       reservation_number, booking_agent, agent, passenger_age,
+     *                       passenger_doc_info, carrier, supplier_code, seg_carriers,
+     *                       flight_type_raw, gds_id, traveller, currency,
+     *                       invoice_amount (опц.), refund (опц.: date, amount)
+     * @return array продукт ORDER
+     */
+    private function buildImplicitEmdProduct($context)
+    {
+        $ticketNumber = (string)$context['ticket_number'];
+        $emdSum = (float)$context['emd_sum'];
+        $docInfo = $context['passenger_doc_info'];
+        $invoiceAmount = isset($context['invoice_amount'])
+            ? (float)$context['invoice_amount']
+            : $emdSum;
+
+        // UID — от нормализованного номера: в разных файлах один билет
+        // приходит то с кодом авиакомпании, то без него
+        $uidKey = Utils::normalizeTicketNumber($ticketNumber) . self::IMPLICIT_EMD_SUFFIX;
+
+        $product = array(
+            'UID' => Utils::productUID($this->getSupplierFolder(), $uidKey),
+            'PRODUCT_TYPE' => array('NAME' => 'EMD', 'CODE' => '000000002'),
+            'NUMBER' => $ticketNumber . self::IMPLICIT_EMD_SUFFIX,
+            'ISSUE_DATE' => $context['issue_date'],
+            'RESERVATION_NUMBER' => $context['reservation_number'],
+            'BOOKING_AGENT' => array(
+                'CODE' => $context['booking_agent'],
+                'NAME' => $context['booking_agent']
+            ),
+            'AGENT' => array('CODE' => $context['agent'], 'NAME' => $context['agent']),
+            'STATUS' => $context['status'],
+            'TICKET_TYPE' => 'OWN',
+            'PASSENGER_AGE' => $context['passenger_age'],
+            'PASSENGER_BIRTH_DATE' => $docInfo['birth_date'],
+            'PASSENGER_GENDER' => $docInfo['gender'],
+            'PASSENGER_DOC_TYPE' => $docInfo['doc_type'],
+            'PASSENGER_DOC_NUMBER' => $docInfo['doc_number'],
+            'PASSENGER_MIDDLE_NAME' => $docInfo['middle_name'],
+            'PASSENGER_DOC_COUNTRY' => $docInfo['doc_country'],
+            'PASSENGER_DOC_EXPIRE' => $docInfo['doc_expire'],
+            'CONJ_COUNT' => 0,
+            'PENALTY' => 0,
+            'CARRIER' => $context['carrier'],
+            'SUPPLIER' => $this->getSupplierName(),
+            'SUPPLIER_CODE' => $context['supplier_code'],
+            'DISCOUNT' => 0,
+            'BAG_ALLOWANCE' => '',
+            'SEG_CARRIERS' => $context['seg_carriers'],
+            'FLIGHT_TYPE' => $this->mapFlightType($context['flight_type_raw']),
+            'GDS_ID' => $context['gds_id'],
+            'GDS_NAME' => $this->mapGdsId($context['gds_id']),
+            'RELATED_TICKET_NUMBER' => $ticketNumber,
+            'EMD_NAME' => self::IMPLICIT_EMD_NAME,
+            'COUPONS' => array(),
+            'TRAVELLER' => $context['traveller'],
+            'TAXES' => array(
+                array(
+                    'CODE' => '', 'AMOUNT' => 0, 'EQUIVALENT_AMOUNT' => 0,
+                    'VAT_RATE' => 0, 'VAT_AMOUNT' => 0
+                ),
+                array(
+                    'CODE' => self::EMD_TAX_CODE, 'AMOUNT' => $emdSum,
+                    'EQUIVALENT_AMOUNT' => $emdSum, 'VAT_RATE' => 0, 'VAT_AMOUNT' => 0
+                )
+            ),
+            'CURRENCY' => $context['currency'],
+            'PAYMENTS' => array(array(
+                'TYPE' => 'INVOICE',
+                'AMOUNT' => $invoiceAmount,
+                'EQUIVALENT_AMOUNT' => $invoiceAmount,
+                'RELATED_TICKET_NUMBER' => null
+            )),
+            'COMMISSIONS' => array()
+        );
+
+        if (isset($context['refund']) && $context['refund'] !== null) {
+            $refundAmount = (float)$context['refund']['amount'];
+            $product['REFUND'] = array(
+                'DATA' => $context['refund']['date'],
+                'AMOUNT' => $refundAmount,
+                'EQUIVALENT_AMOUNT' => $refundAmount,
+                'FEE_CLIENT' => 0,
+                'FEE_VENDOR' => 0,
+                'PENALTY_CLIENT' => 0,
+                'PENALTY_VENDOR' => 0
+            );
+        }
+
+        return $product;
     }
 
     // =========================================================
@@ -1079,9 +1344,13 @@ class MoyAgentParser implements ParserInterface
                     $classRaw = (string)$s['class'];
                     $typeIdRaw = isset($s['type_id']) ? (string)$s['type_id'] : '';
                     $statusRaw = isset($s['status']) ? (string)$s['status'] : (isset($s['segment_status']) ? (string)$s['segment_status'] : '');
+                    $depDt = $this->formatDateTime((string)$s['departure_datetime']);
+                    $arrDt = $this->formatDateTime((string)$s['arrival_datetime']);
                     $c[] = array('FLIGHT_NUMBER'=>(string)$s['flight_number'],'FARE_BASIS'=>(string)$s['fare_basis'],
-                        'DEPARTURE_AIRPORT'=>(string)$s['departure_airport'],'DEPARTURE_DATETIME'=>$this->formatDateTime((string)$s['departure_datetime']),
-                        'ARRIVAL_AIRPORT'=>(string)$s['arrival_airport'],'ARRIVAL_DATETIME'=>$this->formatDateTime((string)$s['arrival_datetime']),
+                        'DEPARTURE_AIRPORT'=>(string)$s['departure_airport'],
+                        'DEPARTURE_DATE'=>substr($depDt, 0, 8),'DEPARTURE_TIME'=>substr($depDt, 8, 6),
+                        'ARRIVAL_AIRPORT'=>(string)$s['arrival_airport'],
+                        'ARRIVAL_DATE'=>substr($arrDt, 0, 8),'ARRIVAL_TIME'=>substr($arrDt, 8, 6),
                         'CLASS'=>$classRaw,'CLASS_NAME'=>$this->mapCabinClass($classRaw),
                         'TYPE_ID'=>$typeIdRaw,'TYPE_ID_NAME'=>$typeIdRaw !== '' ? $this->mapTypeId($typeIdRaw) : '',
                         'SEGMENT_STATUS'=>$statusRaw,'SEGMENT_STATUS_NAME'=>$statusRaw !== '' ? $this->mapSegmentStatus($statusRaw) : '');
@@ -1144,8 +1413,13 @@ class MoyAgentParser implements ParserInterface
      * Строит PAYMENTS из XML payments или fallback на INVOICE.
      * При tkt_fop = ПК/БИЛЕТ/ТКЕТ/TKT/EXCH — TYPE=TICKET, RELATED_TICKET_NUMBER.
      *
+     * Сумма INVOICE — всегда $defaultAmount (fare+taxes этого продукта), а не
+     * payment@amount из XML: там сумма всего заказа уже с service_fee, а сбор
+     * уходит отдельно в COMMISSIONS. Иначе 1С прибавляет сбор второй раз.
+     * TYPE=TICKET (зачёт при обмене) берёт сумму из XML как есть.
+     *
      * @param \SimpleXMLElement $xml
-     * @param float $defaultAmount сумма по умолчанию (fare+taxes)
+     * @param float $defaultAmount fare+taxes продукта (без service_fee)
      * @param string $refundTicketNumber номер возвращённого билета (для обмена)
      * @return array PAYMENTS
      */
@@ -1153,7 +1427,7 @@ class MoyAgentParser implements ParserInterface
     {
         $ticketCreditFop = MoyAgentConstants::getTicketCreditFopCodes();
         $payments = array();
-        $amountInvoice = 0;
+        $hasInvoice = false;
         $amountTicket = 0;
         $relatedTicket = null;
 
@@ -1176,16 +1450,16 @@ class MoyAgentParser implements ParserInterface
                         $relatedTicket = $tktNum !== '' ? $tktNum : $refundTicketNumber;
                     }
                 } else {
-                    $amountInvoice += $amount;
+                    $hasInvoice = true;
                 }
             }
         }
 
-        if ($amountInvoice > 0) {
+        if ($hasInvoice && $defaultAmount > 0) {
             $payments[] = array(
                 'TYPE' => 'INVOICE',
-                'AMOUNT' => $amountInvoice,
-                'EQUIVALENT_AMOUNT' => $amountInvoice,
+                'AMOUNT' => $defaultAmount,
+                'EQUIVALENT_AMOUNT' => $defaultAmount,
                 'RELATED_TICKET_NUMBER' => null
             );
         }
@@ -1358,6 +1632,27 @@ class MoyAgentParser implements ParserInterface
         if ($fn !== '') { $parts[] = $fn; }
         if ($mn !== '') { $parts[] = $mn; }
         return trim(implode(' ', $parts));
+    }
+
+    /**
+     * PNR (rloc) и номер заказа поставщика (ord_id) через « - ».
+     * Пример: GYM76H - 1253510898178
+     *
+     * @param string $rloc
+     * @param string $orderId
+     * @return string
+     */
+    private function buildReservationNumber($rloc, $orderId)
+    {
+        $rloc = trim((string)$rloc);
+        $orderId = trim((string)$orderId);
+        if ($rloc !== '' && $orderId !== '') {
+            return $rloc . ' - ' . $orderId;
+        }
+        if ($rloc !== '') {
+            return $rloc;
+        }
+        return $orderId;
     }
 
     private function extractSegmentCarriersAndBaggageFromAirTicket($airTicket)

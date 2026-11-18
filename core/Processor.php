@@ -25,6 +25,8 @@ require_once __DIR__ . '/Logger.php';
 require_once __DIR__ . '/ParserManager.php';
 require_once __DIR__ . '/ApiSender.php';
 require_once __DIR__ . '/Utils.php';
+require_once __DIR__ . '/ReferenceManager.php';
+require_once __DIR__ . '/SendPolicy.php';
 
 class Processor
 {
@@ -45,6 +47,12 @@ class Processor
 
     /** @var ApiSender Отправщик заказов в API 1С */
     private $apiSender;
+
+    /** @var ReferenceManager Менеджер справочников */
+    private $referenceManager;
+
+    /** @var SendPolicy Разрешения на отправку в 1С по типам услуг */
+    private $sendPolicy;
 
     /**
      * Создание обработчика.
@@ -70,7 +78,17 @@ class Processor
         $settings = $this->loadSettings();
         $apiConfig = isset($settings['api']) ? $settings['api'] : array();
         $apiLogFile = dirname($this->configFile) . '/../logs/api_send.log';
-        $this->apiSender = new ApiSender($apiConfig, $apiLogFile);
+        $apiJsonDir = dirname($this->outputDir) . DIRECTORY_SEPARATOR . 'json_api';
+        $this->apiSender = new ApiSender($apiConfig, $apiLogFile, $apiJsonDir);
+
+        // Инициализируем менеджер справочников
+        $referencesDir = dirname($this->configFile) . '/../references';
+        $refSettings = isset($settings['references']) ? $settings['references'] : array();
+        $this->referenceManager = new ReferenceManager($referencesDir, $this->logger, $refSettings);
+
+        // Галки «продажи / возвраты / обмены» по поставщикам со страницы setup.php
+        $setupConfig = isset($settings['setup']) ? $settings['setup'] : array();
+        $this->sendPolicy = new SendPolicy($setupConfig);
     }
 
     /**
@@ -93,7 +111,8 @@ class Processor
             );
         }
 
-        $this->logger->info('========== Начата обработка файлов ==========');
+        // Баннер «Начата обработка» не пишем: на главной в «Истории запусков»
+        // одна строка на цикл — «Обработка завершена: …»
 
         // Счётчики для итогового отчёта
         $totalProcessed = 0;
@@ -179,10 +198,31 @@ class Processor
 
                     $savedJsonFiles = array();
                     foreach ($ordersList as $singleOrder) {
+                        // Обогащение справочниками (подстановка UID)
+                        $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
+                        $singleOrder = $refResult['order'];
+                        foreach ($refResult['warnings'] as $refWarn) {
+                            $this->logger->warning($refWarn);
+                        }
+
                         $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                         $savedJsonFiles[] = $jsonFileName;
 
-                        if ($apiAvailable) {
+                        // Копия payload в json_api/ — пишем всегда, даже если
+                        // API выключен: по ней видно, что уходит в 1С
+                        $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
+
+                        // Галки поставщика на странице Setup могут запрещать
+                        // отправку отдельных типов услуг (например, возвратов)
+                        $policy = $this->sendPolicy->checkOrder($folder, $singleOrder);
+
+                        if (!$policy['allowed']) {
+                            $skipMessage = "отправка отключена для типа «{$policy['blocked_status']}»"
+                                . " (поставщик {$folder}, страница Setup)";
+                            $this->logger->info("API 1С: {$skipMessage}");
+                            $this->apiSender->logSkipped($jsonFileName, $fileName, $skipMessage);
+                        } elseif ($apiAvailable) {
+                            // Отправка в 1С происходит ВСЕГДА, даже без UID
                             try {
                                 $apiResult = $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
                                 if ($apiResult['success']) {
@@ -198,6 +238,8 @@ class Processor
                         }
                     }
 
+                    // Предупреждения справочников не считаются ошибкой обработки:
+                    // файл уходит в Processed/, ненайденные коды остаются в app.log
                     $this->moveFile(
                         $xmlFile,
                         $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName
@@ -275,10 +317,27 @@ class Processor
             }
 
             foreach ($ordersList as $singleOrder) {
+                // Обогащение справочниками (подстановка UID)
+                $refResult = $this->referenceManager->enrich($singleOrder, $folder, $fileName);
+                $singleOrder = $refResult['order'];
+                foreach ($refResult['warnings'] as $refWarn) {
+                    $this->logger->warning($refWarn);
+                }
+
                 $jsonFileName = $this->saveJson($singleOrder, $fileName, $folder);
                 $result['json_files'][] = $jsonFileName;
 
-                if ($apiAvailable) {
+                $this->apiSender->writeApiPayload($singleOrder, $jsonFileName);
+
+                // Галки поставщика на странице Setup
+                $policy = $this->sendPolicy->checkOrder($folder, $singleOrder);
+
+                if (!$policy['allowed']) {
+                    $skipMessage = "отправка отключена для типа «{$policy['blocked_status']}»"
+                        . " (поставщик {$folder}, страница Setup)";
+                    $this->logger->info("API 1С (single): {$skipMessage}");
+                    $this->apiSender->logSkipped($jsonFileName, $fileName, $skipMessage);
+                } elseif ($apiAvailable) {
                     try {
                         $this->apiSender->send($singleOrder, $jsonFileName, $fileName);
                     } catch (Exception $apiEx) {
@@ -287,6 +346,7 @@ class Processor
                 }
             }
 
+            // Предупреждения справочников не считаются ошибкой обработки
             $this->moveFile(
                 $filePath,
                 $supplierDir . DIRECTORY_SEPARATOR . 'Processed' . DIRECTORY_SEPARATOR . $fileName

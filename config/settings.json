@@ -1,11 +1,11 @@
 {
     "interval": 10,
-    "last_run": 1773749340,
+    "last_run": 1790922493,
     "api": {
         "enabled": true,
-        "url": "http:\/\/10.30.88.24\/TRADE\/hs\/CRM_Exchange\/Order",
-        "login": "api_user",
-        "password": "api_password",
+        "url": "https:\/\/10.30.88.24\/TRADE_WORK\/hs\/PARSER_Exchange\/Order",
+        "login": "WebServises",
+        "password": "951753",
         "timeout": 5,
         "retry_attempts": 0,
         "retry_delay_sec": 2
@@ -33,13 +33,69 @@
             "proxy_login": "",
             "proxy_pass": "",
             "interval_min": 10,
-            "last_run": "1773749339"
+            "last_run": "1790922491"
         },
         "webhook": {
             "basic_auth_enabled": false,
             "basic_login": "",
             "basic_pass": "",
             "path": "\/webhook"
+        }
+    },
+    "references": {
+        "auto_sync": false,
+        "api_url": "",
+        "api_login": "",
+        "api_password": "",
+        "api_timeout": 30,
+        "_uid_profile_hint": "Какие UID подставлять в заказ: prod — боевые (поле uid справочника), test — тестовой базы 1С (поле uid_test, сейчас задан только у moyagent). При установке на прод поставить prod.",
+        "uid_profile": "prod",
+        "types": {
+            "suppliers": {
+                "endpoint": "\/suppliers",
+                "enabled": true
+            },
+            "agents": {
+                "endpoint": "\/agents",
+                "enabled": true
+            },
+            "airports": {
+                "endpoint": "\/airports",
+                "enabled": true
+            },
+            "airlines": {
+                "endpoint": "\/airlines",
+                "enabled": true
+            },
+            "service_classes": {
+                "endpoint": "\/service_classes",
+                "enabled": true
+            },
+            "currencies": {
+                "endpoint": "\/currencies",
+                "enabled": true
+            }
+        },
+        "last_import": "2026-09-14 15:01:47"
+    },
+    "setup": {
+        "password": "95123",
+        "suppliers": {
+            "moyagent": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            },
+            "smarttravel": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            },
+            "demo_hotel": {
+                "sale": true,
+                "refund": true,
+                "exchange": true
+            }
         }
     },
     "tab_order": [

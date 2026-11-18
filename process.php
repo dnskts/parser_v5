@@ -43,6 +43,7 @@ require_once BASE_DIR . '/core/ParserManager.php';
 require_once BASE_DIR . '/core/Processor.php';
 require_once BASE_DIR . '/core/SftpSync.php';
 require_once BASE_DIR . '/core/PullSync.php';
+require_once BASE_DIR . '/core/ReferenceManager.php';
 
 /**
  * SFTP-синхронизация: загрузка XML с сервера поставщика в input/.
@@ -173,6 +174,41 @@ function runPullSync($force = false)
 }
 
 /**
+ * Синхронизация справочников через API 1С (если включена).
+ *
+ * @return array — результат syncAll() или пустой массив при пропуске
+ */
+function syncReferences()
+{
+    $configFile = BASE_DIR . '/config/settings.json';
+
+    if (!file_exists($configFile)) {
+        return array();
+    }
+
+    $allSettings = json_decode(file_get_contents($configFile), true);
+    if (!is_array($allSettings) || !isset($allSettings['references'])) {
+        return array();
+    }
+
+    $refSettings = $allSettings['references'];
+    $autoSync = isset($refSettings['auto_sync']) ? $refSettings['auto_sync'] : false;
+    $apiUrl = isset($refSettings['api_url']) ? trim($refSettings['api_url']) : '';
+
+    if (!$autoSync || $apiUrl === '') {
+        $logger = new Logger(BASE_DIR . '/logs/app.log');
+        $logger->info('Автосинхронизация справочников отключена');
+        return array();
+    }
+
+    $logger = new Logger(BASE_DIR . '/logs/app.log');
+    $referencesDir = BASE_DIR . '/references';
+    $refManager = new ReferenceManager($referencesDir, $logger, $refSettings);
+
+    return $refManager->syncAll();
+}
+
+/**
  * Функция запуска обработки.
  * 
  * Создаёт все необходимые объекты (логгер, менеджер парсеров, обработчик)
@@ -188,6 +224,9 @@ function runProcessing($force = false)
 
     // 2. PULL-синхронизация SmartTravel (если mode=pull)
     $pullResult = runPullSync($force);
+
+    // 2.5. Синхронизация справочников (если auto_sync включён)
+    syncReferences();
 
     // Создаём логгер
     $logger = new Logger(BASE_DIR . '/logs/app.log');

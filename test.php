@@ -67,7 +67,7 @@ $expectations = array(
         'has_refund'         => false,
         // V5: новые проверки
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8C37F9',
+        'reservation_number' => '8C37F9 - 125358843227',
         'conj_count'         => 1,
         // Даты первого и последнего купона
         'first_dep_dt'       => '20260210180500',
@@ -112,7 +112,7 @@ $expectations = array(
         'has_refund'         => false,
         // V5
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8XGWB4',
+        'reservation_number' => '8XGWB4 - 125358829987',
         'conj_count'         => 1,
         // Все 3 пассажира и билета
         'all_travellers'     => array(
@@ -157,7 +157,7 @@ $expectations = array(
         'bag_allowance'      => '1P23K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'FV2R0F',
+        'reservation_number' => 'FV2R0F - 125358832021',
         'conj_count'         => 1,
         'first_dep_dt'       => '20260207113500',
         'first_arr_dt'       => '20260207131000',
@@ -195,7 +195,7 @@ $expectations = array(
         'penalty'            => 3500.0,
         // V5
         'supplier'           => 'МА авиа',
-        'reservation_number' => '8XMK4C',
+        'reservation_number' => '8XMK4C - 125358832769',
         // REFUND.AMOUNT = fare + taxes - penalty = 138300 + 1502 - 3500 = 136302
         'refund_amount'      => 136302.0,
     ),
@@ -229,7 +229,7 @@ $expectations = array(
         'bag_allowance'      => '1P40K',
         'has_refund'         => false,
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'G1ZXKP',
+        'reservation_number' => 'G1ZXKP - 125359005865',
         'booking_agent'      => 'Валерия Подунай',
         'agent'              => 'Валерия Подунай',
         'conj_count'         => 1,
@@ -287,7 +287,7 @@ $expectations = array(
         'penalty'            => 5060.0,
         'refund_amount'      => 16526.0,
         'supplier'           => 'МА авиа',
-        'reservation_number' => '93261Z',
+        'reservation_number' => '93261Z - 125358954718',
         'booking_agent'      => 'Ольга Никифорова',
         'agent'              => 'Ольга Никифорова',
     ),
@@ -328,7 +328,7 @@ $expectations = array(
         'has_refund'         => false,
         // V6: скрытая конъюнкция — 2 air_ticket_prod → 1 PRODUCT
         'supplier'           => 'МА авиа',
-        'reservation_number' => 'TMZJ3A',
+        'reservation_number' => 'TMZJ3A - 125359052102',
         'booking_agent'      => 'Инна Дмитриева',
         'agent'              => 'Инна Дмитриева',
         'conj_count'         => 2,
@@ -341,6 +341,134 @@ $expectations = array(
         'has_client_commission' => false,
         'has_vendor_commission' => true,
         'vendor_commission_amount' => 1456.08,
+    ),
+
+    // -------------------------------------------------
+    // Тест 7: Продажа с явной таксой EMD (без emd_ticket_doc)
+    // prod_id=0 (fare=20490.6, taxes=5043.84 — ровно такса EMD)
+    // prod_id=1 (service_prod СБ_ПК — игнорируется)
+    // EMD уходит отдельным продуктом: номер 8400218640-emd,
+    // на билете остаётся только тариф
+    // -------------------------------------------------
+    '1253510791958.xml' => array(
+        'description'        => 'Продажа, билет + явная такса EMD (без emd_ticket_doc), FCO→OLB',
+        'status'             => 'продажа',
+        'products_count'     => 2,
+        'invoice_number'     => '1253510791958',
+        'client'             => 'MA1PA6',
+        'cont_email'         => 'avia@rstls.ru',
+        'cont_phone'         => '+79139858314',
+        'cont_name'          => 'SHCHERBAKOV',
+        'ticket_number'      => '8400218640',
+        'traveller'          => 'RIAZHSKOV SERGEI',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '29.11.2032',
+        'carrier'            => 'XZ',
+        'coupons_count'      => 1,
+        'currency'           => 'RUB',
+        // Тариф без таксы EMD
+        'fare'               => 20490.6,
+        'discount'           => 0.0,
+        'supplier_code'      => '840',
+        'seg_carriers'       => 'XZ',
+        'bag_allowance'      => '0PC',
+        'has_refund'         => false,
+        'supplier'           => 'МА авиа',
+        'reservation_number' => '840021864 - 1253510791958',
+        'booking_agent'      => 'Ольга Никифорова',
+        'agent'              => 'Ольга Никифорова',
+        'conj_count'         => 1,
+        'first_dep_dt'       => '20260909173000',
+        'first_arr_dt'       => '20260909183000',
+        'has_client_commission' => true,
+        'client_commission_amount' => 300.0,
+        'has_vendor_commission' => true,
+        'vendor_commission_amount' => 1.0,
+        // Второй продукт — EMD с синтетическим номером
+        'all_travellers'     => array('RIAZHSKOV SERGEI', 'RIAZHSKOV SERGEI'),
+        'all_tickets'        => array('8400218640', '8400218640-emd'),
+    ),
+
+    // -------------------------------------------------
+    // Тест 8: Продажа PC — явная такса EMD рядом с таксой ALL
+    // taxes=15376.72 = ALL 8952.2 + EMD 6424.52
+    // На билете остаются тариф и ALL, EMD уходит отдельно
+    // Номер билета 13-значный: проверка суффикса -emd
+    // -------------------------------------------------
+    '1253510791896.xml' => array(
+        'description'        => 'Продажа PC, такса EMD рядом с ALL, VKO→SAW→GVA',
+        'status'             => 'продажа',
+        'products_count'     => 2,
+        'invoice_number'     => '1253510791896',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '6242263660885',
+        'traveller'          => 'TCHEREPANOVA MARIA',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'CH',
+        'passenger_doc_expire'  => '05.04.2032',
+        'carrier'            => 'PC',
+        'coupons_count'      => 2,
+        'currency'           => 'RUB',
+        'fare'               => 32227.92,
+        'discount'           => 0.0,
+        'supplier_code'      => '624',
+        'seg_carriers'       => 'PC',
+        'bag_allowance'      => '1P20K',
+        'has_refund'         => false,
+        'supplier'           => 'МА авиа',
+        'reservation_number' => '2E16U9 - 1253510791896',
+        'booking_agent'      => 'Анастасия Ангажи',
+        'agent'              => 'Анастасия Ангажи',
+        'conj_count'         => 1,
+        'first_dep_dt'       => '20260920061000',
+        'first_arr_dt'       => '20260920102000',
+        'last_dep_dt'        => '20260920140500',
+        'last_arr_dt'        => '20260920162000',
+        'has_client_commission' => true,
+        'client_commission_amount' => 300.0,
+        'has_vendor_commission' => true,
+        'vendor_commission_amount' => 1.0,
+        'all_tickets'        => array('6242263660885', '6242263660885-emd'),
+    ),
+
+    // -------------------------------------------------
+    // Тест 9: Возврат с явной таксой EMD
+    // prod_id=0 (TKT, fare=9803.05, EMD 4953.12)
+    // prod_id=2 (REF, те же суммы), penalty отсутствует
+    // Возврат билета = 9803.05, EMD возвращается отдельным продуктом
+    // -------------------------------------------------
+    '1253510693429.xml' => array(
+        'description'        => 'Возврат, билет + явная такса EMD, FCO→OLB',
+        'status'             => 'возврат',
+        'products_count'     => 2,
+        'invoice_number'     => '1253510693429',
+        'client'             => 'MA1PA6',
+        'ticket_number'      => '8352964950',
+        'traveller'          => 'IARAGIN LEONID',
+        'passenger_middle_name' => '',
+        'passenger_doc_country' => 'RU',
+        'passenger_doc_expire'  => '09.03.2032',
+        'carrier'            => 'XZ',
+        'coupons_count'      => 1,
+        'currency'           => 'RUB',
+        'fare'               => 9803.05,
+        'discount'           => 0.0,
+        'supplier_code'      => '835',
+        'seg_carriers'       => 'XZ',
+        'bag_allowance'      => '0PC',
+        'has_refund'         => true,
+        'penalty'            => 0.0,
+        // REFUND.AMOUNT = fare + taxes - EMD - penalty = 9803.05
+        'refund_amount'      => 9803.05,
+        'supplier'           => 'МА авиа',
+        'reservation_number' => '835296495 - 1253510693429',
+        'booking_agent'      => 'Елена Шишкина',
+        'agent'              => 'Елена Шишкина',
+        'conj_count'         => 0,
+        'has_client_commission' => true,
+        'client_commission_amount' => 300.0,
+        'all_tickets'        => array('8352964950', '8352964950-emd'),
     ),
 );
 
@@ -628,24 +756,49 @@ foreach ($fixtureFiles as $fileName) {
         $firstCoupon = $p['COUPONS'][0];
         $lastCoupon = end($p['COUPONS']);
 
-        $actual = isset($firstCoupon['DEPARTURE_DATETIME']) ? $firstCoupon['DEPARTURE_DATETIME'] : '';
+        // Поддержка обоих форматов: DEPARTURE_DATETIME (14 символов) или DEPARTURE_DATE+DEPARTURE_TIME
+        if (isset($firstCoupon['DEPARTURE_DATETIME'])) {
+            $actual = $firstCoupon['DEPARTURE_DATETIME'];
+        } elseif (isset($firstCoupon['DEPARTURE_DATE'])) {
+            $actual = $firstCoupon['DEPARTURE_DATE'] . (isset($firstCoupon['DEPARTURE_TIME']) ? $firstCoupon['DEPARTURE_TIME'] : '');
+        } else {
+            $actual = '';
+        }
         addCheck($fileResult, $totalTests, $passedTests, $failedTests,
             'Вылет (1-й сегм.)', ($actual === $expected['first_dep_dt']), $expected['first_dep_dt'], $actual);
 
         if (isset($expected['first_arr_dt'])) {
-            $actual = isset($firstCoupon['ARRIVAL_DATETIME']) ? $firstCoupon['ARRIVAL_DATETIME'] : '';
+            if (isset($firstCoupon['ARRIVAL_DATETIME'])) {
+                $actual = $firstCoupon['ARRIVAL_DATETIME'];
+            } elseif (isset($firstCoupon['ARRIVAL_DATE'])) {
+                $actual = $firstCoupon['ARRIVAL_DATE'] . (isset($firstCoupon['ARRIVAL_TIME']) ? $firstCoupon['ARRIVAL_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Прилёт (1-й сегм.)', ($actual === $expected['first_arr_dt']), $expected['first_arr_dt'], $actual);
         }
 
         if (isset($expected['last_dep_dt'])) {
-            $actual = isset($lastCoupon['DEPARTURE_DATETIME']) ? $lastCoupon['DEPARTURE_DATETIME'] : '';
+            if (isset($lastCoupon['DEPARTURE_DATETIME'])) {
+                $actual = $lastCoupon['DEPARTURE_DATETIME'];
+            } elseif (isset($lastCoupon['DEPARTURE_DATE'])) {
+                $actual = $lastCoupon['DEPARTURE_DATE'] . (isset($lastCoupon['DEPARTURE_TIME']) ? $lastCoupon['DEPARTURE_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Вылет (посл. сегм.)', ($actual === $expected['last_dep_dt']), $expected['last_dep_dt'], $actual);
         }
 
         if (isset($expected['last_arr_dt'])) {
-            $actual = isset($lastCoupon['ARRIVAL_DATETIME']) ? $lastCoupon['ARRIVAL_DATETIME'] : '';
+            if (isset($lastCoupon['ARRIVAL_DATETIME'])) {
+                $actual = $lastCoupon['ARRIVAL_DATETIME'];
+            } elseif (isset($lastCoupon['ARRIVAL_DATE'])) {
+                $actual = $lastCoupon['ARRIVAL_DATE'] . (isset($lastCoupon['ARRIVAL_TIME']) ? $lastCoupon['ARRIVAL_TIME'] : '');
+            } else {
+                $actual = '';
+            }
             addCheck($fileResult, $totalTests, $passedTests, $failedTests,
                 'Прилёт (посл. сегм.)', ($actual === $expected['last_arr_dt']), $expected['last_arr_dt'], $actual);
         }
@@ -750,8 +903,41 @@ foreach ($fixtureFiles as $fileName) {
             'Все номера билетов', $ok, $expected['all_tickets'], $actualTickets);
     }
 
+    // Стабильные UID: повторный parse того же файла даёт те же ORDER/PRODUCT UID
+    $dataAgain = $parser->parse($filePath);
+    $orderUidStable = (isset($data['UID']) && isset($dataAgain['UID']) && $data['UID'] === $dataAgain['UID']);
+    addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+        'ORDER.UID стабилен', $orderUidStable, $data['UID'], isset($dataAgain['UID']) ? $dataAgain['UID'] : '');
+    if (!empty($data['PRODUCTS'][0]['NUMBER'])) {
+        $pUid = isset($data['PRODUCTS'][0]['UID']) ? $data['PRODUCTS'][0]['UID'] : '';
+        $pUidAgain = isset($dataAgain['PRODUCTS'][0]['UID']) ? $dataAgain['PRODUCTS'][0]['UID'] : '';
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'PRODUCT.UID стабилен', ($pUid !== '' && $pUid === $pUidAgain), $pUid, $pUidAgain);
+        $expectedProdUid = Utils::productUID('moyagent', $data['PRODUCTS'][0]['NUMBER']);
+        addCheck($fileResult, $totalTests, $passedTests, $failedTests,
+            'PRODUCT.UID от номера билета', ($pUid === $expectedProdUid), $expectedProdUid, $pUid);
+    }
+
     $results[] = $fileResult;
 }
+
+// Стабильный UID билета: номер с кодом АК и без → один UUID (продажа/возврат)
+$uidStableFile = array(
+    'file' => '_stable_uid',
+    'description' => 'Utils: стабильный PRODUCT.UID от номера билета',
+    'checks' => array(),
+    'error' => null,
+    'no_expectations' => false,
+);
+$uidA = Utils::productUID('moyagent', '5552379660766');
+$uidB = Utils::productUID('moyagent', '2379660766');
+addCheck($uidStableFile, $totalTests, $passedTests, $failedTests,
+    'normalizeTicketNumber в UID', ($uidA === $uidB), $uidA, $uidB);
+$uidOrder1 = Utils::orderUID('moyagent', '125359005865');
+$uidOrder2 = Utils::orderUID('moyagent', '125359005865');
+addCheck($uidStableFile, $totalTests, $passedTests, $failedTests,
+    'orderUID детерминирован', ($uidOrder1 === $uidOrder2), $uidOrder1, $uidOrder2);
+$results[] = $uidStableFile;
 
 // =====================================================
 // ТЕСТЫ SmartTravelParser (JSON-фикстуры)
@@ -1033,13 +1219,17 @@ if ($isCli) {
 // =====================================================
 // HTML-ВЫВОД (ВЕБ-ИНТЕРФЕЙС)
 // =====================================================
+$appVersion = include __DIR__ . '/config/version.php';
+if (!is_string($appVersion) || $appVersion === '') {
+    $appVersion = '?';
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XML Parser — Автотесты</title>
+    <title>XML Parser <?php echo htmlspecialchars($appVersion); ?> — Автотесты</title>
     <link rel="stylesheet" href="assets/style.css">
     <style>
         /* Минимальные отступы для страницы тестов */
@@ -1249,7 +1439,7 @@ if ($isCli) {
         <div class="header__content header__content--wide">
             <div class="header__top">
                 <div>
-                    <h1 class="header__title">XML Parser</h1>
+                    <h1 class="header__title">XML Parser <span class="header__version"><?php echo htmlspecialchars($appVersion); ?></span></h1>
                     <p class="header__subtitle">Автоматическое тестирование парсеров</p>
                 </div>
                 <nav class="nav">
@@ -1377,7 +1567,7 @@ if ($isCli) {
     </main>
 
     <footer class="footer">
-        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn</p>
+        <p>XML Parser v5 — Система обработки файлов поставщиков by Denis Kuritsyn · <a href="mailto:denis.kuritsyn@rstls.ru">denis.kuritsyn@rstls.ru</a></p>
     </footer>
 
     <script>

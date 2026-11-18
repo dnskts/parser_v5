@@ -29,6 +29,9 @@ class Logger
     /** @var int Максимальный размер файла логов в байтах (5 МБ) */
     private $maxFileSize = 5242880;
 
+    /** @var bool Права на файл лога уже проверялись в этом запросе */
+    private $ownershipChecked = false;
+
     /**
      * Создание логгера.
      * 
@@ -122,36 +125,321 @@ class Logger
         // LOCK_EX — блокируем файл на время записи, чтобы не было конфликтов
         file_put_contents($this->logFile, $logLine, FILE_APPEND | LOCK_EX);
 
-        if ($isNewFile) {
+        // Права проверяем на новом файле и один раз за запрос: старый лог мог
+        // остаться с прежними правами, а chmod на каждую строку — лишняя работа
+        if ($isNewFile || !$this->ownershipChecked) {
+            $this->ownershipChecked = true;
             Utils::ensureOwnership($this->logFile);
         }
     }
 
     /**
      * Читает последние N строк из файла логов.
-     * 
-     * Используется для отображения логов на веб-странице.
-     * Возвращает строки в хронологическом порядке (от старых к новым).
-     * 
+     *
      * @param int $lines — количество строк, которые нужно вернуть
      * @return array — массив строк лога
      */
     public function getLastLines($lines = 100)
     {
-        // Если файл логов не существует — возвращаем пустой массив
-        if (!file_exists($this->logFile)) {
+        $chunk = $this->getLinesChunk(0, $lines);
+        return isset($chunk['lines']) ? $chunk['lines'] : array();
+    }
+
+    /**
+     * Читает чанк строк с конца файла (без загрузки всего файла в память).
+     *
+     * @param int $offsetFromEnd — сколько строк пропустить с конца (0 = самые новые)
+     * @param int $limit — сколько строк вернуть
+     * @return array — array('lines'=>array(...), 'has_more'=>bool, 'offset'=>int, 'limit'=>int)
+     *                 lines в хронологическом порядке (старые → новые)
+     */
+    public function getLinesChunk($offsetFromEnd = 0, $limit = 100)
+    {
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+
+        $empty = array(
+            'lines' => array(),
+            'has_more' => false,
+            'offset' => $offsetFromEnd,
+            'limit' => $limit
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $empty;
+        }
+
+        $need = $offsetFromEnd + $limit + 1; // +1 чтобы узнать has_more
+        $collected = $this->readLastNonEmptyLines($need);
+
+        $totalCollected = count($collected);
+        $hasMore = $totalCollected > ($offsetFromEnd + $limit);
+
+        // collected: newest first (index 0 = newest)
+        // skip offsetFromEnd newest, then take limit, then reverse to chronological
+        $slice = array_slice($collected, $offsetFromEnd, $limit);
+        $slice = array_reverse($slice);
+
+        return array(
+            'lines' => $slice,
+            'has_more' => $hasMore,
+            'offset' => $offsetFromEnd,
+            'limit' => $limit
+        );
+    }
+
+    /**
+     * Читает чанк строк с конца файла, оставляя только подходящие по подстрокам.
+     *
+     * Нужен для журнала на странице setup.php: события настроек в app.log
+     * редкие, поэтому глубина просмотра ограничена $maxScanLines — иначе
+     * каждый опрос перечитывал бы весь лог (до 5 МБ до ротации).
+     *
+     * @param array $needles — подстроки для отбора (регистр не важен); пусто — все строки
+     * @param int $offsetFromEnd — сколько подходящих строк пропустить с конца (0 = самые новые)
+     * @param int $limit — сколько строк вернуть
+     * @param int $maxScanLines — сколько строк лога просмотреть с конца
+     * @return array — array('lines'=>array(...), 'has_more'=>bool, 'offset'=>int, 'limit'=>int, 'scanned'=>int)
+     *                 lines в хронологическом порядке (старые → новые)
+     */
+    public function getFilteredLinesChunk($needles, $offsetFromEnd = 0, $limit = 100, $maxScanLines = 4000)
+    {
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+        $maxScanLines = max($limit, min(50000, (int)$maxScanLines));
+
+        $result = array(
+            'lines'    => array(),
+            'has_more' => false,
+            'offset'   => $offsetFromEnd,
+            'limit'    => $limit,
+            'scanned'  => 0
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $result;
+        }
+
+        // Иглы приводим к нижнему регистру один раз, строки лога — по мере чтения
+        $lowerNeedles = array();
+        if (is_array($needles)) {
+            foreach ($needles as $needle) {
+                $needle = trim((string)$needle);
+                if ($needle !== '') {
+                    $lowerNeedles[] = $this->toLower($needle);
+                }
+            }
+        }
+
+        $scanned = $this->readLastNonEmptyLines($maxScanLines);
+        $result['scanned'] = count($scanned);
+
+        // Отбираем подходящие строки, сохраняя порядок newest-first
+        $matched = array();
+        foreach ($scanned as $line) {
+            if (empty($lowerNeedles) || $this->lineMatchesNeedles($line, $lowerNeedles)) {
+                $matched[] = $line;
+            }
+        }
+
+        // Срез как в getLinesChunk: пропускаем offsetFromEnd новых, берём limit
+        $slice = array_slice($matched, $offsetFromEnd, $limit);
+        $result['lines'] = array_reverse($slice);
+
+        // Либо подходящие строки ещё остались, либо лог просмотрен не до конца
+        $result['has_more'] = (count($matched) > ($offsetFromEnd + $limit))
+            || ($result['scanned'] >= $maxScanLines);
+
+        return $result;
+    }
+
+    /**
+     * Классификация строки app.log для трёх окон на index.php.
+     *
+     * @param string $line
+     * @return string — files|runs|service|drop
+     */
+    public function classifyLogChannel($line)
+    {
+        $l = $this->toLower((string)$line);
+
+        // Старый баннер старта цикла — не показываем ни в одном окне
+        if (strpos($l, 'начата обработка файлов') !== false) {
+            return 'drop';
+        }
+        // Итог запуска Processor
+        if (strpos($l, 'обработка завершена:') !== false) {
+            return 'runs';
+        }
+        // Служебные (как бывший isServiceLogLine в app.js)
+        if (strpos($l, 'нет новых файлов') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'import_references') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'referenceimporter') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'references.last_import') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'справочник') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'parsermanager') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'зарегистрирован') !== false && strpos($l, 'парсер') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'загружен') !== false && strpos($l, 'парсер') !== false) {
+            return 'service';
+        }
+        if (strpos($l, 'обнаружен парсер') !== false) {
+            return 'service';
+        }
+
+        return 'files';
+    }
+
+    /**
+     * Чанк строк одного канала журнала (files|runs|service) с конца app.log.
+     *
+     * Offset считается только по строкам этого канала — независимая прокрутка панелей.
+     *
+     * @param string $channel — files|runs|service
+     * @param int $offsetFromEnd
+     * @param int $limit
+     * @param int $maxScanLines
+     * @return array — lines, has_more, offset, limit, scanned, channel
+     */
+    public function getChannelLinesChunk($channel, $offsetFromEnd = 0, $limit = 100, $maxScanLines = 8000)
+    {
+        $channel = (string)$channel;
+        $allowed = array('files' => true, 'runs' => true, 'service' => true);
+        if (!isset($allowed[$channel])) {
+            $channel = 'files';
+        }
+
+        $offsetFromEnd = max(0, (int)$offsetFromEnd);
+        $limit = max(1, min(500, (int)$limit));
+        $maxScanLines = max($limit, min(50000, (int)$maxScanLines));
+
+        $result = array(
+            'lines'    => array(),
+            'has_more' => false,
+            'offset'   => $offsetFromEnd,
+            'limit'    => $limit,
+            'scanned'  => 0,
+            'channel'  => $channel
+        );
+
+        if (!file_exists($this->logFile) || filesize($this->logFile) === 0) {
+            return $result;
+        }
+
+        $scanned = $this->readLastNonEmptyLines($maxScanLines);
+        $result['scanned'] = count($scanned);
+
+        $matched = array();
+        foreach ($scanned as $line) {
+            if ($this->classifyLogChannel($line) === $channel) {
+                $matched[] = $line;
+            }
+        }
+
+        $slice = array_slice($matched, $offsetFromEnd, $limit);
+        $result['lines'] = array_reverse($slice);
+        $result['has_more'] = (count($matched) > ($offsetFromEnd + $limit))
+            || ($result['scanned'] >= $maxScanLines);
+
+        return $result;
+    }
+
+    /**
+     * Содержит ли строка лога хотя бы одну из подстрок (уже в нижнем регистре).
+     *
+     * @param string $line
+     * @param array $lowerNeedles
+     * @return bool
+     */
+    private function lineMatchesNeedles($line, $lowerNeedles)
+    {
+        $haystack = $this->toLower($line);
+        foreach ($lowerNeedles as $needle) {
+            if (strpos($haystack, $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Нижний регистр с учётом кириллицы (mbstring может быть отключён).
+     *
+     * @param string $text
+     * @return string
+     */
+    private function toLower($text)
+    {
+        if (function_exists('mb_strtolower')) {
+            return mb_strtolower($text, 'UTF-8');
+        }
+        return strtolower($text);
+    }
+
+    /**
+     * Читает с конца файла до $need непустых строк. Возвращает newest-first.
+     *
+     * @param int $need
+     * @return array
+     */
+    private function readLastNonEmptyLines($need)
+    {
+        $need = max(1, (int)$need);
+        $fh = @fopen($this->logFile, 'rb');
+        if ($fh === false) {
             return array();
         }
 
-        // Читаем весь файл и разбиваем на строки
-        $content = file($this->logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        
-        if ($content === false) {
-            return array();
+        $buffer = '';
+        $lines = array();
+        $chunkSize = 8192;
+        $pos = filesize($this->logFile);
+
+        while ($pos > 0 && count($lines) < $need) {
+            $read = ($pos >= $chunkSize) ? $chunkSize : $pos;
+            $pos -= $read;
+            fseek($fh, $pos);
+            $chunk = fread($fh, $read);
+            if ($chunk === false) {
+                break;
+            }
+            $buffer = $chunk . $buffer;
+
+            $parts = preg_split("/\r\n|\n|\r/", $buffer);
+            // first element may be incomplete (start of file mid-line) — keep in buffer
+            $buffer = array_shift($parts);
+
+            for ($i = count($parts) - 1; $i >= 0; $i--) {
+                $line = $parts[$i];
+                if ($line === '') {
+                    continue;
+                }
+                $lines[] = $line;
+                if (count($lines) >= $need) {
+                    break 2;
+                }
+            }
         }
 
-        // Возвращаем только последние N строк
-        return array_slice($content, -$lines);
+        if ($buffer !== '' && count($lines) < $need) {
+            $lines[] = $buffer;
+        }
+
+        fclose($fh);
+        return $lines;
     }
 
     /**

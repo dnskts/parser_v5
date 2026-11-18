@@ -2,6 +2,767 @@
 
 ---
 
+## 2026-11-17 — WARNING API 1С с текстом ответа сервера
+
+**Запрос пользователя:** при WARNING вроде «Неожиданный HTTP-код: 400. Смотрите колонку Ответ сервера» сразу выводить ответ сервера в сообщении.
+
+### Что сделано
+- **`core/ApiSender.php`** — метод `withServerResponse()`: к пояснению дописывается тело ответа (одна строка, до 500 символов). Используется в `explanationForHttpCode` (в т.ч. HTTP 400/500), при ошибке в теле при HTTP 2xx и в `enrichLogEntryMessage`. Отсылки «смотрите колонку» убраны — текст ответа виден в app.log / статусе отправки сразу.
+
+---
+
+## 2026-11-17 — Гибрид импорта справочников + три журнала на главной
+
+**Запрос пользователя:** на Setup грузить справочники с диска пользователя (несколько файлов); на главной — три журнала друг под другом с независимой прокруткой; в истории запусков одна строка на цикл.
+
+### Что сделано
+
+**Setup / импорт (гибрид):**
+- `setup.php` — input multiple `.txt`, кнопка открывает диалог; кнопка «Из папки на сервере» — импорт без upload (для крупных вроде Контрагенты.txt).
+- `api.php?action=import_references` — сессия Setup; если есть `$_FILES['files']` — сохранить `.txt` в `references/import/`; иначе читать папку; пусто → 400; `UPLOAD_ERR_INI_SIZE` — ошибка с `ini_get` лимитами.
+
+**Журнал на index:**
+- Три панели: Обработка файлов / История запусков / Служебные.
+- `Logger::classifyLogChannel` + `getChannelLinesChunk`; `logs?channel=files|runs|service`.
+- Независимые offset/has_more/scroll на каждую панель в `assets/app.js`.
+- `Processor` больше не пишет «Начата обработка файлов»; остаётся только «Обработка завершена: …» → канал `runs`.
+
+### Изменённые файлы
+- `setup.php`, `api.php`, `index.php`, `assets/app.js`, `assets/style.css`
+- `core/Logger.php`, `core/Processor.php`
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`
+
+---
+
+## 2026-11-16 — Чистка мусора
+
+**Запрос пользователя:** проверить файлы проекта на мусор.
+
+### Найдено и убрано
+- `core/Processor.php` — 3 остатка agent-debug (`file_put_contents` → `debug-edd969.log`); лог в корне удалён.
+- `.gitignore` — добавлен `bugs/` (локальные XML с ПДн не должны попадать в git).
+- `logs/.gitkeep` — восстановлен (папка логов снова сохраняется при клоне).
+- `json_api/.gitkeep` — сброшен phantom CRLF-diff.
+
+### Не мусор (оставлено)
+- `bugs/1253511413565.xml` — локальный образец бага (игнорируется git).
+- Локальные правки `config/settings.json` (interval/last_run/галки отправки) — рабочие настройки, не коммитить без нужды.
+- `input/`, `json/`, `json_api/`, `logs/*.log`, `references/` — рабочие данные.
+- `docs/17. Заказы парсера МА.md`, `migration.md`, `nextstep.md` — справочные/план, не leftovers.
+
+### Версия
+- При выкладке: `config/version.php` → **1.2**.
+
+### Изменённые файлы
+- `core/Processor.php`, `.gitignore`, `logs/.gitkeep`, `config/version.php`, docs
+
+---
+
+## 2026-11-16 — Email в подвале
+
+**Запрос пользователя:** вниз страниц добавить denis.kuritsyn@rstls.ru.
+
+### Что сделано
+- Во всех footer: ссылка `mailto:denis.kuritsyn@rstls.ru` рядом с «by Denis Kuritsyn».
+- CSS: `.footer a` в том же стиле, что и текст подвала.
+
+### Изменённые файлы
+- `index.php`, `data.php`, `api_logs.php`, `setup.php`, `test.php`, `assets/style.css`, docs
+
+---
+
+## 2026-11-16 — Версия в шапке (1.1)
+
+**Запрос пользователя:** в заголовок добавить версию и увеличивать при каждой выкладке; начать с 1.1.
+
+### Что сделано
+- `config/version.php` — `return '1.1';` (единственное место версии).
+- Все страницы (index, data, api_logs, setup, test): в `<h1>` и `<title>` выводится версия.
+- CSS: `.header__version` — меньше и бледнее основного заголовка.
+
+### Правило
+При каждой заметной выкладке на git поднимать версию в `config/version.php` (1.1 → 1.2 → …).
+
+### Изменённые файлы
+- `config/version.php`, `index.php`, `data.php`, `api_logs.php`, `setup.php`, `test.php`, `assets/style.css`, docs
+
+---
+
+## 2026-11-16 — Setup: ZIP-выгрузка данных на ПК
+
+**Запрос пользователя:** кнопка на Setup, чтобы скачать серверные данные архивом на ПК; обычная выгрузка + сразу «Полный клон»; в обычную — последние 100 input.
+
+### Что сделано
+- `core/SetupDataExport.php`: `build(data|full)` через ZipArchive.
+  - **data:** references/*.json, config/settings.json (+ sftp_last_run.txt), json/, json_api/, последние 100 файлов под input/ по mtime.
+  - **full:** то же + весь input + logs.
+  - Без .gitkeep и без references/import/*.txt.
+- `api.php?action=setup_export_data&mode=data|full`: сессия setup, иначе 403; ответ ZIP; лог `Setup: выгрузка данных для ПК (…)`.
+- `setup.php`: две ссылки-кнопки и подсказка с разницей; распаковать в корень parser_v5.
+
+### Проверка
+- `php -l`; smoke `build('data')` — архив собирается (локально ~379 файлов).
+
+### Изменённые файлы
+- `core/SetupDataExport.php`, `api.php`, `setup.php`, docs
+
+---
+
+## 2026-11-16 — Git: код и settings; данные вне репозитория
+
+**Запрос пользователя:** в git должен уходить `settings.json` с паролями; справочники, входные файлы и результаты обработки — нет. С GitHub на сервер копируется проект, а актуальные refs/файлы/результаты остаются серверными; на ПК их переносят вручную.
+
+### Что сделано
+- `.gitignore`: `references/*` (кроме `.gitkeep` и `import/.gitkeep`); `debug-*.log`.
+- Сняты с учёта git (файлы на диске сохранены): все `references/*.json`, `input/demo_hotel/Processed/demo_hotel_order.xml`, `config/sftp_last_run.txt`.
+- Добавлен `references/.gitkeep`.
+- В коммит входит актуальный `config/settings.json` с паролями.
+- Docs: модель деплоя; дата `last_import` на Setup уже работала (без правок кода). Ночная автосинхронизация справочников — следующий этап (нужен HTTP или файлы по расписанию из 1С).
+
+### Изменённые файлы
+- `.gitignore`, `references/.gitkeep`, `config/settings.json`, docs; из индекса убраны refs JSON и лишние data-файлы
+
+---
+
+## 2026-10-13 — Диагностика сети и прав на странице Setup
+
+**Запрос пользователя:** на страницу настроек добавить сетевые проверки и проверки прав записи.
+
+### Что сделано
+- `core/SetupDiagnostics.php`: `run($settings)` возвращает список проверок (`id`, `title`, `status` ok/fail/skip, `ms`, `message`) и счётчики.
+  - API 1С — `ApiSender::isAvailable()` (HEAD). Выключенный API или пустой URL → skip.
+  - SFTP — `SftpSync::testConnection()` без листинга. Выключенный SFTP → skip.
+  - SmartTravel PULL — `Utils::curlWithProxy` с timeout 3 с. Любой HTTP-код > 0 считается успехом (сеть и прокси живы, даже при 401). Выключено, режим не pull или пустой URL → skip.
+  - Права: в каждой папке создаётся `.setup_write_probe`, пишется байт, файл удаляется. Папки не создаются: нет каталога → fail «папка отсутствует». Папки: config, logs, json, json_api, input/moyagent, input/smarttravel, references, references/import.
+- `api.php?action=setup_diagnostics` (GET): сессия setup.php, иначе 403. В app.log одна строка `Setup: диагностика — OK: N, FAIL: M, SKIP: K` (маркер `Setup: ` — строка попадает в журнал настроек и красится как изменение настроек).
+- `setup.php`: секция «Диагностика» между справочниками и галками, кнопка «Проверить» (автозапуска нет). Статус: «Диагностика: N OK, M FAIL».
+- `assets/style.css`: `.diag-row--ok/fail/skip`.
+
+### Проверка
+- `php -l` по `core/SetupDiagnostics.php`, `api.php`, `setup.php`.
+
+### Изменённые файлы
+- `core/SetupDiagnostics.php`, `api.php`, `setup.php`, `assets/style.css`, docs
+
+---
+
+## 2026-10-02 — Явная такса EMD как отдельный продукт (MoyAgent)
+
+**Запрос пользователя:** по заказам, где EMD приходит таксой `air_tax code="EMD"` без собственного `emd_ticket_doc` (31 заказ из батча 135 файлов), отправлять EMD отдельным продуктом: название услуги «EMD», номер — номер билета с суффиксом `-emd`, свой UID, сумма только по таксе EMD. Для PC и подобных, где рядом есть другие таксы, передавать только часть EMD. Плюс убрать служебные файлы EMD-сканирования.
+
+### Что сделано
+- `parsers/MoyAgentParser.php`, новые хелперы:
+  - `sumEmdTaxes($airTicketProd)` — сумма `air_seg/air_tax` с `code=EMD` у одного продукта;
+  - `splitEmdTaxLines($taxes)` — делит готовый массив `TAXES` на строки EMD и остальные и возвращает сумму. Сумма считается по тем же строкам, которые убираются из билета, поэтому дедупликация `buildTaxesFromGroup()` не расходится с суммой;
+  - `groupHasEmdDoc($prodIds, $emdDocsMap)` — у группы есть реальный `emd_ticket_doc` → явную таксу не делим;
+  - `buildImplicitEmdProduct($context)` — сборка EMD-продукта: `NUMBER` = `{билет}-emd`, `RELATED_TICKET_NUMBER` = чистый номер билета, `EMD_NAME` = «EMD», `TAXES` = тариф 0 + такса EMD, `PAYMENTS` — одна строка INVOICE, `COUPONS`/`COMMISSIONS` пустые, `CONJ_COUNT`/`PENALTY`/`DISCOUNT` = 0, остальные поля копируются с основного билета.
+- Константы класса: `EMD_TAX_CODE = 'EMD'`, `IMPLICIT_EMD_SUFFIX = '-emd'`, `IMPLICIT_EMD_NAME = 'EMD'`.
+- Путь продажи/обмена: разделение считается **до** `buildPaymentsFromXml()`, т.к. туда передаётся итоговая сумма продукта. Такса EMD вычитается из `taxesAmount` и убирается из `TAXES`, затем добавляется EMD-продукт.
+- Путь возврата: `emdOrig` и `emdRef` считаются по исходному и возвратному `air_ticket_prod` отдельно; `origTotal` (PAYMENTS) и `refundAmount` уменьшаются на свои суммы, штраф остаётся на билете; EMD-возврат добавляется продуктом с тем же UID, `REFUND.AMOUNT` = `emdRef`, `PENALTY` = 0.
+- `UID` EMD-продукта: `Utils::productUID(папка, Utils::normalizeTicketNumber($билет) . '-emd')` — от нормализованного номера, иначе один и тот же EMD получил бы разные UID в файлах с кодом АК и без. Коллизии с авиабилетом нет: суффикс входит в ключ UUID v5.
+- `core/ApiSender.php`, `stripTicketPrefix()`: регулярка `^\d{3}-?(\d{10})(-emd)?$` — суффикс сохраняется. Иначе у PC билет уходил бы как `2263660885`, а EMD как `6242263660885-emd`, и связь в 1С не сошлась бы.
+- Условия применения (иначе поведение прежнее): такса EMD > 0, номер билета непустой, у группы нет `emd_ticket_doc`, сумма таксы EMD ≤ атрибута `taxes` (+0.01) — последнее страхует от отрицательной суммы билета.
+- Побочный баг: в `buildEmdSaleProducts()` и `buildEmdRefundProducts()` использовался `$orderId`, которого не было в сигнатуре, — `RESERVATION_NUMBER` у EMD-продуктов из реальных бланков собирался без номера заказа. Параметр добавлен.
+- Удалены служебные файлы EMD-сканирования: `scripts/emd-scan-report.json`, `scripts/emd-batch-stats.php`, `scripts/scan-emd-batch.php`.
+
+### Проверка
+- `php -l` по `parsers/MoyAgentParser.php` и `core/ApiSender.php` — без ошибок.
+- `php test.php` — 383/383 (было 270/270). Три новые фикстуры: `1253510791958.xml` (XZ, продажа), `1253510791896.xml` (PC, EMD рядом с ALL, 13-значный номер), `1253510693429.xml` (возврат).
+- Перепрогон всех 135 XML из `input/moyagent/Processed/` с сверкой против прежних JSON: 0 ошибок парсинга, EMD-продукт появился ровно у 31 заказа (34 продукта — в заказах с несколькими пассажирами), сумма `PAYMENTS` и сумма `REFUND.AMOUNT` по каждому заказу не изменились, коллизий UID нет, у билетов не осталось таксы EMD.
+- Payload для 1С (`prepareForApi`): PC-заказ уходит как билет `2263660885` (тариф 32227.92 + ALL 8952.2) и EMD `2263660885-emd` (`RELATED_TICKET_NUMBER` = `2263660885`, сумма 6424.52).
+
+### Что стоит подтвердить вне кода
+1С должна обновлять документ авиабилета по UID: UID билета не меняется, но сумма уменьшается на EMD. Если 1С дописывает, а не перезаписывает, по уже отправленным заказам возможно задвоение.
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`, `core/ApiSender.php`, `test.php`, `tests/fixtures/` (+3 XML), `scripts/` (−3 файла), docs
+
+---
+
+## 2026-10-01 — Подробный лог изменения галок на странице Setup
+
+**Запрос пользователя:** из строки `Setup: сохранены настройки отправки в 1С по поставщикам` не понятно, что именно изменилось. Нужно писать, что снята или поставлена конкретная галка у конкретного поставщика, и выделять историю этих строк другим цветом.
+
+### Что сделано
+- `api.php`, действие `setup_save`: нормализованные галки вынесены в `$normalizedSuppliers` и сравниваются с `$existingSuppliers` до перезаписи настроек. Отсутствующий ключ трактуется как «галка стояла» — тот же дефолт, что в `SendPolicy::isTypeEnabled()`. На каждое изменение — своя строка в app.log:
+  - `Setup: «МА авиа» — снята галка «Возвраты», заказы этого типа в 1С не отправляются`
+  - `Setup: «МА авиа» — поставлена галка «Возвраты», заказы этого типа отправляются в 1С`
+  - сохранение без изменений: `Setup: настройки отправки сохранены, изменений нет`
+- Название поставщика берётся из `getSupplierName()` (как на странице), подпись типа — из `SendPolicy::getTypeLabels()`.
+- В ответе `setup_save` вместо «Настройки сохранены» — «Настройки сохранены, изменений: N» либо «(без изменений)».
+- `assets/style.css`: класс `.log-line--setup` (цвет #d6bcfa, полужирный).
+- `getLogLineClass()` в `setup.php` и `assets/app.js`: маркер `Setup: ` → `log-line--setup`, проверяется после ERROR и WARNING, чтобы ошибки сохранения не теряли красный цвет. Строки пропуска отправки (`… страница Setup)`) маркер не содержат и остаются обычными INFO.
+
+### Проверка
+- `php -l`, `php test.php` — 270/270.
+- Локальный `php -S`: снятие галок «Возвраты» у двух поставщиков дало две строки «снята галка», обратное включение — две строки «поставлена галка», повторное сохранение того же состояния — «изменений нет».
+
+### Изменённые файлы
+- `api.php`, `assets/style.css`, `setup.php`, `assets/app.js`, docs
+
+---
+
+## 2026-10-01 — Журнал настроек на странице Setup
+
+**Запрос пользователя:** добавить на страницу Setup окно логов (под строкой статуса). Показывать только события, относящиеся к настройкам; автообновление раз в 3 секунды.
+
+### Что сделано
+- `Logger::getFilteredLinesChunk($needles, $offsetFromEnd, $limit, $maxScanLines)`: один проход назад по `app.log` через существующий `readLastNonEmptyLines()`, отбор строк по подстрокам (нижний регистр через `mb_strtolower`, затем `strpos`), срез и `has_more` как в `getLinesChunk()`. Глубина просмотра ограничена `maxScanLines` — события настроек редкие, без предела каждый опрос перечитывал бы весь лог (до 5 МБ до ротации).
+- `api.php?action=setup_logs` (GET: offset, limit 1..200): фильтр `array('setup', 'отправка отключена', 'import_references', 'импорт', 'справочник')`, `maxScan = min(50000, 4000 + offset * 150)` — чем глубже история, тем больше строк просматриваем. Без сессии setup — HTTP 403. Действие сделано **отдельным**, не в блоке `setup_get`/`setup_save`: там создаётся `ParserManager`, который пишет в `app.log` строки «Загружен парсер…», и опрос раз в 3 с засорял бы журнал сам собой.
+- `setup.php`: секция «Журнал настроек» на существующих классах `.logs` / `.logs__container` / `.log-line--*`, кнопка «↻ Обновить», опрос `setInterval` 3 с, подгрузка истории при прокрутке вверх, обновление сразу после импорта справочников и сохранения галок, при HTTP 403 опрос останавливается с подсказкой про повторный вход.
+- `assets/style.css`: `.logs__container--compact` (max-height 240px).
+
+### Нюанс пагинации
+Счётчик загруженных строк увеличивается на длину ответа сервера, а не на число добавленных в DOM (как в `assets/app.js`): одинаковые строки лога схлопываются дедупликацией, и счёт по добавленным сбивал бы `offset`, из-за чего подгрузка истории останавливалась раньше времени.
+
+### Проверка
+- `php -l`, `php test.php` — 270/270.
+- Локальный `php -S`: без входа `setup_logs` → 403; возвращаются только отфильтрованные строки; обход истории страницами по 60 идёт до конца лога, при слишком большом offset — пустой ответ и `has_more=false`; мусорные параметры (`offset=-5`, `limit=abc`) приводятся к допустимым.
+- Пять запросов `setup_logs` подряд: размер и число строк `app.log` не изменились — опрос журнал не засоряет.
+
+### Изменённые файлы
+- `core/Logger.php`, `api.php`, `setup.php`, `assets/style.css`, docs
+
+---
+
+## 2026-10-01 — Страница Setup: пароль, справочники, галки отправки в 1С
+
+**Запрос пользователя:** при поступлении возвратов файлы в 1С перезаписываются — нужна возможность включать и выключать их отправку. Отдельная страница «Setup» под паролем `95123` (пароль в settings.json, первый уровень защиты), ссылка с главной — квадратная кнопка с шестерёнкой справа в `panel__controls`. На страницу перенести кнопку «Загрузить справочники» и динамически подтягивать поставщиков с галками «продажи / возвраты / обмены» + кнопку «Сохранить». Новый парсер должен подхватываться автоматически; текущий функционал не нарушать.
+
+### Что сделано
+- `core/SendPolicy.php` (новый): разрешения отправки по типам услуг. `statusToType()` (STATUS → sale/refund/exchange), `isTypeEnabled()`, `getSupplierFlags()`, `checkOrder()`, `detectFolder()`, `normalizeSuppliers()`. Поставщика нет в настройках → разрешено всё (новый парсер работает без правок); незнакомый STATUS → разрешено.
+- `config/settings.json`: секция `setup` — `password` + `suppliers.{folder}.{sale,refund,exchange}`.
+- `core/Processor.php`: политика строится в конструкторе из `settings.setup`; перед отправкой в `run()` и `processSingleFile()` — проверка `checkOrder()`. Блокируется только HTTP-отправка: parse, `json/`, `json_api/` и перенос в `Processed/` работают как раньше.
+- `core/ApiSender.php`: публичный `logSkipped()` — запись `SKIP` в `api_send.log` без обращения к 1С.
+- `api.php`: `setup_get` / `setup_save` (список поставщиков от `ParserManager` + галки; без сессии setup — HTTP 403); `resend` тоже подчиняется галкам, папка поставщика определяется по имени JSON-файла.
+- `setup.php` (новый): вход по паролю через `$_SESSION['setup_auth']` с редиректом после POST, выход `?logout=1`, кнопка «📚 Загрузить справочники» + дата `references.last_import`, карточки поставщиков с галками и кнопкой «Сохранить» (встроенный ES5-скрипт).
+- `index.php` / `assets/app.js`: кнопка `#btn-import-refs` и функция `importReferences()` убраны с главной; добавлена квадратная ссылка ⚙ на `setup.php` справа в строке управления.
+- `assets/style.css`: `.btn--icon`, `a.btn`, `.control-group--right`, блок стилей страницы Setup.
+
+### Проверка
+- `php -l` по всем изменённым PHP-файлам, `php test.php` — 270/270.
+- Локальный `php -S`: без входа `setup_get` → 403, неверный пароль → отказ, верный → страница, `setup_save` возвращает сохранённые галки, после `logout` снова 403; на главной шестерёнка есть, кнопки справочников нет.
+- Сквозная проверка шлюза: при снятой галке «Продажи» у moyagent файл разобран, JSON записан, в `api_send.log` — `SKIP` с причиной, запроса в 1С нет. Артефакты проверки удалены, настройки возвращены в исходное состояние.
+
+### Изменённые файлы
+- `core/SendPolicy.php` (новый), `setup.php` (новый), `core/Processor.php`, `core/ApiSender.php`, `api.php`, `index.php`, `assets/app.js`, `assets/style.css`, `config/settings.json`, docs
+
+---
+
+## 2026-09-18 — RESERVATION_NUMBER = PNR + номер заказа
+
+**Запрос пользователя:** в RESERVATION_NUMBER передавать не только PNR, но и номер заказа поставщика через тире (`GYM76H - 1253510898178`).
+
+### Что сделано
+- `MoyAgentParser::buildReservationNumber($rloc, $orderId)` — склейка `{rloc} - {ord_id}`; пустые части опускаются.
+- Все PRODUCTS (продажа, возврат, EMD) используют этот метод.
+- `INVOICE_NUMBER` по-прежнему только `ord_id`.
+- Тесты MoyAgent: 270/270.
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`, `test.php`, docs
+
+---
+
+## 2026-09-17 — Два окна журнала, пояснения 1С, мягкая отметка ошибок
+
+**Запрос пользователя:** не красить всю строку «Обработано»; журнал на панели — два окна; без лимита истории со скроллом; в Пояснении api_logs — смысл ошибки 1С, не дубль ответа.
+
+### Что сделано
+- `api_logs.php`: при «Обработано» приглушается только бейдж ERROR.
+- `index.php` + `app.js` + `style.css`: окна «События» / «Служебные» (нет новых файлов, парсеры, справочники → правое).
+- `Logger::getLinesChunk` + `api.php?action=logs&offset&limit`: чанки с конца файла; UI подгружает старые при скролле вверх, poll append’ит новые.
+- `ApiSender::explainOneCResponse`: UID/агент/таймаут; HTTP 2xx с ошибкой в теле → ERROR; `getLogEntries` обогащает старые записи.
+
+### Изменённые файлы
+- `api_logs.php`, `index.php`, `assets/app.js`, `assets/style.css`, `core/Logger.php`, `api.php`, `core/ApiSender.php`, docs
+
+---
+
+## 2026-09-17 — AGENT=null в 1С + «Обработано» в api_logs
+
+**Запрос пользователя:** в AGENT всегда передавать null; в api_logs.php на ошибках — галочка «Обработано» с серой подсветкой просмотренных строк.
+
+### Что сделано
+- `ApiSender::prepareForApi()`: `PRODUCTS[].AGENT = null` (BOOKING_AGENT без изменений).
+- `api_logs.php`: колонка «Обработано» для status=ERROR; отметки в `localStorage` (`api_logs_done`); класс `api-row--done` (серый фон).
+
+### Изменённые файлы
+- `core/ApiSender.php`, `api_logs.php`, docs
+
+---
+
+## 2026-09-14 — Git: test.xml + структура moyagent + агент 999
+
+**Запрос пользователя:** залить актуальный `input/test.xml`, папку `moyagent` и остальные изменения (в т.ч. код заглушки агента 999).
+
+### Что сделано
+- Обновлён `input/test.xml` (текущая тестовая версия пользователя); `input/test_refund.xml` удалён из репозитория.
+- В git добавлена структура `input/moyagent/` (и соседние supplier-папки) через `.gitkeep`; содержимое Processed/Error и архивы не коммитятся.
+- `UNKNOWN_AGENT_CODE` = `999`.
+- Справочники: аэропорт KWL; правки agents/settings по факту рабочей копии.
+
+### Изменённые файлы
+- `input/test.xml`, `input/**/.gitkeep`, `.gitignore`, `core/ReferenceManager.php`, `references/*`, `config/settings.json`, docs
+
+---
+
+## 2026-09-14 — Заглушка агента: код 999
+
+**Запрос пользователя:** код для «Агент не найден» изменился с 045 на 999.
+
+### Что сделано
+- `ReferenceManager::UNKNOWN_AGENT_CODE` = `'999'` (имя по-прежнему «Агент не найден»).
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, docs
+
+---
+
+## 2026-09-14 — Тестовые XML без персональных данных
+
+**Запрос пользователя:** на базе `input/1253510854389.xml` сделать тестовый XML с ФИО «Тестов Тест Тестович», нереальным номером билета, доп. сегментами и возвратом того же билета; залить на git без `.cursor` в репозитории.
+
+### Что сделано
+- `input/test.xml` — продажа: ord_id `9990000000001`, билет `9990001112223`, пассажир Тестов Тест Тестович, 4 сегмента (KWL↔SVO через PVG) с разными суммами такс, оплата 198500.
+- `input/test_refund.xml` — возврат того же билета (`tkt_oper=REF`, штраф PEN 5000, REV 193500).
+- Проверка парсером: продажа/возврат → один ORDER.UID и один PRODUCT.UID, статус продажа/возврат, 4 купона, TRAVELLER = «Тестов Тест Тестович».
+- `.gitignore`: whitelist `input/test.xml` / `test_refund.xml`; игнор всей `.cursor/`; из индекса убраны ранее закоммиченные `.cursor/*` и `logs/*.log`.
+
+### Изменённые файлы
+- `input/test.xml`, `input/test_refund.xml`, `.gitignore`, docs
+
+---
+
+## 2026-09-14 — Стабильные UID заказа и билета
+
+**Запрос пользователя:** при повторной обработке XML в 1С создавался новый заказ; при возврате нужен тот же UID старого билета.
+
+### Что сделано
+**`core/Utils.php`:**
+- `generateUUIDFromKey($key)` — UUID v5 (SHA-1) от строки; один ключ → один UID;
+- `normalizeTicketNumber()` — срез кода авиакомпании (`555…` → 10 цифр), как в ApiSender;
+- `orderUID($supplier, $invoice)` / `productUID($supplier, $ticket)` — ключи `moyagent|order|…` и `moyagent|ticket|…`.
+
+**Парсеры:** MoyAgent и SmartTravel ставят ORDER/PRODUCT UID через эти методы вместо случайного v4. EMD — тоже от номера документа.
+
+**Тесты:** повторный `parse` той же фикстуры → те же UID; `5552379660766` и `2379660766` → один productUID. `php test.php` — 270/270.
+
+### Риск
+Заказы, уже ушедшие в 1С со случайными UID, с новыми детерминированными не сольются — разовый эффект смены схемы.
+
+### Изменённые файлы
+- `core/Utils.php`, `parsers/MoyAgentParser.php`, `parsers/SmartTravelParser.php`, `test.php`
+- docs
+
+---
+
+## 2026-09-14 — Импорт справочников: диагностика, очистка import/, дата на data.php
+
+**Запрос пользователя:** на сервере после «Загрузить справочники» нет SUCCESS в app.log, txt из import/ не удаляются; нужна дата последней загрузки на data.php.
+
+### Причина
+Удаления выгрузок в коде не было. Если в логе нет даже «Импорт справочников: начало», запрос не доходил до импортера или обрывался (часто таймаут/память на Контрагенты.txt ~25 МБ), а UI глотал не-JSON ответ как «ошибка связи».
+
+### Что сделано
+**`api.php` — import_references:**
+- сразу пишет `API: запрос import_references` в app.log;
+- `set_time_limit(300)`, `memory_limit=512M`;
+- `try/catch` вокруг `importAll()` с ERROR в лог и JSON-ошибкой;
+- при хотя бы одном успешном справочнике: `cleanupImportFiles()`, запись `references.last_import` в settings.json.
+
+**`core/ReferenceImporter.php`:**
+- метод `cleanupImportFiles()` — удаляет `*.txt` из `references/import/` (`.gitkeep` остаётся).
+
+**`assets/app.js`:**
+- разбор ответа через text → JSON; при !ok показывает HTTP-код и обрезок тела.
+
+**`data.php`:**
+- рядом с заголовком: `Справочники: Y-m-d H:i:s` или `не загружались`.
+
+### Проверка
+- Локально: importAll → 8 ok, cleanup → 9 txt удалено; файлы выгрузки восстановлены из бэкапа после смоука.
+- `php -l` по изменённым PHP — без ошибок.
+
+### Изменённые файлы
+- `api.php`, `assets/app.js`, `core/ReferenceImporter.php`, `data.php`
+- docs
+
+---
+
+## 2026-09-11 — PAYMENTS без двойного учёта service_fee
+
+**Запрос пользователя:** в 1С «два раза заходит сумма поставщика»; проверили XML `docs/1253510811908.xml` и payload.
+
+### Причина
+В XML у каждого билета свой `service_fee`, и он уже входит в `payments/payment@amount` заказа (`2×(fare+taxes) + 2×service_fee = 36666.5`). Парсер клал эту полную сумму на **каждый** продукт в `PAYMENTS` и параллельно слал `service_fee` в `COMMISSIONS`. 1С берёт брутто из `PAYMENTS` и прибавляет CLIENT-комиссию → сбор учитывался дважды (`36666.50 + 562.35 = 37228.85` на форме).
+
+### Что сделано
+**`parsers/MoyAgentParser.php` — `buildPaymentsFromXml()`:**
+- из XML по-прежнему определяется тип платежа (`INVOICE` / `TICKET`) и `RELATED_TICKET_NUMBER`;
+- сумма `INVOICE` = `$defaultAmount` (fare+taxes продукта), а не `payment@amount` заказа;
+- `TYPE=TICKET` (зачёт при обмене) берёт сумму из XML без изменений;
+- `COMMISSIONS` не трогали: `service_fee` на каждом билете — штатное поведение MoyAgent.
+
+### Проверка
+- `docs/1253510811908.xml`: PAY=17770.9 (= sum TAXES) на каждом из 2 продуктов, CLIENT=562.35; сумма PAY+CLIENT = 36666.5.
+- `tests/fixtures/125358829987.xml` (3 пассажира): PAY=75503, CLIENT=299.73 × 3; сумма = 227408.19.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `parsers/MoyAgentParser.php`
+- docs
+
+---
+
+## 2026-09-11 — Папка json_api/, окно «JSON для 1С» в data.php, чистка WARNING'ов
+
+**Запрос пользователя:** убрать варнинги по отсутствующим UID классов обслуживания и по правам на файлы; в `json/` лежит не то, что уходит в 1С, поэтому нужна отдельная папка с JSON ровно в том виде, в каком он уходит, с показом и правкой прямо из браузера и повторной отправкой.
+
+### Что было сделано
+
+**Лишние WARNING'и**
+- `core/ReferenceManager.php`: `SERVICE_CLASS` больше не ищется в справочнике — собирается как `{UID:"", CODE:код, NAME:код}`. `references/service_classes.json` пустой (в выгрузке 1С нет UID), а в 1С поле всё равно не уходит: `prepareForApi()` снимает его из купонов. Раньше на каждый купон писалось «Справочник service_classes: UID не найден для code 'N'».
+- `core/Utils.php`: удалён `warnOwnershipFailure()` (и флаг `$ownershipWarned`). На сервере он заливал `app.log` строками «Не удалось выставить группу bitrix и права доступа для …» — под `bitrix` `chown` запрещён штатно, а `posix_*` недоступны, так что предупреждение не несло информации.
+
+**Права на логи**
+- `Logger::write()`, `ApiSender::writeLog()`, `SftpSync::log()`, `PullSync::log()`, `webhookLog()`: `ensureOwnership()` вызывается не только на новом файле, но и один раз за запрос. Логи, созданные до появления правила, оставались с прежними правами и не открывались на правку под `ext_kuritsyn`.
+
+**Папка `json_api/`**
+- `ApiSender::writeApiPayload($orderData, $jsonFileName)` — прогоняет заказ через `prepareForApi()` и пишет результат в `json_api/` под тем же именем, что и `json/`. Папка передаётся третьим (необязательным) параметром конструктора.
+- `core/Processor.php` вызывает метод сразу после `saveJson()` в обоих путях обработки (пакетный цикл и `processSingleFile()`), независимо от доступности API: файл нужен для разбора отказов 1С, даже когда отправка выключена.
+- `.gitignore`: `json_api/*` кроме `.gitkeep`.
+
+**`api.php`**
+- `api_json` (GET `file`) — отдаёт `json_api/<file>`; если файла нет (заказ обработан до появления папки), payload собирается из `json/<file>` и сохраняется.
+- `save_api_json` (POST `{file, content}`) — проверяет текст через `json_decode` (ошибка → HTTP 400 с `json_last_error_msg()`), пишет нормализованный JSON (`PRETTY_PRINT | UNESCAPED_UNICODE | UNESCAPED_SLASHES`) и выставляет права.
+- `resend` получил параметр `source`: без него (кнопка 🔄) заказ берётся из `json/` и копия в `json_api/` обновляется; `source=api` отправляет `json_api/<file>` как есть — `prepareForApi()` идемпотентен, поэтому отредактированный payload не портится повторным прогоном.
+- `clear_json` чистит и `json/`, и `json_api/`; в счётчике учитываются только заказы, чтобы число совпадало со строками таблицы.
+- Все три действия проверяют имя файла регуляркой `/^[\w\-\.]+\.json$/`.
+
+**`data.php`**
+- Имя файла в таблице стало кликабельным (`.data-file-link`, `stopPropagation`, чтобы не переключался выбор строки) и открывает модальное окно «JSON для 1С»: `textarea` с payload, кнопки «Сохранить», «Сохранить и отправить в 1С», «✕», строка статуса. Закрытие по фону и Escape.
+- Новая колонка намеренно не добавлялась: `applyColumnOrder()` применяет сохранённый `data_column_order` только при совпадении числа колонок, 71-я сбросила бы пользователю раскладку.
+- Важно: правка в окне меняет только payload. Таблица строится по `json/`, поэтому её содержимое не меняется, и кнопка 🔄 по-прежнему отправляет заказ из `json/`.
+
+### Проверка
+- Смоук по фикстуре `125359005865.xml`: 0 WARNING (раньше сыпались классы обслуживания), в `json_api/`: `CLIENT: null`, `NUMBER: 6506222015`, `TAXES[0].CODE: Тариф`, `SUPPLIER` = тестовый UID, купон без `SERVICE_CLASS`/`AIRLINE`; в `json/` `SERVICE_CLASS` остался объектом для таблицы. Повторный прогон payload через `writeApiPayload()` дал идентичный результат (идемпотентность).
+- Через `php -S`: `api_json` создал отсутствующий payload; `save_api_json` сохранил правку и вернул нормализованный JSON; битый JSON → HTTP 400; `file=../config/settings.json` → HTTP 400; `resend` с `source=api` нашёл файл в `json_api/` и дошёл до отправки (локально 1С недоступна).
+- `php test.php` — 247/247.
+
+### На сервере после обновления
+Разово выставить права на файлы, созданные до правок: `chmod 660 logs/*.log json/*.json input/*/Processed/*`.
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, `core/Utils.php`, `core/Logger.php`, `core/ApiSender.php`, `core/SftpSync.php`, `core/PullSync.php`, `core/Processor.php`, `webhook.php`, `api.php`, `data.php`, `.gitignore`, `json_api/.gitkeep`
+- docs
+
+---
+
+## 2026-09-11 — Агент-заглушка 045 + uid_profile = test
+
+**Запрос пользователя:** когда агента нет в справочнике, в CODE уходит ФИО и 1С отклоняет заказ — слать код МОМ `045` с именем «Агент не найден». В `config/settings.json` сразу поставить профиль `test` и пояснить это прямо в файле.
+
+### Что было сделано
+
+**`core/ReferenceManager.php`:**
+- Константы `UNKNOWN_AGENT_CODE = '045'` и `UNKNOWN_AGENT_NAME = 'Агент не найден'`.
+- `buildAgentObject()` возвращает эту заглушку, если агент не найден, если совпадений несколько или если ФИО в заказе пустое (у ЖД-продуктов SmartTravel агент пустой, а по ТЗ AGENT и BOOKING_AGENT обязательны). WARNING в лог остался, текст дополнен кодом, который ушёл вместо ФИО.
+
+**`config/settings.json`:**
+- `references.uid_profile` = `"test"`.
+- Рядом добавлен ключ-подсказка `_uid_profile_hint` — JSON комментариев не поддерживает, а лишние ключи код игнорирует и при сохранении настроек из UI не теряет.
+
+### Проверка
+- Смоук enrich: «Elena Shakhnina» → `{"CODE":"045","NAME":"Агент не найден"}` + WARNING, пустой BOOKING_AGENT → та же заглушка, «Elena Shishkina» → `055`, SUPPLIER берёт `uid_test` (`8cb5239c-…`).
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, `config/settings.json`
+- docs
+
+---
+
+## 2026-09-11 — NUMBER без кода авиакомпании, CODE «Тариф», права 660
+
+**Запрос пользователя:** доделать согласованное по ТЗ (`docs/17. Заказы парсера МА.md`) и починить права на файлах — Processed XML остаются `bitrix:bitrix 600`, их нельзя поправить руками.
+
+### Что было сделано
+
+**`core/ApiSender.php` — prepareForApi:**
+- `stripTicketPrefix()` срезает трёхзначный код авиакомпании: `5552379660766` (и вариант с дефисом) → `2379660766`. Применяется к `PRODUCTS[].NUMBER`, `PRODUCTS[].RELATED_TICKET_NUMBER` и `PAYMENTS[].RELATED_TICKET_NUMBER`. ЖД-бланки (14 цифр) и прочие форматы не трогаются.
+- Такса с пустым `CODE` (это тариф) уходит с `CODE = "Тариф"` — константа `ApiSender::FARE_TAX_CODE`. В `json/` пустой код сохраняется как был.
+
+**`core/Utils.php` — ensureOwnership:**
+- Кроме `chown`/`chgrp` делает `chmod`: 660 файлам, 775 папкам (константы `FILE_MODE` / `DIR_MODE`). chmod выполняется независимо от результата chown — PHP работает от `bitrix` и владельцем файла является, поэтому права проставятся даже там, где chown запрещён.
+- Проверяет существование пути, принимает необязательный `$mode`.
+- Появился WARNING в `logs/app.log` (один раз за запуск, с путём и именем пользователя PHP) — но только если сорвался `chgrp` или `chmod`. Неудачный `chown` под `bitrix` штатен и лог не засоряет: доступ `ext_kuritsyn` обеспечивают общая группа и режим 660. Логгер намеренно не используется — он сам вызывает `ensureOwnership()`, вышла бы рекурсия.
+- На Windows (локальная разработка) метод сразу выходит: POSIX-прав там нет.
+- `ensureDirectory()` передаёт свои права дальше в `ensureOwnership()`.
+
+### На сервере
+Уже лежащие файлы новых прав не получат — разово поправить: `chmod 660` на `input/*/Processed/*` и `json/*`, `chmod 775` на папки.
+
+### Проверка
+- Смоук prepareForApi: `5552379660766` → `2379660766`, `555-2379660767` → `2379660767`, ЖД `71234567890000` без изменений, `CODE: ""` → `CODE: "Тариф"`, `null` в PAYMENTS остаётся null.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`, `core/Utils.php`
+- docs
+
+---
+
+## 2026-09-11 — ORDER.CLIENT = null + alias агента 055
+
+**Запрос пользователя:** проверить, что у Шишкиной уходит МОМ-код 055; в CLIENT вместо UID «РС ТЛС ООО» передавать null (ТЗ это допускает).
+
+### Что было сделано
+
+**`core/ReferenceManager.php`:**
+- `enrich()` ставит `CLIENT = null` — контрагента определяет 1С.
+- Удалены константа `CLIENT_CODE` и метод `resolveClientUid()` (стали не нужны).
+
+**`core/ApiSender.php` — prepareForApi:**
+- `CLIENT` в payload всегда присутствует; объект справочника сворачивается в UID, пустая строка и отсутствие поля превращаются в `null`.
+
+**`references/agents.json`:**
+- У записи `055` («Elena Shishkina») добавлен alias «Шишкина Елена» — раньше совпадение было только по латинице.
+
+**`core/ReferenceImporter.php`:** комментарии про `clients.json` приведены в соответствие (справочник собирается, но в ORDER не подставляется).
+
+### Проверка
+- `findAgentByName()` отдаёт `055` для «Elena Shishkina», «ELENA SHISHKINA», «Шишкина Елена», «Елена Шишкина».
+- `enrich()` → `CLIENT = null`, `AGENT = {"CODE":"055","NAME":"Elena Shishkina"}`; `prepareForApi()` → `"CLIENT":null` в JSON.
+- `php -l` по изменённым файлам — без ошибок.
+
+### Изменённые файлы
+- `core/ReferenceManager.php`, `core/ApiSender.php`, `core/ReferenceImporter.php`
+- `references/agents.json`
+- docs
+
+---
+
+## 2026-09-10 — DEPARTURE_DATETIME для 1С + uid_test Мой агент
+
+**Запрос пользователя:** HTTP 400 от 1С — «Поле объекта не обнаружено (DEPARTURE_DATETIME)»; добавить тестовый UID для Мой агент.
+
+### Что было сделано
+
+**`core/ApiSender.php` — prepareForApi:**
+- Собирает `DEPARTURE_DATETIME` / `ARRIVAL_DATETIME` из `*_DATE` + `*_TIME` (или берёт готовый `*_DATETIME`).
+- Убирает из payload купона раздельные DATE/TIME и служебные поля (`CLASS_NAME`, `TYPE_ID*`, `SEGMENT_STATUS*`, `AIRLINE`, `SERVICE_CLASS`).
+
+**Тестовый UID поставщика:**
+- В `references/suppliers.json` у `moyagent` добавлен `uid_test`: `8cb5239c-a9ba-11f0-80dd-0050569c2148` (прод `uid` без изменений).
+- В `config/settings.json` → `references.uid_profile`: `"prod"` (по умолчанию) или `"test"` на тестовом сервере.
+- `ReferenceManager::resolveEntryUid()` при `uid_profile=test` отдаёт `uid_test`, иначе `uid`.
+- Подсказка импорта упоминает `uid_test`.
+
+### На тесте
+В `config/settings.json` поставить: `"uid_profile": "test"` в секции `references`.
+
+### Проверка
+- Smoke: DATETIME склеивается, DATE/TIME в payload нет; prod/test UID для moyagent различаются.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`, `core/ReferenceManager.php`, `core/ReferenceImporter.php`
+- `references/suppliers.json`, `config/settings.json`
+- docs
+
+---
+
+## 2026-09-10 — Плоские UID в POST в 1С + json/.gitkeep
+
+**Запрос пользователя:** Выделенные на скрине поля (CLIENT, CARRIER, SUPPLIER, аэропорты, CURRENCY) должны уходить в 1С как UID; остальная структура — как в рабочем export. Папка json/ не создавалась при установке на сервер.
+
+### Что было сделано
+
+**`core/ApiSender.php`:**
+- Новый `prepareForApi($orderData)` вызывается из `send()` перед `json_encode`.
+- Сворачивает в плоский UID-строку: `CLIENT`, `SUPPLIER`, `CARRIER`, `CURRENCY`, `DEPARTURE_AIRPORT`, `ARRIVAL_AIRPORT`.
+- У `AGENT` / `BOOKING_AGENT` снимает `UID` (в 1С его нет).
+- Из купонов убирает `AIRLINE` и `SERVICE_CLASS` (в 1С достаточно буквы `CLASS` и `CARRIER` на продукте).
+- По-прежнему удаляет `SOURCE_FILE` и `PARSED_AT`.
+- Файлы в `json/` не меняются — там остаются объекты для `data.php`.
+
+**`json/.gitkeep`:** возвращён, чтобы при clone с git папка `json/` существовала (содержимое по-прежнему в `.gitignore`).
+
+### Принятые решения
+- Сворачивание только при отправке, не в enrich/saveJson: таблица заказов продолжает показывать коды/имена через `formatRefValue`.
+- Повторная отправка (resend) тоже идёт через `send()` → `prepareForApi()`.
+
+### Проверка
+- Reflection-тест `prepareForApi`: SUPPLIER/CARRIER/CURRENCY/аэропорты → UID-строки; SOURCE_FILE/AIRLINE/SERVICE_CLASS/AGENT.UID отсутствуют.
+- `php test.php` — 247/247.
+
+### Изменённые файлы
+- `core/ApiSender.php`
+- `json/.gitkeep`
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md`
+
+---
+
+## 2026-09-10 — Города/страны/контрагенты в импорте, CLIENT и CARRIER в enrich, баг перевозчика
+
+**Запрос пользователя:** Города, страны и контрагенты содержат UID — их тоже надо загружать по кнопке. Поставщики находятся в справочнике контрагентов, взять оттуда и задать в `enrich()` (поставщик «МА авиа» = «Мой Агент ООО» в 1С). Вместо `CLIENT` = `MA1PA6` всегда передавать UID компании «РС ТЛС ООО». Исправить баг: перевозчик в таблице отображается как `[object Object]`. Отдельно: не хранить большой `suppliers.json` — оставить двух поставщиков и подготовить подсказки для ручного дополнения.
+
+### Что было сделано
+
+**`core/ReferenceImporter.php`:**
+- В `getImportMap()` добавлены типы `cities` (Города.txt) и `countries` (Страны.txt) с мапперами `mapCity` / `mapCountry`.
+- Новый шаг `importContractorRefs()` — вызывается из `importAll()` после обычных типов, собирает `suppliers.json` и `clients.json` из «Контрагенты.txt».
+- Новый `streamJsonRows()` — потоковое чтение выгрузки: файл читается чанками по 256 КБ, границы объектов определяются по балансу фигурных скобок с учётом строк и экранирования, каждый объект отдаётся в callback.
+- Новый `getContractorRefMap()` — белый список наименований: `moyagent` → «Мой Агент ООО», `smarttravel` → «РЖД - ЦИФРОВЫЕ ПАССАЖИРСКИЕ РЕШЕНИЯ», `rstls` → «РС ТЛС ООО».
+- Новые `writeContractorRef()` (слияние с текущим справочником), `getRefHint()` (запись-подсказка), `normalizeRefName()` (нормализация наименований), `readReference()` (чтение текущего справочника).
+
+**`core/ReferenceManager.php`:**
+- Константа `CLIENT_CODE = 'rstls'` и метод `resolveClientUid()`.
+- В `enrich()` поле `CLIENT` теперь всегда заменяется на UID «РС ТЛС ООО» (до цикла по PRODUCTS, поэтому работает и для заказов без продуктов).
+- В `enrich()` добавлена обработка product-level `CARRIER`: строка приводится к объекту `{UID, CODE, NAME}` из `airlines`, уже готовый объект получает UID.
+- `$carrierCode` для купонов читается и из строки, и из объекта.
+- В fallback `getAvailableTypes()` добавлены `clients`, `cities`, `countries`.
+
+**`core/DataTableHelpers.php`:**
+- Новая функция `formatRefValue($value, $prefer)` — приводит поле справочника к строке независимо от того, объект это или строка.
+- `carrier` (баг `[object Object]`), `supplier` и `currency` переведены на неё.
+
+### Принятые решения
+- **Полный `contractors.json` не создаётся.** «Контрагенты.txt» весит 24.4 МБ (~740 тыс. строк); в enrich нужны ровно три контрагента. Поэтому из файла выбираются только записи белого списка, а на диск пишутся два маленьких справочника — `suppliers.json` (2 записи) и `clients.json` (1 запись).
+- **Клиент вынесен в отдельный `clients.json`, а не в настройки.** UID приходит из той же выгрузки, что и поставщики, и его можно перепроверить и дополнить вручную.
+- **Импорт мержит, а не перезаписывает `suppliers.json`/`clients.json`.** Записи с кодами вне белого списка сохраняются, а у ручных записей с заполненным `name` и пустым `uid` UID дозаполняется из выгрузки — искать UID руками не нужно.
+- **Подсказка живёт внутри самого справочника.** `findByCode()` пропускает записи без поля `code`, поэтому первый элемент массива (`_hint`, `_source`, `_template`) безопасен и виден там, где правят файл.
+- **Наименования сверяются только по полю «Наименование»** после нормализации (регистр, ё→е, знаки препинания и лишние пробелы). В выгрузке есть висячие пробелы («Мой Агент ООО ») и дефисы. Поле «НаименованиеПолное» не используется: у постороннего контрагента «РСТЛС НАПИТКИ» там записано `ООО "РС ТЛС"`.
+- **Страны без буквенного кода пропускаются** — у них «Код» равен `--`, это устаревшие дубли наименований, искать по такому коду невозможно.
+- **`cities` и `countries` только импортируются.** В ORDER сейчас нет полей CITY/COUNTRY, поэтому в `enrich()` они не резолвятся.
+- **`CLIENT_CODE` в ORDER не добавляется.** Сырой код из файла поставщика (`MA1PA6`, `PosSysName`) в 1С не нужен, поэтому просто заменяется значение `CLIENT`.
+
+### Проверка
+- Импорт на реальной выгрузке: 1.58 с, пик памяти 4 МБ. Валюты 122, авиакомпании 204, аэропорты 837, агенты 41, города 1223, страны 252, поставщики 2, клиенты 1.
+- `suppliers.json`: `moyagent` → `44ad7ae0-2244-11ef-9246-0050569c2148` (Мой Агент ООО), `smarttravel` → `9f86f6c1-9b69-11e9-b97d-0050569c2148` (РЖД-ЦПР). `clients.json`: `rstls` → `63a8bcb0-9b69-11e9-b97d-0050569c2148`.
+- `enrich()` на фикстуре 125359005865: `CLIENT` `MA1PA6` → `63a8bcb0-...`, `SUPPLIER` → `{UID, moyagent, Мой Агент ООО}`, `CARRIER` → `{UID, EY, Этихад Эйрвэйз}`. Остались только ожидаемые WARNING по `service_classes`.
+- Мерж: запись `test_manual` с пустым `uid` и собственным полем `comment` после повторного импорта сохранилась, UID дозаполнен.
+- `formatRefValue(CARRIER, 'CODE')` = `EY` — в таблице вместо `[object Object]` показывается IATA-код.
+- `php test.php` — 8 файлов, 247 тестов, 0 упало.
+
+### Изменённые файлы
+- `core/ReferenceImporter.php` — cities/countries, importContractorRefs, streamJsonRows, белый список, слияние, подсказки
+- `core/ReferenceManager.php` — CLIENT_CODE, resolveClientUid, CARRIER в enrich, getAvailableTypes
+- `core/DataTableHelpers.php` — formatRefValue, исправлен carrier
+- `references/suppliers.json`, `references/clients.json`, `references/cities.json`, `references/countries.json` — результат импорта
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md` — документация
+
+---
+
+## 2026-09-10 — Импорт справочников из выгрузки 1С
+
+**Запрос пользователя:** Создать папку `references/import/`, куда раз в месяц вручную кладутся выгрузки из 1С в исходном формате. На index.php добавить кнопку «Загрузить справочники», по нажатию — синхронизировать справочники из этих файлов.
+
+### Что было сделано
+
+**Новые файлы (2):**
+- **`core/ReferenceImporter.php`** — импортёр выгрузок 1С. Читает файлы из `references/import/` (JSON внутри .txt, снимает UTF-8 BOM, при неудаче пробует CP1251), нормализует записи в `{uid, code, name, aliases}`, перезаписывает `references/*.json`. Карта соответствия — `getImportMap()`; мапперы `mapCurrency` / `mapAirline` / `mapAirport` / `mapAgent`; поиск файла без учёта регистра (`findSourceFile` + `buildFileIndex`). `importAll()` возвращает по каждому справочнику `status` (ok/skipped/error), `file`, `count`, `skipped`, `message`.
+- **`references/import/.gitkeep`** — папка для ручной загрузки выгрузок.
+
+**Изменённые файлы (6):**
+- **`.gitignore`** — содержимое `references/import/` исключено из репозитория (кроме `.gitkeep`): файлы крупные и обновляются вручную.
+- **`core/ReferenceManager.php`** — три изменения:
+  - `findByCode()` сверяет не только `code`, но и `aliases`.
+  - Новый `findAgentByName($fio, &$ambiguous)` — нормализация ФИО (регистр, ё→е, только буквы и цифры), точное совпадение по `name`/`aliases`, затем вхождение всех слов из заказа в ФИО из 1С. Несколько кандидатов → `$ambiguous = true`, подстановки нет.
+  - Новый `buildAgentObject()` — AGENT и BOOKING_AGENT собираются как `{CODE, NAME}` без UID.
+- **`core/Processor.php`** — в `run()` и `processSingleFile()` убран `$hasRefWarnings`: предупреждения справочников пишутся в app.log, но файл всегда уходит в `Processed/`.
+- **`api.php`** — новый action `import_references` (POST): `ReferenceImporter::importAll()`, в ответе `message`, `imported`, `rows`, `results`.
+- **`index.php`** — кнопка «📚 Загрузить справочники» рядом с тумблером автообработки.
+- **`assets/app.js`** — функция `importReferences()`: блокировка кнопки, POST на `import_references`, вывод результата, перезагрузка логов.
+- **`core/Utils.php`** — удалены три блока отладочной записи в `debug-edd969.log` из `ensureOwnership()` и `ensureDirectory()` (остались от предыдущей сессии отладки), сам лог удалён из корня.
+
+### Принятые решения
+- **Агенты подставляются по коду, а не по UID.** В выгрузке 1С (`Пользователи.txt`, `Агенты.txt`) поля UID нет вообще. Поэтому `CODE` = код агента из 1С (например `022`), `NAME` = ФИО из заказа, ключ `UID` в объект не добавляется.
+- **`service_classes.json` не импортируется** — в `КлассыАвиаЖДбилетов.txt` тоже нет UID.
+- **`suppliers.json` заполняется вручную** — источника в выгрузке нет.
+- **Предупреждения справочников больше не переводят файл в `Error/`.** Иначе при незаполненных suppliers/service_classes туда уезжал бы каждый заказ.
+- **Поле `aliases`** — дополнительные написания, по которым тоже работает поиск. Понадобилось для рубля (в 1С «руб.», парсер отдаёт `RUB`) и для агентов (логин латиницей «Elizaveta Perekrestova»).
+- **Аэропорты:** `КодМОМ` встречается как `"airport ZRH"`, `" ZIA"` и `"LOS"` — берётся последнее слово после trim. ЖД-вокзалы импортируются вместе с аэропортами (у них числовой код станции, с трёхбуквенными IATA не пересекается).
+- Записи без кода и дубликаты по коду пропускаются, количество пропущенных пишется в лог.
+
+### Проверка
+- Импорт на реальной выгрузке: валюты 122, авиакомпании 204 (92 пропущено), аэропорты 837 (178), агенты 41 (339).
+- `enrich()`: AGENT/BOOKING_AGENT → `{"CODE":"022","NAME":"Елизавета Перекрестова"}`; ZRH, FRA, LH, RUB подставляются с UID; остались только два ожидаемых WARNING (suppliers, service_classes).
+- `php test.php` — 8 файлов, 247 тестов, 0 упало.
+
+### Изменённые файлы
+- `core/ReferenceImporter.php` — новый
+- `references/import/.gitkeep` — новый
+- `core/ReferenceManager.php` — aliases, findAgentByName, buildAgentObject
+- `core/Processor.php` — убран перевод в Error/ при предупреждениях справочников
+- `api.php` — action import_references
+- `index.php` — кнопка «Загрузить справочники»
+- `assets/app.js` — обработчик importReferences
+- `core/Utils.php` — удалена отладочная запись в debug-edd969.log
+- `.gitignore` — references/import/*
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md` — обновлены
+
+---
+
+## 2026-04-11 — Убран ошибочный префикс '555' из номеров авиабилетов
+
+**Запрос пользователя:** Номер билета в XML (air_ticket_doc[@tkt_number]) уже содержит код авиакомпании. Добавление '555' удваивало код. Убрать.
+
+### Что было сделано
+- **`parsers/MoyAgentParser.php`** — убран `'555' .` из 4 мест: NUMBER авиа (продажа и возврат), RELATED_TICKET_NUMBER в EMD (продажа и возврат). Номера берутся as-is из XML.
+- **`test.php`** — обновлены ожидания ticket_number и all_tickets (убран ошибочный префикс 555).
+- **`docs/CURRENT_STAGE.md`** — убраны упоминания префикса 555.
+
+---
+
+## 2026-04-11 — Модуль справочников (references) для подстановки UID из 1С
+
+**Запрос пользователя:** Реализовать модуль справочников для подстановки UID из 1С в JSON ORDER. Справочники хранятся в JSON-файлах (references/*.json), заполняются вручную (позже — через API 1С). Подстановку UID выполняет Processor (не парсеры). В парсерах: разделение дат на отдельные поля и добавление префикса 555 к номерам авиабилетов (только MoyAgent).
+
+### Что было сделано
+
+**Новые файлы (7):**
+- **`core/ReferenceManager.php`** — класс менеджера справочников. Загрузка JSON-файлов (loadReference), поиск по коду (findByCode), обогащение ORDER полями UID (enrich), синхронизация через API 1С (syncReference/syncAll — заглушка при пустом api_url), список типов (getAvailableTypes). Кеширование в памяти: файл читается один раз за цикл.
+- **`references/suppliers.json`**, **`agents.json`**, **`airports.json`**, **`airlines.json`**, **`service_classes.json`**, **`currencies.json`** — пустые JSON-файлы `[]` для ручного заполнения.
+
+**Изменённые файлы (8):**
+- **`config/settings.json`** — добавлена секция `references` (auto_sync, api_url, api_login, api_password, api_timeout, types с 6 справочниками).
+- **`core/Processor.php`** — интеграция ReferenceManager: require, создание экземпляра в конструкторе, вызов enrich() после parse() и перед saveJson() в run() и processSingleFile(), перемещение в Error/ при наличии предупреждений справочников.
+- **`parsers/MoyAgentParser.php`** — 7 изменений:
+  - Разделение DEPARTURE_DATETIME/ARRIVAL_DATETIME на DEPARTURE_DATE (8 символов) + DEPARTURE_TIME (6 символов, HHmmss) и ARRIVAL_DATE + ARRIVAL_TIME — в 3 местах: buildCouponsFromGroup(), EMD sale coupons, EMD refund coupons.
+  - NUMBER берётся as-is из XML (air_ticket_doc[@tkt_number]), без дополнительных префиксов.
+- **`core/DataTableHelpers.php`** — обработка новых форматов полей: SUPPLIER/CURRENCY как объекты (извлечение NAME/CODE), аэропорты в маршруте как объекты (извлечение CODE), даты в обоих форматах (DEPARTURE_DATETIME для SmartTravel, DEPARTURE_DATE+DEPARTURE_TIME для MoyAgent).
+- **`process.php`** — функция syncReferences() в pipeline между PULL и Processor (при auto_sync=true и api_url не пуст).
+- **`api.php`** — новый action sync_references (POST): создание ReferenceManager, вызов syncAll().
+- **`test.php`** — обновлены ожидания: префикс 555 ко всем avia ticket_number (7 тестов) и all_tickets (2 теста); обновлён код проверки дат (поддержка DEPARTURE_DATE+DEPARTURE_TIME).
+
+### Принятые решения
+- Парсеры НЕ знают про справочники — обогащение только через Processor.
+- Формат поля-справочника в JSON ORDER: `{"UID": "...", "CODE": "...", "NAME": "..."}`.
+- При ненайденном UID: UID="", NAME дублирует CODE, WARNING в лог, файл перемещается в Error/.
+- Отправка в 1С происходит ВСЕГДА, даже при отсутствии UID.
+- CURRENCY обогащается на уровне PRODUCT (не ORDER root).
+- AIRLINE создаётся в купонах из product-level CARRIER; пропускается если CARRIER пуст (EMD).
+- SERVICE_CLASS создаётся в купонах из CLASS; CLASS остаётся как есть.
+- AGENT и BOOKING_AGENT используют один справочник agents.json.
+- SmartTravel: даты НЕ разделяются, префикс 555 НЕ добавляется.
+- 247 тестов — 0 упало.
+
+### Изменённые файлы
+- `core/ReferenceManager.php` — новый
+- `references/suppliers.json`, `agents.json`, `airports.json`, `airlines.json`, `service_classes.json`, `currencies.json` — новые
+- `config/settings.json` — секция references
+- `core/Processor.php` — интеграция enrich
+- `parsers/MoyAgentParser.php` — даты (split) + NUMBER as-is
+- `core/DataTableHelpers.php` — объектные поля + split dates
+- `process.php` — syncReferences
+- `api.php` — sync_references action
+- `test.php` — обновлённые ожидания
+- `docs/CURRENT_STAGE.md`, `docs/CHANGELOG_AI.md`, `docs/structure.md` — обновлены
+
+---
+
 ## 2026-03-25 — Права владения ext_kuritsyn:bitrix на создаваемые файлы/папки
 
 **Запрос пользователя:** Все файлы и папки, создаваемые PHP, должны принадлежать пользователю `ext_kuritsyn` и группе `bitrix`.
